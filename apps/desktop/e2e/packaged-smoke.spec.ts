@@ -37,6 +37,9 @@ test('packaged application boots with an isolated profile', async () => {
   const userDataDir = mkdtempSync(join(tmpdir(), 'omh-packaged-smoke-'))
   const app = await electron.launch({
     executablePath: packagedExecutable(),
+    // Ad-hoc local builds do not share the release certificate's Keychain ACL.
+    // Keep the isolated smoke profile from blocking on a Safe Storage password dialog.
+    args: process.platform === 'darwin' ? ['--use-mock-keychain'] : [],
     env: {
       ...process.env,
       OMH_USER_DATA_DIR: userDataDir,

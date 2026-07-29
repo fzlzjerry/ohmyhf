@@ -14,6 +14,10 @@ test('sidebar and History remain keyboard reachable with no serious axe violatio
 
   try {
     const window = await app.firstWindow()
+    // Axe can otherwise sample route text while the 180ms fade-rise animation
+    // is still compositing it against the page, producing a false contrast
+    // failure. Accessibility checks should inspect the settled visual state.
+    await window.emulateMedia({ reducedMotion: 'reduce' })
     await window.waitForSelector('aside nav', { timeout: 30_000 })
 
     // Electron windows don't support opening a blank scratch page over CDP
