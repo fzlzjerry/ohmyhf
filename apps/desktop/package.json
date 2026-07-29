@@ -8,7 +8,7 @@
   "homepage": "https://github.com/oh-my-hf/ohmyhf",
   "main": "./out/main/index.mjs",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "node ../../scripts/rebuild-native.mjs --electron-only && electron-vite dev",
     "start": "electron-vite preview",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit --composite false -p tsconfig.node.json && tsc --noEmit --composite false -p tsconfig.web.json",
