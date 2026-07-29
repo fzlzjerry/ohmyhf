@@ -14,6 +14,7 @@ import type {
 import type { HubClient } from '@oh-my-huggingface/hub-api'
 import { RESOLVE_PREFIX, defaultCacheDir, repoCachePaths } from '@oh-my-huggingface/hub-api'
 import type { AppDatabase } from './db'
+import { resolveSystemProxyUrl } from './hub'
 import type { NotificationService } from './notifications'
 import type { SettingsStore } from './settings'
 import type { DownloadJob } from './workers/download-worker'
@@ -439,9 +440,13 @@ export class DownloadManager {
     const getRepoDetail = this.hub.getRepoDetail.bind(this.hub)
     const getFileTree = this.hub.getFileTree.bind(this.hub)
     const settings = this.settings.get()
+    const endpoint = this.currentEndpoint()
     const environment: DownloadEnvironment = {
-      endpoint: this.currentEndpoint(),
-      proxyUrl: settings.proxyUrl,
+      endpoint,
+      // Worker threads use Node/undici and cannot see Electron's system proxy.
+      // Freeze the currently resolved HTTP(S) route with the task so file
+      // downloads follow the same network path as the metadata requests.
+      proxyUrl: settings.proxyUrl ?? (await resolveSystemProxyUrl(endpoint)),
       cacheDir: resolve(settings.hfCacheDir ?? defaultCacheDir()),
       version: DOWNLOAD_ENVIRONMENT_VERSION
     }
