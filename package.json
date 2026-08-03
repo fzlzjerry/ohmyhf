@@ -26,15 +26,15 @@
     "@electron/rebuild": "^4.2.0",
     "@axe-core/playwright": "^4.11.0",
     "@eslint/js": "^10.0.1",
-    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.0",
     "@vitest/coverage-v8": "^4.1.10",
-    "eslint": "^10.6.0",
+    "eslint": "^10.8.0",
     "eslint-plugin-i18next": "^6.1.5",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "prettier": "^3.9.4",
-    "jsdom": "^27.4.0",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.63.0"
+    "prettier": "^3.9.6",
+    "jsdom": "^30.0.1",
+    "typescript": "^7.0.2",
+    "typescript-eslint": "^8.65.0"
   }
 }
