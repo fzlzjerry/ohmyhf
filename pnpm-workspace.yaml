@@ -13,3 +13,7 @@ allowBuilds:
 
 # Flat node_modules: electron-builder and native-module rebuilds need a hoisted layout.
 nodeLinker: hoisted
+
+# electron-updater still resolves js-yaml ^4.1.0; 4.3.0 is GHSA-5p4m-2wfm-xmqj.
+overrides:
+  js-yaml: ^4.3.1
