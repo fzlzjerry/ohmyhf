@@ -160,6 +160,59 @@ describe('DownloadManager frozen environment', () => {
     manager.shutdown()
   })
 
+  it('attaches autoExport to a covered same-environment task', async () => {
+    vi.useFakeTimers()
+    const manager = createManager(new FakeDatabase())
+    await manager.start({ repoId: 'org/repo', kind: 'model', files: ['weights.bin'] })
+    await manager.start({
+      repoId: 'org/repo',
+      kind: 'model',
+      files: ['weights.bin'],
+      autoExport: { tool: 'ollama', filePath: 'weights.bin' }
+    })
+
+    const internals = manager as unknown as {
+      tasks: Map<string, { autoExport?: { tool: string; filePath: string } }>
+    }
+    const tasks = [...internals.tasks.values()]
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]?.autoExport).toEqual({ tool: 'ollama', filePath: 'weights.bin' })
+    manager.shutdown()
+  })
+
+  it('attaches autoExport only to a same-environment in-flight task', async () => {
+    vi.useFakeTimers()
+    const settings = createSettings()
+    const hub = createHub()
+    const manager = createManager(new FakeDatabase(), hub, settings)
+
+    await manager.start({ repoId: 'org/repo', kind: 'model', files: ['weights.bin'] })
+    hub.baseUrl = 'https://other-hub.example.test'
+    settings.get().hfCacheDir = '/tmp/omh-other-cache'
+    await manager.start({ repoId: 'org/repo', kind: 'model', files: ['weights.bin'] })
+    await manager.start({
+      repoId: 'org/repo',
+      kind: 'model',
+      files: ['weights.bin'],
+      autoExport: { tool: 'ollama', filePath: 'weights.bin' }
+    })
+
+    const internals = manager as unknown as {
+      tasks: Map<
+        string,
+        { environment?: { endpoint: string }; autoExport?: { tool: string; filePath: string } }
+      >
+    }
+    const tasks = [...internals.tasks.values()]
+    const original = tasks.find((task) => task.environment?.endpoint === 'https://hub.example.test')
+    const other = tasks.find(
+      (task) => task.environment?.endpoint === 'https://other-hub.example.test'
+    )
+    expect(original?.autoExport).toBeUndefined()
+    expect(other?.autoExport).toEqual({ tool: 'ollama', filePath: 'weights.bin' })
+    manager.shutdown()
+  })
+
   it('does not deduplicate the same branch after it moves to a new commit', async () => {
     vi.useFakeTimers()
     const db = new FakeDatabase()

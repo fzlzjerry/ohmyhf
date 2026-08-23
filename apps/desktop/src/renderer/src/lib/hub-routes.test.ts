@@ -59,4 +59,17 @@ describe('parseHubResource', () => {
     expect(parseHubResource('https://huggingface.co/login')).toBeNull()
     expect(parseHubResource('https://example.com/google/gemma-2-9b')).toBeNull()
   })
+
+  it('accepts a configured custom hub endpoint', () => {
+    expect(parseHubResource('https://hub.example.test/google/gemma-2-9b')).toBeNull()
+    expect(
+      parseHubResource('https://hub.example.test/google/gemma-2-9b', 'https://hub.example.test')
+    ).toBe('/models/google/gemma-2-9b')
+    expect(
+      routeFromLaunchArgs(
+        ['electron', 'ohmyhf://open?url=https://hub.example.test/google/gemma-2-9b'],
+        'https://hub.example.test'
+      )
+    ).toBe('/models/google/gemma-2-9b')
+  })
 })

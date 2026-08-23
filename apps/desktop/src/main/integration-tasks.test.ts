@@ -269,6 +269,26 @@ describe('IntegrationTaskManager upload grants', () => {
   })
 })
 
+describe('IntegrationTaskManager export errors', () => {
+  it('records a failed export so auto-export can surface already-running', () => {
+    const { manager, broadcasts } = makeManager()
+    manager.recordExportError(
+      { tool: 'ollama', kind: 'model', repoId: 'org/repo', filePath: 'model.gguf' },
+      new Error('export.alreadyRunning')
+    )
+
+    const task = manager.list().find((item) => item.kind === 'export')
+    expect(task).toMatchObject({
+      kind: 'export',
+      status: 'error',
+      phase: 'error',
+      messageKey: 'export.alreadyRunning',
+      filePath: 'model.gguf'
+    })
+    expect(broadcasts.at(-1)?.some((item) => item.id === task?.id)).toBe(true)
+  })
+})
+
 describe('IntegrationTaskManager cancellation', () => {
   it('makes cancellation idempotent and prevents late progress or success from reviving the task', async () => {
     const root = await tempRoot()

@@ -499,6 +499,8 @@ export class DownloadManager {
         for (const existing of this.tasks.values()) {
           if (existing.repoId !== request.repoId || existing.kind !== request.kind) continue
           if (existing.resolvedCommit !== resolvedCommit) continue
+          if (existing.environment?.endpoint !== environment.endpoint) continue
+          if (existing.environment.cacheDir !== environment.cacheDir) continue
           if (existing.status !== 'queued' && existing.status !== 'running') continue
           if (existing.files.some((file) => file.path === request.autoExport?.filePath)) {
             existing.autoExport = request.autoExport

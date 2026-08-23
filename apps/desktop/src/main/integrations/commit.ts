@@ -9,6 +9,12 @@ const REPO_TYPE: Record<RepoKind, 'model' | 'dataset' | 'space'> = {
   space: 'space'
 }
 
+const API_PATH: Record<RepoKind, 'models' | 'datasets' | 'spaces'> = {
+  model: 'models',
+  dataset: 'datasets',
+  space: 'spaces'
+}
+
 export interface CommitFilesInput {
   kind: RepoKind
   repoId: string
@@ -21,6 +27,40 @@ export interface CommitFilesInput {
 
 function trimError(err: unknown): string {
   return (err instanceof Error ? err.message : String(err)).trim().slice(0, 200)
+}
+
+function repoWebPrefix(kind: RepoKind): string {
+  return kind === 'dataset' ? 'datasets/' : kind === 'space' ? 'spaces/' : ''
+}
+
+/** Hub default branch for compare URLs and the "committed to" toast. */
+async function resolveDefaultBranch(
+  kind: RepoKind,
+  repoId: string,
+  hubUrl: string,
+  accessToken: string,
+  fetchImpl: typeof fetch
+): Promise<string> {
+  try {
+    const headers = { Authorization: `Bearer ${accessToken}` }
+    const apiBase = `${hubUrl}/api/${API_PATH[kind]}/${repoId}`
+    const infoRes = await fetchImpl(apiBase, { headers })
+    if (!infoRes.ok) return 'main'
+    const info = (await infoRes.json()) as { sha?: string }
+    const refsRes = await fetchImpl(`${apiBase}/refs`, { headers })
+    if (!refsRes.ok) return 'main'
+    const refs = (await refsRes.json()) as {
+      branches?: Array<{ name?: string; targetCommit?: string }>
+    }
+    const sha = info.sha?.toLowerCase()
+    const branches = refs.branches ?? []
+    const matched = sha
+      ? branches.find((branch) => branch.targetCommit?.toLowerCase() === sha && branch.name)
+      : undefined
+    return matched?.name ?? branches.find((branch) => branch.name === 'main')?.name ?? 'main'
+  } catch {
+    return 'main'
+  }
 }
 
 export async function commitRepoFiles(
@@ -64,7 +104,7 @@ export async function commitRepoFiles(
 
     // `isPullRequest` is supported by the Hub SDK when present; a missing
     // field just commits to `branch` (or the repo default).
-    await commit({
+    const committed = (await commit({
       repo,
       operations,
       title: input.title,
@@ -74,13 +114,18 @@ export async function commitRepoFiles(
       hubUrl,
       fetch: fetchImpl,
       ...(input.createPr === true ? { isPullRequest: true } : {})
-    } as Parameters<typeof commit>[0])
+    } as Parameters<typeof commit>[0])) as { pullRequestUrl?: string }
 
+    const defaultBranch =
+      !branch || (input.createPr === true && !committed.pullRequestUrl)
+        ? await resolveDefaultBranch(input.kind, input.repoId, hubUrl, accessToken, fetchImpl)
+        : undefined
     const compareUrl =
       input.createPr === true && branch
-        ? `${hubUrl}/${input.kind === 'dataset' ? 'datasets/' : input.kind === 'space' ? 'spaces/' : ''}${input.repoId}/compare/main...${encodeURIComponent(branch)}`
+        ? (committed.pullRequestUrl ??
+          `${hubUrl}/${repoWebPrefix(input.kind)}${input.repoId}/compare/${encodeURIComponent(defaultBranch ?? 'main')}...${encodeURIComponent(branch)}`)
         : undefined
-    return { ok: true, branch: branch ?? 'main', compareUrl }
+    return { ok: true, branch: branch ?? defaultBranch ?? 'main', compareUrl }
   } catch (err) {
     if (err instanceof HubApiError && err.statusCode === 403) {
       return { ok: false, error: '', messageKey: 'edit.needWrite' }

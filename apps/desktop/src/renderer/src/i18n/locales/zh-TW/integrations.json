@@ -2,6 +2,7 @@
   "export": {
     "comfyuiMissing": "未偵測到 ComfyUI 安裝。請設定 COMFYUI_PATH，或將 ComfyUI 安裝在您的家目錄中。",
     "copied": "已匯出至 {{path}}。",
+    "alreadyRunning": "已有匯出任務正在進行。",
     "failed": "匯出失敗：{{error}}",
     "invalidPath": "無效的檔案路徑：{{file}}",
     "notInCache": "{{file}} 尚未存在於本機快取中——請先下載它。",

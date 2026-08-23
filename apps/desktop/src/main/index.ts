@@ -125,19 +125,42 @@ if (!gotLock) {
 
   registerAppProtocol()
 
-  const enqueueLaunchRoute = (input: string | null): void => {
-    if (!input) return
-    const route = input.startsWith('/') ? input : parseHubResource(input)
+  let settingsRef: SettingsStore | null = null
+  const pendingLaunch: Array<
+    { type: 'url'; value: string } | { type: 'argv'; value: readonly string[] }
+  > = []
+
+  const configuredHubEndpoint = (): string | null => settingsRef?.get().hubEndpoint ?? null
+
+  const applyLaunch = (
+    input: { type: 'url'; value: string } | { type: 'argv'; value: readonly string[] }
+  ): void => {
+    const route =
+      input.type === 'url'
+        ? input.value.startsWith('/')
+          ? input.value
+          : parseHubResource(input.value, configuredHubEndpoint())
+        : routeFromLaunchArgs(input.value, configuredHubEndpoint())
     if (route) navigate(route)
+  }
+
+  const enqueueLaunch = (
+    input: { type: 'url'; value: string } | { type: 'argv'; value: readonly string[] }
+  ): void => {
+    if (!settingsRef) {
+      pendingLaunch.push(input)
+      return
+    }
+    applyLaunch(input)
   }
 
   app.on('open-url', (event, url) => {
     event.preventDefault()
-    enqueueLaunchRoute(parseHubResource(url))
+    enqueueLaunch({ type: 'url', value: url })
   })
 
   app.on('second-instance', (_event, argv) => {
-    enqueueLaunchRoute(routeFromLaunchArgs(argv))
+    enqueueLaunch({ type: 'argv', value: argv })
     const win = BrowserWindow.getAllWindows()[0]
     if (win) {
       if (win.isMinimized()) win.restore()
@@ -149,6 +172,8 @@ if (!gotLock) {
   void app.whenReady().then(async () => {
     const db = openDatabase()
     const settings = new SettingsStore(db)
+    settingsRef = settings
+    for (const input of pendingLaunch.splice(0)) applyLaunch(input)
     const i18n = new MainI18n()
     const configuredLocale = settings.get().locale
     i18n.setLocale(configuredLocale === 'system' ? matchLocale(app.getLocale()) : configuredLocale)
@@ -223,8 +248,8 @@ if (!gotLock) {
       (request) => {
         try {
           integrationTasksRef.current?.startExport(request)
-        } catch {
-          /* export already running or target missing — the download still succeeded */
+        } catch (err) {
+          integrationTasksRef.current?.recordExportError(request, err)
         }
       }
     )
@@ -509,7 +534,7 @@ if (!gotLock) {
     const createAppWindow = (): BrowserWindow => createWindow(windowBackground())
     recreateWindow = createAppWindow
 
-    const launchRoute = routeFromLaunchArgs(process.argv)
+    const launchRoute = routeFromLaunchArgs(process.argv, settings.get().hubEndpoint)
     if (launchRoute) pendingRoute = launchRoute
     createAppWindow()
     follows.start()
