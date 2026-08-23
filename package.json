@@ -36,5 +36,12 @@
     "jsdom": "^30.0.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.67.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "overrides": {
+    "js-yaml": "^4.3.1"
   }
 }
