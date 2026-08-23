@@ -160,14 +160,21 @@
     "test": "测试连接",
     "testFail": "连接失败：{{error}}",
     "testOk": "已成功连接到 Hub。",
-    "title": "网络"
+    "title": "网络",
+    "offlineHint": "已经在本地 HF 缓存里的仓库，在 Hub 不可达时仍可阅读。",
+    "presets": {
+      "hf-mirror": "hf-mirror.com",
+      "official": "官方 (huggingface.co)"
+    },
+    "tokenWarning": "访问令牌只会发送到当前配置的 Hub 端点。只有在信任镜像运营方时才使用镜像。切换端点会断开 Hub 网页会话。"
   },
   "notifications": {
     "enabled": "系统通知",
     "minutes": "{{count}} 分钟",
     "minutes_other": "{{count}} 分钟",
     "pollInterval": "关注检查间隔",
-    "title": "通知"
+    "title": "通知",
+    "minutes_one": "{{count}} min"
   },
   "privacy": {
     "cache": {

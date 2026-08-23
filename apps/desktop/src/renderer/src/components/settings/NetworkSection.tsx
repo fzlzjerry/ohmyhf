@@ -2,7 +2,11 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Globe, RotateCcw, Wifi } from 'lucide-react'
-import { DEFAULT_HUB_ENDPOINT, normalizeHubEndpoint } from '@oh-my-huggingface/shared'
+import {
+  DEFAULT_HUB_ENDPOINT,
+  HUB_ENDPOINT_PRESETS,
+  normalizeHubEndpoint
+} from '@oh-my-huggingface/shared'
 import { invoke } from '@/lib/ipc'
 import { isHubRemoteQuery } from '@/lib/query'
 import { Button } from '@/components/ui/button'
@@ -133,6 +137,28 @@ export function NetworkSection(): React.JSX.Element {
       <p className="text-[12.5px] leading-relaxed text-ink-muted">
         {t('settings:network.description')}
       </p>
+      <p className="text-[12px] text-ink-faint">{t('settings:network.tokenWarning')}</p>
+      <p className="text-[12px] text-ink-faint">{t('settings:network.offlineHint')}</p>
+
+      <div className="flex flex-wrap gap-2">
+        {HUB_ENDPOINT_PRESETS.map((preset) => (
+          <Button
+            key={preset.id}
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              const value = preset.endpoint
+              setEndpointDraft(value ?? '')
+              setEndpointError(false)
+              void applyNetworkSettings(value, settings.proxyUrl).then(() =>
+                push(t('settings:network.saved'), 'success')
+              )
+            }}
+          >
+            {t(`settings:network.presets.${preset.id}`)}
+          </Button>
+        ))}
+      </div>
 
       <div className="flex flex-col gap-3 rounded-lg border p-4">
         <label htmlFor={ENDPOINT_INPUT_ID} className="flex flex-col gap-1.5">

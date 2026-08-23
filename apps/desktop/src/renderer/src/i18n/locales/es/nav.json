@@ -47,5 +47,8 @@
   "spaces": "Spaces",
   "toggleSidebar": "Mostrar u ocultar la barra lateral",
   "upload": "Subir",
-  "users": "Usuarios"
+  "users": "Usuarios",
+  "favoritesHub": "Liked on Hub",
+  "favoritesLocal": "Saved here",
+  "openHubLink": "Open {{route}}"
 }

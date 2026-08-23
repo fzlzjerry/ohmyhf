@@ -45,7 +45,12 @@
     "history": "浏览历史",
     "github": "GitHub 仓库",
     "reportIssue": "报告问题…",
-    "disclaimer": "关于与免责声明"
+    "disclaimer": "关于与免责声明",
+    "home": "首页",
+    "collections": "合集",
+    "myRepos": "我的仓库",
+    "compare": "对比",
+    "upload": "上传"
   },
   "notifications": {
     "downloadComplete": "下载完成",

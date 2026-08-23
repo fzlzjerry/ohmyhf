@@ -45,7 +45,12 @@
     "history": "탐색 기록",
     "github": "GitHub 저장소",
     "reportIssue": "문제 신고…",
-    "disclaimer": "정보 및 면책 조항"
+    "disclaimer": "정보 및 면책 조항",
+    "home": "홈",
+    "collections": "컬렉션",
+    "myRepos": "내 저장소",
+    "compare": "비교",
+    "upload": "업로드"
   },
   "notifications": {
     "downloadComplete": "다운로드 완료",

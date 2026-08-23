@@ -10,9 +10,12 @@ import {
   Building2,
   Columns3,
   Database,
+  Bookmark,
   FileText,
   Filter,
+  FolderGit2,
   HardDrive,
+  Home,
   Heart,
   History,
   Inbox,
@@ -33,6 +36,7 @@ import {
   User
 } from 'lucide-react'
 import type { RepoKind, RepoSort, RepoSummary } from '@oh-my-huggingface/shared'
+import { parseHubResource } from '@oh-my-huggingface/shared'
 import { LIBRARIES, LICENSES, PARAM_BUCKETS, TASKS } from '@/lib/catalog'
 import type { ParamBucket } from '@/lib/utils'
 import { formatCount } from '@/lib/utils'
@@ -231,18 +235,22 @@ export function CommandPalette(): React.JSX.Element {
     })
 
   const navItems = [
+    { to: '/', label: t('nav:home'), icon: Home },
     { to: '/models', label: t('nav:models'), icon: Boxes },
     { to: '/datasets', label: t('nav:datasets'), icon: Database },
     { to: '/spaces', label: t('nav:spaces'), icon: LayoutGrid },
     { to: '/papers', label: t('nav:papers'), icon: FileText },
     { to: '/favorites', label: t('nav:favorites'), icon: Star },
     { to: '/history', label: t('nav:history'), icon: History },
+    { to: '/my-repos', label: t('nav:myRepos'), icon: FolderGit2 },
+    { to: '/collections', label: t('nav:collections'), icon: Bookmark },
     { to: '/downloads', label: t('nav:downloads'), icon: ArrowDownToLine },
     { to: '/cache', label: t('nav:cache'), icon: HardDrive },
     { to: '/inbox', label: t('nav:inbox'), icon: Inbox },
     { to: '/compare', label: t('nav:compare'), icon: Columns3 },
     { to: '/upload', label: t('nav:upload'), icon: UploadCloud }
   ]
+  const pastedRoute = query ? parseHubResource(query, settings.hubEndpoint) : null
 
   const filterPages: Array<{ page: Page; label: string; icon: typeof Filter }> = [
     { page: 'task', label: t('browse:filter.task'), icon: Filter },
@@ -355,6 +363,17 @@ export function CommandPalette(): React.JSX.Element {
 
         {page === 'root' && (
           <>
+            {pastedRoute && (
+              <Command.Group heading={t('nav:palette.navigate')}>
+                <Command.Item
+                  value={`open-link:${pastedRoute}`}
+                  onSelect={() => closeAnd(() => navigate(pastedRoute))}
+                >
+                  <Search className="size-4 text-ink-faint" aria-hidden />
+                  {t('nav:openHubLink', { route: pastedRoute })}
+                </Command.Item>
+              </Command.Group>
+            )}
             {needle !== '' &&
               (search.isLoading ? (
                 <Command.Loading>

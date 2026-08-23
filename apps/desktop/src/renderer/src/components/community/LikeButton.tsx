@@ -66,7 +66,24 @@ export function LikeButton({ kind, repoId, likes }: LikeButtonProps): React.JSX.
     mutationFn: (next: boolean) => invoke('hub:likeSet', { kind, repoId, liked: next }),
     // Snapshot the pre-toggle state (onMutate runs before onClick's setState lands).
     onMutate: () => state,
-    onSuccess: (_res, next) => userLikes.setLiked(kind, repoId, next),
+    onSuccess: (_res, next) => {
+      userLikes.setLiked(kind, repoId, next)
+      if (!next) return
+      const slash = repoId.indexOf('/')
+      void invoke('favorites:add', {
+        summary: {
+          id: repoId,
+          kind,
+          author: slash > 0 ? repoId.slice(0, slash) : repoId,
+          name: slash > 0 ? repoId.slice(slash + 1) : repoId,
+          likes,
+          downloads: 0,
+          private: false,
+          gated: false,
+          tags: []
+        }
+      })
+    },
     onError: (err, next, prev) => {
       // Revert the optimistic bump — unless the user moved to another repo.
       if (prev && prev.key === key) setState(prev)

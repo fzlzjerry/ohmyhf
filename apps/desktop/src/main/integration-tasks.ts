@@ -334,6 +334,29 @@ export class IntegrationTaskManager {
     return { id }
   }
 
+  recordExportError(request: ExportStartRequest, error: unknown): void {
+    this.prune()
+    const message = (error instanceof Error ? error.message : String(error)).trim().slice(0, 200)
+    const id = this.createId()
+    const now = this.timestamp()
+    const task: ExportIntegrationTask = {
+      id,
+      kind: 'export',
+      tool: request.tool,
+      repoKind: request.kind,
+      repoId: request.repoId,
+      filePath: request.filePath,
+      status: 'error',
+      phase: 'error',
+      createdAt: now,
+      updatedAt: now,
+      messageKey: message === 'export.alreadyRunning' ? 'export.alreadyRunning' : 'export.failed',
+      params: message === 'export.alreadyRunning' ? undefined : { error: message }
+    }
+    this.tasks.set(id, task)
+    this.emit()
+  }
+
   startExport(request: ExportStartRequest): { id: string } {
     this.prune()
     if (this.hasActive('export')) throw new Error('export.alreadyRunning')

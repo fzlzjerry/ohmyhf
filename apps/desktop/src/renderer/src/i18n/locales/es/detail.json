@@ -5,10 +5,12 @@
     "favorite": "Añadir a favoritos",
     "follow": "Seguir repositorio",
     "unfavorite": "Quitar de favoritos",
-    "unfollow": "Dejar de seguir repositorio"
+    "unfollow": "Dejar de seguir repositorio",
+    "favoriteHint": "Save on this device — this is not a Hub like"
   },
   "card": {
-    "empty": "Este repositorio no tiene ficha."
+    "empty": "Este repositorio no tiene ficha.",
+    "offline": "Showing files from the local HF cache — the Hub is unreachable."
   },
   "datasetPreview": {
     "config": "Configuración",
@@ -86,7 +88,13 @@
   "favoriteRemoved": "Quitado de favoritos",
   "favoritesEmpty": {
     "body": "Marque repositorios con una estrella mientras navega para fijarlos aquí.",
-    "title": "Aún no hay favoritos"
+    "title": "Aún no hay favoritos",
+    "hubBody": "Like a repository from the app (needs a Hub web session) or on the website, then it appears here.",
+    "hubSignedOutBody": "Sign in to see repositories you liked on the Hub.",
+    "hubSignedOutTitle": "Sign in to see Hub likes",
+    "hubTitle": "No Hub likes yet",
+    "likedOnHub": "Liked on the Hub",
+    "splitHint": "Saved stars stay on this device. Hub likes are the public likes on your account."
   },
   "files": {
     "download": "Descargar archivo",
@@ -95,7 +103,11 @@
     "exportTo": "Exportar a {{tool}}",
     "lfs": "LFS",
     "noTargets": "No se detectaron herramientas locales",
-    "root": "raíz"
+    "root": "raíz",
+    "clearSelection": "Clear",
+    "downloadSelected": "Download selected",
+    "selectFile": "Select {{file}}",
+    "selected": "{{count}} selected"
   },
   "gate": {
     "ask": "Este repositorio está restringido: solicite acceso para descargarlo y previsualizarlo.",
@@ -257,5 +269,28 @@
     "tooLargeBody": "Los archivos ONNX de más de {{size}} no se pueden previsualizar aquí (los pesos suelen estar incrustados). Descárguelo para inspeccionarlo localmente.",
     "unreadableTitle": "No se puede leer este archivo ONNX",
     "unreadableBody": "No se pudo decodificar el protobuf del modelo ONNX. Descárguelo para abrirlo localmente."
+  },
+  "edit": {
+    "action": "Edit",
+    "commit": "Commit",
+    "commitFailed": "Couldn't commit: {{error}}",
+    "committed": "Committed to {{branch}}.",
+    "createPr": "Commit to a new branch so you can open a pull request",
+    "defaultTitle": "Update {{file}}",
+    "message": "Commit message",
+    "needSignIn": "Sign in with a write token to commit from the app.",
+    "needWrite": "This token cannot write to the repository. Use a write or fine-grained token with write-repos.",
+    "openPr": "Open compare on the Hub",
+    "placeholder": "Edit the file…",
+    "title": "Edit {{file}}"
+  },
+  "intent": {
+    "download": "Download this file",
+    "downloadAll": "Download whole repo",
+    "downloadExport": "Download and export to {{tool}}",
+    "exportQueued": "Download started — export will run when it finishes",
+    "hint": "Pick the GGUF quant or weight file your local tool can load, instead of fetching the whole repository.",
+    "quant": "Weight file",
+    "title": "Get this model"
   }
 }

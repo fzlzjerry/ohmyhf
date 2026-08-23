@@ -47,5 +47,8 @@
   "spaces": "Spaces",
   "toggleSidebar": "Seitenleiste ein-/ausblenden",
   "upload": "Hochladen",
-  "users": "Benutzer"
+  "users": "Benutzer",
+  "favoritesHub": "Liked on Hub",
+  "favoritesLocal": "Saved here",
+  "openHubLink": "Open {{route}}"
 }

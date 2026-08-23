@@ -160,14 +160,21 @@
     "test": "測試連線",
     "testFail": "連線失敗：{{error}}",
     "testOk": "已成功連線至 Hub。",
-    "title": "網路"
+    "title": "網路",
+    "offlineHint": "已經在本機 HF 快取裡的倉庫，在 Hub 無法連線時仍可閱讀。",
+    "presets": {
+      "hf-mirror": "hf-mirror.com",
+      "official": "官方 (huggingface.co)"
+    },
+    "tokenWarning": "存取權杖只會傳送到目前設定的 Hub 端點。只有在信任鏡像營運方時才使用鏡像。切換端點會中斷 Hub 網頁工作階段。"
   },
   "notifications": {
     "enabled": "系統通知",
     "minutes": "{{count}} 分鐘",
     "minutes_other": "{{count}} 分鐘",
     "pollInterval": "追蹤項目檢查頻率",
-    "title": "通知"
+    "title": "通知",
+    "minutes_one": "{{count}} min"
   },
   "privacy": {
     "cache": {

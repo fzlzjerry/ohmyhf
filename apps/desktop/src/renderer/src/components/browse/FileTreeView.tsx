@@ -54,6 +54,36 @@ export function exportToolsFor(name: string): ExportTool[] {
   )
 }
 
+/** Flatten a cached snapshot into the current directory listing. */
+export function treeFromSnapshot(
+  files: Array<{ path: string; size: number }>,
+  path: string
+): FileTreeEntry[] {
+  const prefix = path ? `${path}/` : ''
+  const seen = new Set<string>()
+  const entries: FileTreeEntry[] = []
+  for (const file of files) {
+    if (prefix !== '' && !file.path.startsWith(prefix)) continue
+    const rest = prefix === '' ? file.path : file.path.slice(prefix.length)
+    if (rest === '') continue
+    const slash = rest.indexOf('/')
+    const nested = slash !== -1
+    const name = nested ? rest.slice(0, slash) : rest
+    const entryPath = prefix === '' ? name : `${path}/${name}`
+    if (seen.has(entryPath)) continue
+    seen.add(entryPath)
+    entries.push({
+      type: nested ? 'directory' : 'file',
+      path: entryPath,
+      size: nested ? 0 : file.size
+    })
+  }
+  return entries.sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
+    return a.path.localeCompare(b.path)
+  })
+}
+
 export function FileTreeView({
   kind,
   repoId
@@ -68,12 +98,28 @@ export function FileTreeView({
   // repoId changes because the parent keys RepoDetail — and thus this
   // component — by repoId.
   const [selected, setSelected] = useState<FileTreeEntry | null>(null)
+  const [checked, setChecked] = useState<Set<string>>(new Set())
   const endpointKey = normalizeHubEndpoint(useAppStore((state) => state.settings.hubEndpoint))
   const push = useToasts((s) => s.push)
 
   const tree = useQuery({
     queryKey: ['tree', kind, repoId, path, endpointKey],
-    queryFn: () => invoke('hub:fileTree', { kind, repoId, path: path || undefined })
+    queryFn: async () => {
+      try {
+        const entries = await invoke('hub:fileTree', { kind, repoId, path: path || undefined })
+        return { entries, source: 'hub' as const }
+      } catch (err) {
+        try {
+          const snapshot = await invoke('cache:snapshot', { kind, repoId })
+          if (snapshot) {
+            return { entries: treeFromSnapshot(snapshot.files, path), source: 'cache' as const }
+          }
+        } catch {
+          /* keep the Hub error */
+        }
+        throw err
+      }
+    }
   })
   const targets = useQuery({
     queryKey: ['export-targets'],
@@ -144,7 +190,16 @@ export function FileTreeView({
   useCommandActions('file-tree', fileCommands)
 
   const crumbs = path ? path.split('/') : []
-  const files = tree.data?.filter((entry) => entry.type === 'file') ?? []
+  const treeEntries = tree.data?.entries
+  const files = treeEntries?.filter((entry) => entry.type === 'file') ?? []
+  const toggleChecked = (filePath: string): void => {
+    setChecked((prev) => {
+      const next = new Set(prev)
+      if (next.has(filePath)) next.delete(filePath)
+      else next.add(filePath)
+      return next
+    })
+  }
 
   // ArrowUp/Down moves the file selection within the current directory listing
   // when focus sits inside the tree (row buttons bubble here). Skip events a
@@ -180,6 +235,9 @@ export function FileTreeView({
           >
             {t('detail:files.root')}
           </button>
+          {tree.data?.source === 'cache' && (
+            <span className="text-[11px] text-ink-faint">{t('detail:card.offline')}</span>
+          )}
           {crumbs.map((crumb, i) => (
             <span key={i} className="flex items-center gap-1">
               <ChevronRight className="size-3 text-ink-faint" aria-hidden />
@@ -216,6 +274,27 @@ export function FileTreeView({
             />
           </div>
         )}
+        {checked.size > 0 && (
+          <div className="flex items-center gap-2 border-b px-3 py-1.5">
+            <span className="text-[11.5px] text-ink-muted">
+              {t('detail:files.selected', { count: checked.size })}
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={download.isPending}
+              onClick={() =>
+                download.mutate([...checked], { onSuccess: () => setChecked(new Set()) })
+              }
+            >
+              <ArrowDownToLine className="size-3.5" aria-hidden />
+              {t('detail:files.downloadSelected')}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setChecked(new Set())}>
+              {t('detail:files.clearSelection')}
+            </Button>
+          </div>
+        )}
 
         <div className="min-h-0 flex-1 overflow-y-auto p-1.5" onKeyDown={onListKeyDown}>
           {tree.isLoading && (
@@ -233,12 +312,12 @@ export function FileTreeView({
               className="px-2"
             />
           )}
-          {tree.data?.length === 0 && (
+          {treeEntries?.length === 0 && (
             <div className="p-6 text-center text-[13px] text-ink-muted">
               {t('detail:files.empty')}
             </div>
           )}
-          {tree.data?.map((entry) => {
+          {treeEntries?.map((entry) => {
             const name = entry.path.split('/').at(-1) ?? entry.path
             const exportTools = exportToolsFor(name)
             const validTargets =
@@ -266,6 +345,13 @@ export function FileTreeView({
                   </button>
                 ) : (
                   <>
+                    <input
+                      type="checkbox"
+                      className="size-3.5 shrink-0 accent-select"
+                      checked={checked.has(entry.path)}
+                      aria-label={t('detail:files.selectFile', { file: name })}
+                      onChange={() => toggleChecked(entry.path)}
+                    />
                     <button
                       type="button"
                       onClick={() => setSelected(entry)}

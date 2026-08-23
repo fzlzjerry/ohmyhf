@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -30,9 +31,12 @@ import { ParquetPreview } from '@/components/browse/ParquetPreview'
 import { PdfPreview } from '@/components/browse/PdfPreview'
 import { useAppStore } from '@/stores/app'
 import { useHubEndpointKey } from '@/hooks/use-hub-endpoint'
+import { isEditableRepoFile, RepoFileEditor } from '@/components/browse/RepoFileEditor'
 
 /** Text previews cap the transfer; anything past this shows the truncation bar. */
 const MAX_TEXT_BYTES = 512 * 1024
+/** Matches `hub:commitFiles` payload limit — never offer edit past what we can commit. */
+const MAX_EDIT_BYTES = 256 * 1024
 
 /** Notebooks embed base64 image outputs, so they need a larger transfer cap. */
 const MAX_NOTEBOOK_BYTES = 4 * 1024 * 1024
@@ -127,7 +131,24 @@ function TextPreview({
   const endpointKey = useHubEndpointKey()
   const text = useQuery({
     queryKey: ['fileText', kind, repoId, path, endpointKey],
-    queryFn: () => invoke('hub:fileText', { kind, repoId, path, maxBytes: MAX_TEXT_BYTES }),
+    queryFn: async () => {
+      try {
+        return await invoke('hub:fileText', { kind, repoId, path, maxBytes: MAX_TEXT_BYTES })
+      } catch (err) {
+        try {
+          const cached = await invoke('cache:readText', {
+            kind,
+            repoId,
+            path,
+            maxBytes: MAX_TEXT_BYTES
+          })
+          if (cached) return cached
+        } catch {
+          /* keep the Hub error */
+        }
+        throw err
+      }
+    },
     retry: false
   })
 
@@ -318,6 +339,40 @@ export function FilePreview({
   const fileKind = fileKindOf(entry.path)
   const name = entry.path.split('/').at(-1) ?? entry.path
   const rawUrl = resolveUrl(kind, repoId, entry.path, 'main', endpoint)
+  const [editing, setEditing] = useState(false)
+  const textQuery = useQuery({
+    queryKey: ['fileText', kind, repoId, entry.path, endpointKey],
+    queryFn: async () => {
+      try {
+        return await invoke('hub:fileText', {
+          kind,
+          repoId,
+          path: entry.path,
+          maxBytes: MAX_TEXT_BYTES
+        })
+      } catch (err) {
+        try {
+          const cached = await invoke('cache:readText', {
+            kind,
+            repoId,
+            path: entry.path,
+            maxBytes: MAX_TEXT_BYTES
+          })
+          if (cached) return cached
+        } catch {
+          /* keep the Hub error */
+        }
+        throw err
+      }
+    },
+    enabled: isEditableRepoFile(entry.path),
+    retry: false
+  })
+  const canEdit =
+    isEditableRepoFile(entry.path) &&
+    textQuery.data !== undefined &&
+    !textQuery.data.truncated &&
+    textQuery.data.content.length <= MAX_EDIT_BYTES
 
   const copyRawUrl = (): void => {
     void navigator.clipboard.writeText(rawUrl).then(() => push(t('common:copied'), 'success'))
@@ -463,6 +518,11 @@ export function FilePreview({
         )}
         <span className="font-mono text-[11.5px] text-ink-faint">{formatBytes(entry.size)}</span>
         <div className="flex items-center gap-0.5">
+          {canEdit && (
+            <Button variant="ghost" size="sm" onClick={() => setEditing((open) => !open)}>
+              {editing ? t('common:cancel') : t('detail:edit.action')}
+            </Button>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -505,7 +565,25 @@ export function FilePreview({
           </Tooltip>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">{body}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {editing && canEdit && textQuery.data ? (
+          <div className="p-4">
+            <RepoFileEditor
+              kind={kind}
+              repoId={repoId}
+              path={entry.path}
+              initial={textQuery.data.content}
+              onClose={() => setEditing(false)}
+              onSaved={() => {
+                setEditing(false)
+                void textQuery.refetch()
+              }}
+            />
+          </div>
+        ) : (
+          body
+        )}
+      </div>
     </div>
   )
 }

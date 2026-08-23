@@ -113,6 +113,50 @@ describe('ipcRequestSchemas', () => {
     expect(schema.safeParse({ patch: { proxyUrl: 'not-a-url' } }).success).toBe(false)
   })
 
+  it('accepts downloads:start with optional autoExport', () => {
+    const schema = ipcRequestSchemas['downloads:start']!
+    expect(
+      schema.safeParse({
+        request: {
+          repoId: 'org/model',
+          kind: 'model',
+          files: ['model-Q4_K_M.gguf'],
+          autoExport: { tool: 'ollama', filePath: 'model-Q4_K_M.gguf' }
+        }
+      }).success
+    ).toBe(true)
+    expect(
+      schema.safeParse({
+        request: {
+          repoId: 'org/model',
+          kind: 'model',
+          autoExport: { tool: 'llama', filePath: 'x.gguf' }
+        }
+      }).success
+    ).toBe(false)
+  })
+
+  it('bounds hub:commitFiles to small text payloads', () => {
+    const schema = ipcRequestSchemas['hub:commitFiles']!
+    expect(
+      schema.safeParse({
+        kind: 'model',
+        repoId: 'me/card',
+        files: [{ path: 'README.md', content: '# hi' }],
+        title: 'Update README',
+        createPr: true
+      }).success
+    ).toBe(true)
+    expect(
+      schema.safeParse({
+        kind: 'model',
+        repoId: 'me/card',
+        files: [{ path: 'README.md', content: 'x'.repeat(256 * 1024 + 1) }],
+        title: 'too big'
+      }).success
+    ).toBe(false)
+  })
+
   it('accepts hub quicksearch query channels and rejects empty/oversized', () => {
     for (const channel of [
       'hub:searchOrgs',

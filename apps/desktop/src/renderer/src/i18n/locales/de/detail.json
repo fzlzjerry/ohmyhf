@@ -5,10 +5,12 @@
     "favorite": "Zu Favoriten hinzufügen",
     "follow": "Repository folgen",
     "unfavorite": "Aus Favoriten entfernen",
-    "unfollow": "Repository nicht mehr folgen"
+    "unfollow": "Repository nicht mehr folgen",
+    "favoriteHint": "Save on this device — this is not a Hub like"
   },
   "card": {
-    "empty": "Dieses Repository hat keine Card."
+    "empty": "Dieses Repository hat keine Card.",
+    "offline": "Showing files from the local HF cache — the Hub is unreachable."
   },
   "datasetPreview": {
     "config": "Konfiguration",
@@ -86,7 +88,13 @@
   "favoriteRemoved": "Aus Favoriten entfernt",
   "favoritesEmpty": {
     "body": "Markieren Sie Repositories beim Durchsuchen mit einem Stern, um sie hier anzuheften.",
-    "title": "Noch keine Favoriten"
+    "title": "Noch keine Favoriten",
+    "hubBody": "Like a repository from the app (needs a Hub web session) or on the website, then it appears here.",
+    "hubSignedOutBody": "Sign in to see repositories you liked on the Hub.",
+    "hubSignedOutTitle": "Sign in to see Hub likes",
+    "hubTitle": "No Hub likes yet",
+    "likedOnHub": "Liked on the Hub",
+    "splitHint": "Saved stars stay on this device. Hub likes are the public likes on your account."
   },
   "files": {
     "download": "Datei herunterladen",
@@ -95,7 +103,11 @@
     "exportTo": "Nach {{tool}} exportieren",
     "lfs": "LFS",
     "noTargets": "Keine lokalen Tools gefunden",
-    "root": "Stammverzeichnis"
+    "root": "Stammverzeichnis",
+    "clearSelection": "Clear",
+    "downloadSelected": "Download selected",
+    "selectFile": "Select {{file}}",
+    "selected": "{{count}} selected"
   },
   "gate": {
     "ask": "Dieses Repository ist zugriffsbeschränkt — fordern Sie Zugriff an, um es herunterzuladen und in der Vorschau anzuzeigen.",
@@ -257,5 +269,28 @@
     "tooLargeBody": "ONNX-Dateien größer als {{size}} können hier nicht in der Vorschau angezeigt werden (Gewichte sind meist eingebettet). Laden Sie die Datei herunter, um sie lokal zu prüfen.",
     "unreadableTitle": "Diese ONNX-Datei kann nicht gelesen werden",
     "unreadableBody": "Das ONNX-Modell-Protobuf konnte nicht dekodiert werden. Laden Sie die Datei herunter, um sie lokal zu öffnen."
+  },
+  "edit": {
+    "action": "Edit",
+    "commit": "Commit",
+    "commitFailed": "Couldn't commit: {{error}}",
+    "committed": "Committed to {{branch}}.",
+    "createPr": "Commit to a new branch so you can open a pull request",
+    "defaultTitle": "Update {{file}}",
+    "message": "Commit message",
+    "needSignIn": "Sign in with a write token to commit from the app.",
+    "needWrite": "This token cannot write to the repository. Use a write or fine-grained token with write-repos.",
+    "openPr": "Open compare on the Hub",
+    "placeholder": "Edit the file…",
+    "title": "Edit {{file}}"
+  },
+  "intent": {
+    "download": "Download this file",
+    "downloadAll": "Download whole repo",
+    "downloadExport": "Download and export to {{tool}}",
+    "exportQueued": "Download started — export will run when it finishes",
+    "hint": "Pick the GGUF quant or weight file your local tool can load, instead of fetching the whole repository.",
+    "quant": "Weight file",
+    "title": "Get this model"
   }
 }

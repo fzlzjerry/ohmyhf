@@ -2,6 +2,7 @@
   "export": {
     "comfyuiMissing": "ComfyUIのインストールが見つかりませんでした。COMFYUI_PATHを設定するか、ホームフォルダにComfyUIをインストールしてください。",
     "copied": "{{path}}にエクスポートしました。",
+    "alreadyRunning": "別のエクスポートが実行中です。",
     "failed": "エクスポートに失敗しました: {{error}}",
     "invalidPath": "無効なファイルパスです: {{file}}",
     "notInCache": "{{file}}はまだローカルキャッシュにありません — 先にダウンロードしてください。",

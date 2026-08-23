@@ -45,7 +45,12 @@
     "history": "Historial de navegación",
     "github": "Repositorio de GitHub",
     "reportIssue": "Informar de un problema…",
-    "disclaimer": "Acerca de y aviso legal"
+    "disclaimer": "Acerca de y aviso legal",
+    "home": "Inicio",
+    "collections": "Colecciones",
+    "myRepos": "Mis repos",
+    "compare": "Comparar",
+    "upload": "Subir"
   },
   "notifications": {
     "downloadComplete": "Descarga completa",

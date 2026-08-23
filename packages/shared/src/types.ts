@@ -15,8 +15,23 @@ export type Locale = (typeof SUPPORTED_LOCALES)[number]
 
 export type RepoKind = 'model' | 'dataset' | 'space'
 
-/** Native menu and renderer shortcut help consume this same navigation map. */
-export const NAVIGATION_SHORTCUTS = [
+/** One Go-menu / palette destination. `key` is the Cmd/Ctrl+N accelerator. */
+export interface NavigationShortcut {
+  route: string
+  menuKey: string
+  labelKey: string
+  /** Digit accelerator; omit for destinations that only appear in the menu. */
+  key?: string
+}
+
+/**
+ * Native menu, renderer shortcut help, and the command palette consume this
+ * same navigation map. Numbered entries keep Cmd/Ctrl+1–9; the rest fill the
+ * Go menu and palette so Home / Collections / My repos / Compare / Upload
+ * are reachable without hunting the sidebar.
+ */
+export const NAVIGATION_SHORTCUTS: readonly NavigationShortcut[] = [
+  { route: '/', menuKey: 'menu.home', labelKey: 'home' },
   { key: '1', route: '/models', menuKey: 'menu.models', labelKey: 'models' },
   { key: '2', route: '/datasets', menuKey: 'menu.datasets', labelKey: 'datasets' },
   { key: '3', route: '/spaces', menuKey: 'menu.spaces', labelKey: 'spaces' },
@@ -25,8 +40,20 @@ export const NAVIGATION_SHORTCUTS = [
   { key: '6', route: '/downloads', menuKey: 'menu.downloads', labelKey: 'downloads' },
   { key: '7', route: '/cache', menuKey: 'menu.cache', labelKey: 'cache' },
   { key: '8', route: '/inbox', menuKey: 'menu.inbox', labelKey: 'inbox' },
-  { key: '9', route: '/history', menuKey: 'menu.history', labelKey: 'history' }
+  { key: '9', route: '/history', menuKey: 'menu.history', labelKey: 'history' },
+  { route: '/collections', menuKey: 'menu.collections', labelKey: 'collections' },
+  { route: '/my-repos', menuKey: 'menu.myRepos', labelKey: 'myRepos' },
+  { route: '/compare', menuKey: 'menu.compare', labelKey: 'compare' },
+  { route: '/upload', menuKey: 'menu.upload', labelKey: 'upload' }
+]
+
+/** One-click Hub endpoint presets (null = official huggingface.co). */
+export const HUB_ENDPOINT_PRESETS = [
+  { id: 'official', endpoint: null },
+  { id: 'hf-mirror', endpoint: 'https://hf-mirror.com' }
 ] as const
+
+export type HubEndpointPresetId = (typeof HUB_ENDPOINT_PRESETS)[number]['id']
 
 export interface RepoSummary {
   id: string
@@ -241,12 +268,22 @@ export interface DownloadTask {
   completedAt?: string
 }
 
+export interface DownloadAutoExport {
+  tool: ExportTool
+  filePath: string
+}
+
 export interface DownloadRequest {
   repoId: string
   kind: RepoKind
   revision?: string
   /** File paths to fetch; omit to download the whole snapshot. */
   files?: string[]
+  /**
+   * After this task completes, export `filePath` (must be in `files`) to the
+   * local tool. Not persisted across app restarts.
+   */
+  autoExport?: DownloadAutoExport
 }
 
 export interface CachedRevision {
@@ -759,6 +796,25 @@ export type AppUpdateState =
     })
 
 export type ExportTool = 'ollama' | 'lmstudio' | 'comfyui'
+
+export interface CacheSnapshotFile {
+  path: string
+  size: number
+}
+
+export interface CacheSnapshot {
+  commit: string
+  files: CacheSnapshotFile[]
+}
+
+export interface RepoCommitFile {
+  path: string
+  content: string
+}
+
+export type RepoCommitResult =
+  | { ok: true; branch: string; compareUrl?: string }
+  | { ok: false; error: string; messageKey?: string }
 
 export interface ExportTarget {
   tool: ExportTool

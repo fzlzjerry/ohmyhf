@@ -160,14 +160,21 @@
     "test": "연결 테스트",
     "testFail": "연결에 실패했습니다: {{error}}",
     "testOk": "Hub에 성공적으로 연결되었습니다.",
-    "title": "네트워크"
+    "title": "네트워크",
+    "offlineHint": "Repositories already in the local HF cache stay readable when the Hub is unreachable.",
+    "presets": {
+      "hf-mirror": "hf-mirror.com",
+      "official": "Official (huggingface.co)"
+    },
+    "tokenWarning": "Your access token is sent only to the configured Hub endpoint. Use a mirror only if you trust its operator. Switching endpoints disconnects the Hub web session."
   },
   "notifications": {
     "enabled": "시스템 알림",
     "minutes": "{{count}}분",
     "minutes_other": "{{count}}분",
     "pollInterval": "팔로우 확인 주기",
-    "title": "알림"
+    "title": "알림",
+    "minutes_one": "{{count}} min"
   },
   "privacy": {
     "cache": {

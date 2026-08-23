@@ -2,7 +2,13 @@ import { join } from 'node:path'
 import { BrowserWindow, app, dialog, nativeTheme, protocol, shell } from 'electron'
 import { HubApiError } from '@oh-my-huggingface/hub-api'
 import type { IpcEventChannel, IpcEventPayload } from '@oh-my-huggingface/shared'
-import { isAllowedExternalUrl, isValidRepoId } from '@oh-my-huggingface/shared'
+import {
+  APP_PROTOCOL,
+  isAllowedExternalUrl,
+  isValidRepoId,
+  parseHubResource,
+  routeFromLaunchArgs
+} from '@oh-my-huggingface/shared'
 import { AuthManager } from './auth'
 import { mimeForOmhfFile } from './preview-mime'
 import { CacheManager } from './cache'
@@ -85,6 +91,16 @@ let recreateWindow: (() => BrowserWindow) | null = null
 // renderer has mounted and is actually listening for 'evt:navigate'.
 let pendingRoute: string | null = null
 
+function registerAppProtocol(): void {
+  if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient(APP_PROTOCOL, process.execPath, [process.argv[1]!])
+    }
+  } else {
+    app.setAsDefaultProtocolClient(APP_PROTOCOL)
+  }
+}
+
 function navigate(route: string): void {
   const win = BrowserWindow.getAllWindows()[0]
   if (!win) {
@@ -107,7 +123,44 @@ if (!gotLock) {
 } else {
   let isQuitting = false
 
-  app.on('second-instance', () => {
+  registerAppProtocol()
+
+  let settingsRef: SettingsStore | null = null
+  const pendingLaunch: Array<
+    { type: 'url'; value: string } | { type: 'argv'; value: readonly string[] }
+  > = []
+
+  const configuredHubEndpoint = (): string | null => settingsRef?.get().hubEndpoint ?? null
+
+  const applyLaunch = (
+    input: { type: 'url'; value: string } | { type: 'argv'; value: readonly string[] }
+  ): void => {
+    const route =
+      input.type === 'url'
+        ? input.value.startsWith('/')
+          ? input.value
+          : parseHubResource(input.value, configuredHubEndpoint())
+        : routeFromLaunchArgs(input.value, configuredHubEndpoint())
+    if (route) navigate(route)
+  }
+
+  const enqueueLaunch = (
+    input: { type: 'url'; value: string } | { type: 'argv'; value: readonly string[] }
+  ): void => {
+    if (!settingsRef) {
+      pendingLaunch.push(input)
+      return
+    }
+    applyLaunch(input)
+  }
+
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    enqueueLaunch({ type: 'url', value: url })
+  })
+
+  app.on('second-instance', (_event, argv) => {
+    enqueueLaunch({ type: 'argv', value: argv })
     const win = BrowserWindow.getAllWindows()[0]
     if (win) {
       if (win.isMinimized()) win.restore()
@@ -119,6 +172,8 @@ if (!gotLock) {
   void app.whenReady().then(async () => {
     const db = openDatabase()
     const settings = new SettingsStore(db)
+    settingsRef = settings
+    for (const input of pendingLaunch.splice(0)) applyLaunch(input)
     const i18n = new MainI18n()
     const configuredLocale = settings.get().locale
     i18n.setLocale(configuredLocale === 'system' ? matchLocale(app.getLocale()) : configuredLocale)
@@ -182,13 +237,21 @@ if (!gotLock) {
 
     const library = new Library(db, () => settings.get().historyLimit)
     const notifications = new NotificationService(settings, i18n, navigate)
+    const integrationTasksRef: { current: IntegrationTaskManager | null } = { current: null }
     const downloads = new DownloadManager(
       db,
       settings,
       hub,
       notifications,
       () => auth.accessToken(),
-      (tasks) => broadcast('evt:downloads', tasks)
+      (tasks) => broadcast('evt:downloads', tasks),
+      (request) => {
+        try {
+          integrationTasksRef.current?.startExport(request)
+        } catch (err) {
+          integrationTasksRef.current?.recordExportError(request, err)
+        }
+      }
     )
     // Cache cleanup must spare partials of still-resumable downloads.
     const cache = new CacheManager(
@@ -206,6 +269,7 @@ if (!gotLock) {
       broadcast: (tasks) => broadcast('evt:integrationTasks', tasks),
       notifications
     })
+    integrationTasksRef.current = integrationTasks
     const follows = new FollowsPoller(
       library,
       hub,
@@ -470,6 +534,8 @@ if (!gotLock) {
     const createAppWindow = (): BrowserWindow => createWindow(windowBackground())
     recreateWindow = createAppWindow
 
+    const launchRoute = routeFromLaunchArgs(process.argv, settings.get().hubEndpoint)
+    if (launchRoute) pendingRoute = launchRoute
     createAppWindow()
     follows.start()
 

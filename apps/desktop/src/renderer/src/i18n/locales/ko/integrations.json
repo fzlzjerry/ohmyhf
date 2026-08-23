@@ -2,6 +2,7 @@
   "export": {
     "comfyuiMissing": "ComfyUI 설치를 찾을 수 없습니다. COMFYUI_PATH를 설정하거나 홈 폴더에 ComfyUI를 설치하세요.",
     "copied": "{{path}}(으)로 내보냈습니다.",
+    "alreadyRunning": "이미 내보내기가 실행 중입니다.",
     "failed": "내보내기에 실패했습니다: {{error}}",
     "invalidPath": "잘못된 파일 경로: {{file}}",
     "notInCache": "{{file}}이(가) 아직 로컬 캐시에 없습니다 — 먼저 다운로드하세요.",

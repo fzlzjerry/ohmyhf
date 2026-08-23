@@ -34,6 +34,7 @@
     "toggleFullscreen": "Toggle Full Screen",
     "minimize": "Minimize",
     "close": "Close Window",
+    "home": "Home",
     "models": "Models",
     "datasets": "Datasets",
     "spaces": "Spaces",
@@ -43,6 +44,10 @@
     "cache": "Local Cache",
     "inbox": "Inbox",
     "history": "Browse History",
+    "collections": "Collections",
+    "myRepos": "My Repos",
+    "compare": "Compare",
+    "upload": "Upload",
     "github": "GitHub Repository",
     "reportIssue": "Report an Issue…",
     "disclaimer": "About & Disclaimer"

@@ -5,10 +5,12 @@
     "favorite": "즐겨찾기에 추가",
     "follow": "저장소 팔로우",
     "unfavorite": "즐겨찾기에서 제거",
-    "unfollow": "저장소 팔로우 취소"
+    "unfollow": "저장소 팔로우 취소",
+    "favoriteHint": "Save on this device — this is not a Hub like"
   },
   "card": {
-    "empty": "이 저장소에는 카드가 없습니다."
+    "empty": "이 저장소에는 카드가 없습니다.",
+    "offline": "Showing files from the local HF cache — the Hub is unreachable."
   },
   "datasetPreview": {
     "config": "구성",
@@ -86,7 +88,13 @@
   "favoriteRemoved": "즐겨찾기에서 제거되었습니다",
   "favoritesEmpty": {
     "body": "탐색하는 동안 저장소에 별표를 표시하면 여기에 고정됩니다.",
-    "title": "아직 즐겨찾기가 없습니다"
+    "title": "아직 즐겨찾기가 없습니다",
+    "hubBody": "Like a repository from the app (needs a Hub web session) or on the website, then it appears here.",
+    "hubSignedOutBody": "Sign in to see repositories you liked on the Hub.",
+    "hubSignedOutTitle": "Sign in to see Hub likes",
+    "hubTitle": "No Hub likes yet",
+    "likedOnHub": "Liked on the Hub",
+    "splitHint": "Saved stars stay on this device. Hub likes are the public likes on your account."
   },
   "files": {
     "download": "파일 다운로드",
@@ -95,7 +103,11 @@
     "exportTo": "{{tool}}(으)로 내보내기",
     "lfs": "LFS",
     "noTargets": "감지된 로컬 도구가 없습니다",
-    "root": "루트"
+    "root": "루트",
+    "clearSelection": "Clear",
+    "downloadSelected": "Download selected",
+    "selectFile": "Select {{file}}",
+    "selected": "{{count}} selected"
   },
   "gate": {
     "ask": "이 저장소는 게이트로 제한되어 있습니다 — 다운로드하고 미리 보려면 액세스를 요청하세요.",
@@ -220,19 +232,25 @@
     "columns_other": "{{count}}열",
     "unsupportedCodec": "이 파일은 미리 볼 수 없는 압축 코덱을 사용합니다. 로컬에서 열려면 다운로드하세요.",
     "unreadableTitle": "이 Parquet 파일을 읽을 수 없습니다",
-    "unreadableBody": "파일 메타데이터를 읽을 수 없습니다. 로컬에서 열려면 다운로드하세요."
+    "unreadableBody": "파일 메타데이터를 읽을 수 없습니다. 로컬에서 열려면 다운로드하세요.",
+    "rows_one": "{{count}} row",
+    "columns_one": "{{count}} column"
   },
   "csvPreview": {
     "rows_other": "{{count}}행",
     "columns_other": "{{count}}열",
-    "emptyHeader": "열 {{index}}"
+    "emptyHeader": "열 {{index}}",
+    "rows_one": "{{count}} row",
+    "columns_one": "{{count}} column"
   },
   "arrowPreview": {
     "rows_other": "{{count}}행",
     "columns_other": "{{count}}열",
     "prefixOnly": "이 파일의 처음 {{size}}만 미리보기용으로 불러왔습니다.",
     "unreadableTitle": "이 Arrow 파일을 읽을 수 없습니다",
-    "unreadableBody": "파일의 앞부분에서 Arrow/Feather 테이블을 구문 분석할 수 없습니다. 로컬에서 열려면 다운로드하세요."
+    "unreadableBody": "파일의 앞부분에서 Arrow/Feather 테이블을 구문 분석할 수 없습니다. 로컬에서 열려면 다운로드하세요.",
+    "rows_one": "{{count}} row",
+    "columns_one": "{{count}} column"
   },
   "ggufPreview": {
     "size": "파일 크기",
@@ -251,5 +269,28 @@
     "tooLargeBody": "{{size}}보다 큰 ONNX 파일은 여기서 미리 볼 수 없습니다(가중치가 내장되어 있는 경우가 많습니다). 로컬에서 확인하려면 다운로드하세요.",
     "unreadableTitle": "이 ONNX 파일을 읽을 수 없습니다",
     "unreadableBody": "ONNX 모델 protobuf를 디코딩할 수 없습니다. 로컬에서 열려면 다운로드하세요."
+  },
+  "edit": {
+    "action": "Edit",
+    "commit": "Commit",
+    "commitFailed": "Couldn't commit: {{error}}",
+    "committed": "Committed to {{branch}}.",
+    "createPr": "Commit to a new branch so you can open a pull request",
+    "defaultTitle": "Update {{file}}",
+    "message": "Commit message",
+    "needSignIn": "Sign in with a write token to commit from the app.",
+    "needWrite": "This token cannot write to the repository. Use a write or fine-grained token with write-repos.",
+    "openPr": "Open compare on the Hub",
+    "placeholder": "Edit the file…",
+    "title": "Edit {{file}}"
+  },
+  "intent": {
+    "download": "Download this file",
+    "downloadAll": "Download whole repo",
+    "downloadExport": "Download and export to {{tool}}",
+    "exportQueued": "Download started — export will run when it finishes",
+    "hint": "Pick the GGUF quant or weight file your local tool can load, instead of fetching the whole repository.",
+    "quant": "Weight file",
+    "title": "Get this model"
   }
 }

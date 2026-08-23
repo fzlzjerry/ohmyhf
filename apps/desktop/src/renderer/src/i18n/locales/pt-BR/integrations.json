@@ -2,6 +2,7 @@
   "export": {
     "comfyuiMissing": "Nenhuma instalação do ComfyUI foi detectada. Defina COMFYUI_PATH ou instale o ComfyUI na sua pasta pessoal.",
     "copied": "Exportado para {{path}}.",
+    "alreadyRunning": "Já existe uma exportação em andamento.",
     "failed": "Falha na exportação: {{error}}",
     "invalidPath": "Caminho de arquivo inválido: {{file}}",
     "notInCache": "{{file}} ainda não está no cache local — baixe-o primeiro.",
