@@ -20,7 +20,11 @@ const requireFrom = (dir) => createRequire(join(dir, 'package.json'))
 function resolveElectronViteCli() {
   for (const dir of [process.cwd(), root]) {
     try {
-      return join(dirname(requireFrom(dir).resolve('electron-vite/package.json')), 'bin', 'electron-vite.js')
+      return join(
+        dirname(requireFrom(dir).resolve('electron-vite/package.json')),
+        'bin',
+        'electron-vite.js'
+      )
     } catch {
       // try the next directory
     }
