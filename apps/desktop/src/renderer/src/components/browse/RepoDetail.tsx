@@ -24,11 +24,13 @@ import { RepoManagePanel } from '@/components/admin/RepoManagePanel'
 import { SpaceOpsPanel } from '@/components/admin/SpaceOpsPanel'
 import { DatasetPreview } from '@/components/browse/DatasetPreview'
 import { DiscussionsPanel } from '@/components/browse/DiscussionsPanel'
+import { DownloadIntentPanel } from '@/components/browse/DownloadIntentPanel'
 import { GatedAccessBar } from '@/components/browse/GatedAccessBar'
 import { FileTreeView } from '@/components/browse/FileTreeView'
 import { InfoPanel } from '@/components/browse/InfoPanel'
 import { MarkdownView } from '@/components/browse/MarkdownView'
 import { PlaygroundPanel } from '@/components/browse/PlaygroundPanel'
+import { EditFileButton, RepoFileEditor } from '@/components/browse/RepoFileEditor'
 import { SpaceRunner } from '@/components/browse/SpaceRunner'
 import { AddToCollectionMenu } from '@/components/collections/AddToCollectionMenu'
 import { LikeButton } from '@/components/community/LikeButton'
@@ -79,9 +81,27 @@ export function RepoDetail({
   })
   const readme = useQuery({
     queryKey: ['readme', kind, settledRepoId, endpointKey],
-    queryFn: () => invoke('hub:readme', { kind, repoId: settledRepoId }),
+    queryFn: async () => {
+      try {
+        const markdown = await invoke('hub:readme', { kind, repoId: settledRepoId })
+        return { markdown, source: 'hub' as const }
+      } catch (err) {
+        try {
+          const cached = await invoke('cache:readText', {
+            kind,
+            repoId: settledRepoId,
+            path: 'README.md'
+          })
+          if (cached) return { markdown: cached.content, source: 'cache' as const }
+        } catch {
+          /* keep the Hub error */
+        }
+        throw err
+      }
+    },
     enabled: queriesEnabled
   })
+  const [editingCard, setEditingCard] = useState(false)
   const favorites = useQuery({
     queryKey: ['favorites'],
     queryFn: () => invoke('favorites:list', undefined)
@@ -99,6 +119,7 @@ export function RepoDetail({
   const detailError = settledRepoId === repoId && detail.isError
   const readmeData = settledRepoId === repoId ? readme.data : undefined
   const readmeError = settledRepoId === repoId && readme.isError
+  const readmeMarkdown = readmeData?.markdown
 
   // Record browse history once the summary is known.
   useEffect(() => {
@@ -186,7 +207,10 @@ export function RepoDetail({
   // its value is no longer rendered (e.g. 'manage' on a repo you don't own).
   const tabKey = `${kind}:${repoId}`
   const [tabState, setTabState] = useState({ key: tabKey, value: 'card' })
-  if (tabState.key !== tabKey) setTabState({ key: tabKey, value: 'card' })
+  if (tabState.key !== tabKey) {
+    setTabState({ key: tabKey, value: 'card' })
+    if (editingCard) setEditingCard(false)
+  }
   // The discussion/PR currently open inside the Discussions tab, mirrored up
   // by the panel (cleared when it unmounts on tab switch or repo change).
   const [activeDiscussion, setActiveDiscussion] = useState<number | null>(null)
@@ -269,7 +293,7 @@ export function RepoDetail({
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              {isFavorite ? t('detail:actions.unfavorite') : t('detail:actions.favorite')}
+              {isFavorite ? t('detail:actions.unfavorite') : t('detail:actions.favoriteHint')}
             </TooltipContent>
           </Tooltip>
           <Tooltip>
@@ -321,19 +345,42 @@ export function RepoDetail({
           {isOwner && <TabsTrigger value="manage">{t('detail:tabs.manage')}</TabsTrigger>}
         </TabsList>
         <TabsContent value="card" className="min-h-0 flex-1 overflow-y-auto p-4">
-          {readmeError ? (
+          {kind === 'model' && (
+            <DownloadIntentPanel kind={kind} repoId={repoId} detail={detailData} />
+          )}
+          {readmeData?.source === 'cache' && (
+            <p className="mb-3 text-[12px] text-ink-faint">{t('detail:card.offline')}</p>
+          )}
+          {editingCard && readmeMarkdown !== undefined ? (
+            <RepoFileEditor
+              kind={kind}
+              repoId={repoId}
+              path="README.md"
+              initial={readmeMarkdown}
+              onClose={() => setEditingCard(false)}
+              onSaved={() => {
+                setEditingCard(false)
+                void readme.refetch()
+              }}
+            />
+          ) : readmeError ? (
             <div className="flex flex-col items-start gap-2">
               <p className="text-[13px] text-ink-muted">{t('common:error.generic')}</p>
               <Button variant="secondary" size="sm" onClick={() => void readme.refetch()}>
                 {t('common:retry')}
               </Button>
             </div>
-          ) : readmeData !== undefined ? (
-            readmeData.trim() === '' ? (
-              <p className="text-[13px] text-ink-muted">{t('detail:card.empty')}</p>
-            ) : (
-              <MarkdownView markdown={readmeData} kind={kind} repoId={repoId} />
-            )
+          ) : readmeMarkdown !== undefined ? (
+            <>
+              <div className="mb-3 flex justify-end">
+                <EditFileButton onClick={() => setEditingCard(true)} />
+              </div>
+              {readmeMarkdown.trim() === '' ? (
+                <p className="text-[13px] text-ink-muted">{t('detail:card.empty')}</p>
+              ) : (
+                <MarkdownView markdown={readmeMarkdown} kind={kind} repoId={repoId} />
+              )}
+            </>
           ) : (
             <div className="flex max-w-[72ch] flex-col gap-3">
               <Skeleton className="h-6 w-1/2" />

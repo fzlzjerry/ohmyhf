@@ -45,7 +45,12 @@
     "history": "Browserverlauf",
     "github": "GitHub-Repository",
     "reportIssue": "Problem melden…",
-    "disclaimer": "Über & Haftungsausschluss"
+    "disclaimer": "Über & Haftungsausschluss",
+    "home": "Start",
+    "collections": "Sammlungen",
+    "myRepos": "Meine Repos",
+    "compare": "Vergleichen",
+    "upload": "Hochladen"
   },
   "notifications": {
     "downloadComplete": "Download abgeschlossen",

@@ -20,18 +20,22 @@ services beyond the Hugging Face API itself. Your access token is encrypted with
 - **Browse** — Models / Datasets / Spaces / Daily Papers in a three-pane, keyboard-first UI with
   virtualized lists, instant model-card rendering (sanitized Markdown), file trees, and metadata.
 - **Search everything** — `Cmd/Ctrl+K` command palette: search, filter (task, library, license),
-  and sort (trending / likes / downloads).
+  sort (trending / likes / downloads), and open a pasted `huggingface.co` or `ohmyhf://` link.
 - **Sign in** — paste a Hugging Face User Access Token; it is encrypted at rest,
-  never stored in plaintext, never in `localStorage`.
+  never stored in plaintext, never in `localStorage`. Settings shows what the token can do
+  versus what still needs a Hub web session (likes, posts, profile).
 - **Download manager** — resumable, parallel, queued downloads with speed limiting, SHA-256
-  verification, and system notifications. Files land in the **standard HF cache layout**, fully
-  interoperable with `transformers`, `huggingface-cli`, and friends.
+  verification, and system notifications. Model cards offer a GGUF/quant picker and one-click
+  download + export to a detected Ollama / LM Studio / ComfyUI install. Files land in the
+  **standard HF cache layout**, fully interoperable with `transformers`, `huggingface-cli`,
+  and friends.
 - **Cache visualizer** — scan your HF cache, see disk usage per repo, and clean stale revisions
-  with one click.
+  with one click. Already-cached cards and files stay readable when the Hub is unreachable.
 - **Follow & inbox** — follow users/orgs/repos and Daily Papers; get system notifications.
 - **Compare** — 2–4 models side by side (params, license, downloads, likes).
-- **Upload & export** — scan and upload local folders safely; export downloaded files to Ollama,
-  LM Studio, or ComfyUI with progress and cancellation.
+- **Upload, export, and edit** — scan and upload local folders safely; export downloaded files
+  to Ollama, LM Studio, or ComfyUI with progress and cancellation; edit a README or small
+  text file and commit (or open a PR branch) from the card or file preview.
 - **History** — local, searchable browsing history with repository-type filters.
 - **i18n** — English and 简体中文 built in; adding a language is a single JSON folder.
 - **Dark & light themes**, native menus, and OS conventions on every platform.

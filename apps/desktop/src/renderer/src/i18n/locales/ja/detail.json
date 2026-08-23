@@ -5,10 +5,12 @@
     "favorite": "お気に入りに追加",
     "follow": "リポジトリをフォロー",
     "unfavorite": "お気に入りから削除",
-    "unfollow": "リポジトリのフォローを解除"
+    "unfollow": "リポジトリのフォローを解除",
+    "favoriteHint": "Save on this device — this is not a Hub like"
   },
   "card": {
-    "empty": "このリポジトリにはカードがありません。"
+    "empty": "このリポジトリにはカードがありません。",
+    "offline": "Showing files from the local HF cache — the Hub is unreachable."
   },
   "datasetPreview": {
     "config": "コンフィグ",
@@ -86,7 +88,13 @@
   "favoriteRemoved": "お気に入りから削除しました",
   "favoritesEmpty": {
     "body": "閲覧中にリポジトリにスターを付けると、ここに固定表示されます。",
-    "title": "まだお気に入りがありません"
+    "title": "まだお気に入りがありません",
+    "hubBody": "Like a repository from the app (needs a Hub web session) or on the website, then it appears here.",
+    "hubSignedOutBody": "Sign in to see repositories you liked on the Hub.",
+    "hubSignedOutTitle": "Sign in to see Hub likes",
+    "hubTitle": "No Hub likes yet",
+    "likedOnHub": "Liked on the Hub",
+    "splitHint": "Saved stars stay on this device. Hub likes are the public likes on your account."
   },
   "files": {
     "download": "ファイルをダウンロード",
@@ -95,7 +103,11 @@
     "exportTo": "{{tool}}にエクスポート",
     "lfs": "LFS",
     "noTargets": "ローカルツールが見つかりません",
-    "root": "root"
+    "root": "root",
+    "clearSelection": "Clear",
+    "downloadSelected": "Download selected",
+    "selectFile": "Select {{file}}",
+    "selected": "{{count}} selected"
   },
   "gate": {
     "ask": "このリポジトリは承認制です — ダウンロードとプレビューにはアクセスをリクエストしてください。",
@@ -220,19 +232,25 @@
     "columns_other": "{{count}}列",
     "unsupportedCodec": "このファイルはプレビューできない圧縮コーデックを使用しています。ダウンロードしてローカルで開いてください。",
     "unreadableTitle": "このParquetファイルを読み込めません",
-    "unreadableBody": "ファイルのメタデータを読み込めませんでした。ダウンロードしてローカルで開いてください。"
+    "unreadableBody": "ファイルのメタデータを読み込めませんでした。ダウンロードしてローカルで開いてください。",
+    "rows_one": "{{count}} row",
+    "columns_one": "{{count}} column"
   },
   "csvPreview": {
     "rows_other": "{{count}}行",
     "columns_other": "{{count}}列",
-    "emptyHeader": "列{{index}}"
+    "emptyHeader": "列{{index}}",
+    "rows_one": "{{count}} row",
+    "columns_one": "{{count}} column"
   },
   "arrowPreview": {
     "rows_other": "{{count}}行",
     "columns_other": "{{count}}列",
     "prefixOnly": "プレビュー用にこのファイルの先頭{{size}}のみが読み込まれました。",
     "unreadableTitle": "このArrowファイルを読み込めません",
-    "unreadableBody": "ファイルの先頭部分からArrow/Featherテーブルを解析できませんでした。ダウンロードしてローカルで開いてください。"
+    "unreadableBody": "ファイルの先頭部分からArrow/Featherテーブルを解析できませんでした。ダウンロードしてローカルで開いてください。",
+    "rows_one": "{{count}} row",
+    "columns_one": "{{count}} column"
   },
   "ggufPreview": {
     "size": "ファイルサイズ",
@@ -251,5 +269,28 @@
     "tooLargeBody": "{{size}}を超えるONNXファイルはここではプレビューできません(重みが埋め込まれていることが多いためです)。ダウンロードしてローカルで確認してください。",
     "unreadableTitle": "このONNXファイルを読み込めません",
     "unreadableBody": "ONNXモデルのprotobufをデコードできませんでした。ダウンロードしてローカルで開いてください。"
+  },
+  "edit": {
+    "action": "Edit",
+    "commit": "Commit",
+    "commitFailed": "Couldn't commit: {{error}}",
+    "committed": "Committed to {{branch}}.",
+    "createPr": "Commit to a new branch so you can open a pull request",
+    "defaultTitle": "Update {{file}}",
+    "message": "Commit message",
+    "needSignIn": "Sign in with a write token to commit from the app.",
+    "needWrite": "This token cannot write to the repository. Use a write or fine-grained token with write-repos.",
+    "openPr": "Open compare on the Hub",
+    "placeholder": "Edit the file…",
+    "title": "Edit {{file}}"
+  },
+  "intent": {
+    "download": "Download this file",
+    "downloadAll": "Download whole repo",
+    "downloadExport": "Download and export to {{tool}}",
+    "exportQueued": "Download started — export will run when it finishes",
+    "hint": "Pick the GGUF quant or weight file your local tool can load, instead of fetching the whole repository.",
+    "quant": "Weight file",
+    "title": "Get this model"
   }
 }

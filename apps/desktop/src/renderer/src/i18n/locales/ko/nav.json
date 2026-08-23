@@ -47,5 +47,8 @@
   "spaces": "Space",
   "toggleSidebar": "사이드바 접기/펼치기",
   "upload": "업로드",
-  "users": "사용자"
+  "users": "사용자",
+  "favoritesHub": "Liked on Hub",
+  "favoritesLocal": "Saved here",
+  "openHubLink": "Open {{route}}"
 }

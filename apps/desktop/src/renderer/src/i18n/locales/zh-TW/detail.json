@@ -2,13 +2,15 @@
   "actions": {
     "download": "下載",
     "downloadAll": "下載所有檔案",
-    "favorite": "加入我的最愛",
+    "favorite": "儲存到本機",
     "follow": "追蹤此儲存庫",
     "unfavorite": "從我的最愛移除",
-    "unfollow": "取消追蹤此儲存庫"
+    "unfollow": "取消追蹤此儲存庫",
+    "favoriteHint": "儲存到本機，不會變成 Hub 上的喜歡"
   },
   "card": {
-    "empty": "此儲存庫沒有說明卡片。"
+    "empty": "此儲存庫沒有說明卡片。",
+    "offline": "正在顯示本機 HF 快取中的檔案 — 目前無法連線 Hub。"
   },
   "datasetPreview": {
     "config": "組態",
@@ -85,8 +87,14 @@
   },
   "favoriteRemoved": "已從我的最愛移除",
   "favoritesEmpty": {
-    "body": "瀏覽時將儲存庫加星號，即可在此釘選收藏。",
-    "title": "尚無最愛項目"
+    "body": "瀏覽時點星即可釘在這裡。星號只留在本機；Hub 喜歡在另一個分頁。",
+    "title": "尚無最愛項目",
+    "hubBody": "在應用程式裡喜歡一個倉庫（需要 Hub 網頁工作階段）或在網站上喜歡後，會出現在這裡。",
+    "hubSignedOutBody": "登入後即可查看你在 Hub 上喜歡的倉庫。",
+    "hubSignedOutTitle": "登入以查看 Hub 喜歡",
+    "hubTitle": "還沒有 Hub 喜歡",
+    "likedOnHub": "在 Hub 上喜歡",
+    "splitHint": "星號儲存在這台裝置。Hub 喜歡是帳號上的公開喜歡。"
   },
   "files": {
     "download": "下載檔案",
@@ -95,7 +103,11 @@
     "exportTo": "匯出到 {{tool}}",
     "lfs": "LFS",
     "noTargets": "未偵測到本機工具",
-    "root": "根目錄"
+    "root": "根目錄",
+    "clearSelection": "清除",
+    "downloadSelected": "下載所選",
+    "selectFile": "選擇 {{file}}",
+    "selected": "已選 {{count}} 個"
   },
   "gate": {
     "ask": "此儲存庫受到限制——請求存取權限以下載並預覽內容。",
@@ -220,19 +232,25 @@
     "columns_other": "{{count}} 欄",
     "unsupportedCodec": "此檔案使用的壓縮編碼無法預覽，請下載後於本機開啟。",
     "unreadableTitle": "無法讀取此 Parquet 檔案",
-    "unreadableBody": "無法讀取此檔案的中繼資料，請下載後於本機開啟。"
+    "unreadableBody": "無法讀取此檔案的中繼資料，請下載後於本機開啟。",
+    "rows_one": "{{count}} row",
+    "columns_one": "{{count}} column"
   },
   "csvPreview": {
     "rows_other": "{{count}} 列",
     "columns_other": "{{count}} 欄",
-    "emptyHeader": "第 {{index}} 欄"
+    "emptyHeader": "第 {{index}} 欄",
+    "rows_one": "{{count}} row",
+    "columns_one": "{{count}} column"
   },
   "arrowPreview": {
     "rows_other": "{{count}} 列",
     "columns_other": "{{count}} 欄",
     "prefixOnly": "預覽僅載入此檔案的前 {{size}}。",
     "unreadableTitle": "無法讀取此 Arrow 檔案",
-    "unreadableBody": "無法從檔案開頭剖析 Arrow/Feather 資料表，請下載後於本機開啟。"
+    "unreadableBody": "無法從檔案開頭剖析 Arrow/Feather 資料表，請下載後於本機開啟。",
+    "rows_one": "{{count}} row",
+    "columns_one": "{{count}} column"
   },
   "ggufPreview": {
     "size": "檔案大小",
@@ -251,5 +269,28 @@
     "tooLargeBody": "超過 {{size}} 的 ONNX 檔案無法在此預覽（權重通常內嵌其中），請下載後於本機檢視。",
     "unreadableTitle": "無法讀取此 ONNX 檔案",
     "unreadableBody": "無法解碼此 ONNX 模型的 protobuf 內容，請下載後於本機開啟。"
+  },
+  "edit": {
+    "action": "編輯",
+    "commit": "提交",
+    "commitFailed": "無法提交：{{error}}",
+    "committed": "已提交到 {{branch}}。",
+    "createPr": "提交到新分支，方便在 Hub 上開 PR",
+    "defaultTitle": "更新 {{file}}",
+    "message": "提交說明",
+    "needSignIn": "使用具有寫入權限的權杖登入後才能從應用程式提交。",
+    "needWrite": "此權杖不能寫入該倉庫。請使用 write 或帶 write-repos 的精細權杖。",
+    "openPr": "在 Hub 上開啟比較頁",
+    "placeholder": "編輯檔案…",
+    "title": "編輯 {{file}}"
+  },
+  "intent": {
+    "download": "下載此檔案",
+    "downloadAll": "下載整個倉庫",
+    "downloadExport": "下載並匯出到 {{tool}}",
+    "exportQueued": "已開始下載 — 完成後會自動匯出",
+    "hint": "選擇本機工具能載入的 GGUF 量化或權重檔，而不必拉取整個倉庫。",
+    "quant": "權重檔",
+    "title": "取得這個模型"
   }
 }

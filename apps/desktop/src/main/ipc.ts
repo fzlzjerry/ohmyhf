@@ -38,6 +38,7 @@ import type { SettingsStore } from './settings'
 import type { UpdateManager } from './updater'
 import {
   cancelInference,
+  commitRepoFiles,
   detectExportTargets,
   runInference,
   runInferenceStream
@@ -295,6 +296,7 @@ export function registerIpcHandlers(ctx: AppContext): void {
   handle('hub:fileTree', ({ kind, repoId, revision, path }) =>
     ctx.hub.getFileTree(kind, repoId, revision, path)
   )
+  handle('hub:commitFiles', (req) => commitRepoFiles(req, ctx.auth.accessToken()))
   handle('hub:discussions', ({ kind, repoId, type, status, cursor }) =>
     ctx.hub.listDiscussions(kind, repoId, { type, status, cursor })
   )
@@ -524,6 +526,10 @@ export function registerIpcHandlers(ctx: AppContext): void {
 
   // --- cache -------------------------------------------------------------------------
   handle('cache:scan', () => ctx.cache.scan())
+  handle('cache:snapshot', ({ kind, repoId }) => ctx.cache.snapshot(kind, repoId))
+  handle('cache:readText', ({ kind, repoId, path, maxBytes }) =>
+    ctx.cache.readText(kind, repoId, path, maxBytes)
+  )
   handle('cache:deleteRevisions', ({ kind, repoId, commitHashes }) =>
     ctx.cache.deleteRevisions(kind, repoId, commitHashes)
   )

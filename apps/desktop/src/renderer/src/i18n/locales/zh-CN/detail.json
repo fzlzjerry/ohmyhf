@@ -2,13 +2,15 @@
   "actions": {
     "download": "下载",
     "downloadAll": "下载全部文件",
-    "favorite": "加入收藏",
+    "favorite": "保存到本机",
     "follow": "关注此仓库",
     "unfavorite": "取消收藏",
-    "unfollow": "取消关注"
+    "unfollow": "取消关注",
+    "favoriteHint": "保存到本机，不会变成 Hub 上的喜欢"
   },
   "card": {
-    "empty": "该仓库暂无卡片说明。"
+    "empty": "该仓库暂无卡片说明。",
+    "offline": "正在显示本地 HF 缓存中的文件 — 当前无法连接 Hub。"
   },
   "datasetPreview": {
     "config": "配置",
@@ -85,8 +87,14 @@
   },
   "favoriteRemoved": "已从收藏中移除",
   "favoritesEmpty": {
-    "body": "浏览时点亮星标，仓库就会固定在这里。",
-    "title": "还没有收藏"
+    "body": "浏览时点星即可钉在这里。星标只留在本机；Hub 喜欢在另一个标签页。",
+    "title": "还没有收藏",
+    "hubBody": "在应用里喜欢一个仓库（需要 Hub 网页会话）或在网站上喜欢后，会出现在这里。",
+    "hubSignedOutBody": "登录后即可查看你在 Hub 上喜欢的仓库。",
+    "hubSignedOutTitle": "登录以查看 Hub 喜欢",
+    "hubTitle": "还没有 Hub 喜欢",
+    "likedOnHub": "在 Hub 上喜欢",
+    "splitHint": "星标保存在这台设备。Hub 喜欢是账号上的公开喜欢。"
   },
   "files": {
     "download": "下载文件",
@@ -95,7 +103,11 @@
     "exportTo": "导出到 {{tool}}",
     "lfs": "LFS",
     "noTargets": "未检测到本地工具",
-    "root": "根目录"
+    "root": "根目录",
+    "clearSelection": "清除",
+    "downloadSelected": "下载所选",
+    "selectFile": "选择 {{file}}",
+    "selected": "已选 {{count}} 个"
   },
   "gate": {
     "ask": "该仓库需要申请访问——申请通过后才能下载和预览。",
@@ -220,19 +232,25 @@
     "columns_other": "{{count}} 列",
     "unsupportedCodec": "该文件使用了无法预览的压缩编码，请下载后在本地打开。",
     "unreadableTitle": "无法读取该 Parquet 文件",
-    "unreadableBody": "无法读取文件元数据，请下载后在本地打开。"
+    "unreadableBody": "无法读取文件元数据，请下载后在本地打开。",
+    "rows_one": "{{count}} row",
+    "columns_one": "{{count}} column"
   },
   "csvPreview": {
     "rows_other": "{{count}} 行",
     "columns_other": "{{count}} 列",
-    "emptyHeader": "列 {{index}}"
+    "emptyHeader": "列 {{index}}",
+    "rows_one": "{{count}} row",
+    "columns_one": "{{count}} column"
   },
   "arrowPreview": {
     "rows_other": "{{count}} 行",
     "columns_other": "{{count}} 列",
     "prefixOnly": "预览仅加载了文件前 {{size}}。",
     "unreadableTitle": "无法读取该 Arrow 文件",
-    "unreadableBody": "无法从文件前缀解析 Arrow/Feather 表，请下载后在本地打开。"
+    "unreadableBody": "无法从文件前缀解析 Arrow/Feather 表，请下载后在本地打开。",
+    "rows_one": "{{count}} row",
+    "columns_one": "{{count}} column"
   },
   "ggufPreview": {
     "size": "文件大小",
@@ -251,5 +269,28 @@
     "tooLargeBody": "超过 {{size}} 的 ONNX 文件无法在此预览（权重通常内嵌），请下载后在本地查看。",
     "unreadableTitle": "无法读取该 ONNX 文件",
     "unreadableBody": "无法解码 ONNX 模型，请下载后在本地打开。"
+  },
+  "edit": {
+    "action": "编辑",
+    "commit": "提交",
+    "commitFailed": "无法提交：{{error}}",
+    "committed": "已提交到 {{branch}}。",
+    "createPr": "提交到新分支，方便在 Hub 上开 PR",
+    "defaultTitle": "更新 {{file}}",
+    "message": "提交说明",
+    "needSignIn": "使用具有写权限的令牌登录后才能从应用内提交。",
+    "needWrite": "此令牌不能写入该仓库。请使用 write 或带 write-repos 的细粒度令牌。",
+    "openPr": "在 Hub 上打开比较页",
+    "placeholder": "编辑文件…",
+    "title": "编辑 {{file}}"
+  },
+  "intent": {
+    "download": "下载此文件",
+    "downloadAll": "下载整个仓库",
+    "downloadExport": "下载并导出到 {{tool}}",
+    "exportQueued": "已开始下载 — 完成后会自动导出",
+    "hint": "选择本地工具能加载的 GGUF 量化或权重文件，而不必拉取整个仓库。",
+    "quant": "权重文件",
+    "title": "获取这个模型"
   }
 }

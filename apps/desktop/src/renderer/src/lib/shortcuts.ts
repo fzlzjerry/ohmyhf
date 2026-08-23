@@ -1,3 +1,5 @@
+import { NAVIGATION_SHORTCUTS } from '@oh-my-huggingface/shared'
+
 export type ShortcutGroup = 'global' | 'navigation' | 'list' | 'palette'
 
 export interface ShortcutDef {
@@ -23,10 +25,10 @@ export function shortcutList(isMac: boolean): ShortcutDef[] {
     { group: 'global', labelKey: 'help', keys: ['?'] },
     { group: 'navigation', labelKey: 'back', keys: isMac ? [mod, '['] : ['Alt', '←'] },
     { group: 'navigation', labelKey: 'forward', keys: isMac ? [mod, ']'] : ['Alt', '→'] },
-    ...NAVIGATION_SHORTCUTS.map((item) => ({
+    ...NAVIGATION_SHORTCUTS.filter((item) => item.key !== undefined).map((item) => ({
       group: 'navigation' as const,
       labelKey: item.labelKey,
-      keys: [mod, item.key]
+      keys: [mod, item.key!]
     })),
     { group: 'list', labelKey: 'listNav', keys: ['↑', '↓', 'J', 'K'] },
     { group: 'list', labelKey: 'focusSearch', keys: ['/'] },
@@ -35,4 +37,3 @@ export function shortcutList(isMac: boolean): ShortcutDef[] {
     { group: 'palette', labelKey: 'paletteClose', keys: ['Esc'] }
   ]
 }
-import { NAVIGATION_SHORTCUTS } from '@oh-my-huggingface/shared'

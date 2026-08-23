@@ -8,14 +8,18 @@ const REPO_URL = 'https://github.com/oh-my-hf/ohmyhf'
 export function buildMenu(i18n: MainI18n, navigate: (route: string) => void): void {
   const t = (key: string): string => i18n.t(key)
   const isMac = process.platform === 'darwin'
-  const goItems = NAVIGATION_SHORTCUTS.flatMap<MenuItemConstructorOptions>((item, index) => [
-    ...(index === 4 ? [{ type: 'separator' as const }] : []),
-    {
-      label: t(item.menuKey),
-      accelerator: `CmdOrCtrl+${item.key}`,
-      click: () => navigate(item.route)
-    }
-  ])
+  const goItems = NAVIGATION_SHORTCUTS.flatMap<MenuItemConstructorOptions>((item, index, all) => {
+    const prev = all[index - 1]
+    const split = Boolean(prev?.key) !== Boolean(item.key)
+    return [
+      ...(index > 0 && split ? [{ type: 'separator' as const }] : []),
+      {
+        label: t(item.menuKey),
+        ...(item.key ? { accelerator: `CmdOrCtrl+${item.key}` } : {}),
+        click: () => navigate(item.route)
+      }
+    ]
+  })
 
   const showAbout = (): void => {
     void dialog.showMessageBox({

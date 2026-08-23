@@ -160,7 +160,13 @@
     "test": "Verbindung testen",
     "testFail": "Verbindung fehlgeschlagen: {{error}}",
     "testOk": "Erfolgreich mit dem Hub verbunden.",
-    "title": "Netzwerk"
+    "title": "Netzwerk",
+    "offlineHint": "Repositories already in the local HF cache stay readable when the Hub is unreachable.",
+    "presets": {
+      "hf-mirror": "hf-mirror.com",
+      "official": "Official (huggingface.co)"
+    },
+    "tokenWarning": "Your access token is sent only to the configured Hub endpoint. Use a mirror only if you trust its operator. Switching endpoints disconnects the Hub web session."
   },
   "notifications": {
     "enabled": "Systembenachrichtigungen",

@@ -6,10 +6,12 @@ import { Worker } from 'node:worker_threads'
 import { app } from 'electron'
 import { computeSpeedShare } from '@oh-my-huggingface/shared'
 import type {
+  DownloadAutoExport,
   DownloadFileState,
   DownloadRequest,
   DownloadStatus,
-  DownloadTask
+  DownloadTask,
+  ExportStartRequest
 } from '@oh-my-huggingface/shared'
 import type { HubClient } from '@oh-my-huggingface/hub-api'
 import { RESOLVE_PREFIX, defaultCacheDir, repoCachePaths } from '@oh-my-huggingface/hub-api'
@@ -83,6 +85,7 @@ interface ManagedDownloadTask extends DownloadTask {
   /** Main-process-only fields. Never returned by list() or broadcast over IPC. */
   environment?: DownloadEnvironment
   revisionSequence?: number
+  autoExport?: DownloadAutoExport
 }
 
 interface DownloadRow {
@@ -181,7 +184,8 @@ export class DownloadManager {
     private readonly hub: HubClient,
     private readonly notifications: NotificationService,
     private readonly getAuthToken: () => string | undefined,
-    private readonly broadcast: (tasks: DownloadTask[]) => void
+    private readonly broadcast: (tasks: DownloadTask[]) => void,
+    private readonly onAutoExport?: (request: ExportStartRequest) => void
   ) {
     this.loadPersisted()
   }
@@ -490,7 +494,20 @@ export class DownloadManager {
       for (const f of existing.files) covered.add(f.path)
     }
     const newFiles = files.filter((f) => !covered.has(f.path))
-    if (newFiles.length === 0) return this.list()
+    if (newFiles.length === 0) {
+      if (request.autoExport) {
+        for (const existing of this.tasks.values()) {
+          if (existing.repoId !== request.repoId || existing.kind !== request.kind) continue
+          if (existing.resolvedCommit !== resolvedCommit) continue
+          if (existing.status !== 'queued' && existing.status !== 'running') continue
+          if (existing.files.some((file) => file.path === request.autoExport?.filePath)) {
+            existing.autoExport = request.autoExport
+            break
+          }
+        }
+      }
+      return this.list()
+    }
 
     const task: ManagedDownloadTask = {
       id: randomUUID(),
@@ -506,6 +523,7 @@ export class DownloadManager {
       resumable: true,
       environment,
       revisionSequence,
+      autoExport: request.autoExport,
       createdAt: new Date().toISOString()
     }
     this.tasks.set(task.id, task)
@@ -743,6 +761,16 @@ export class DownloadManager {
       task.errorCode = undefined
       task.resumable = false
       this.runtimeAuthTokens.delete(task.id)
+      const pendingExport = task.autoExport
+      task.autoExport = undefined
+      if (pendingExport && this.onAutoExport) {
+        this.onAutoExport({
+          tool: pendingExport.tool,
+          kind: task.kind,
+          repoId: task.repoId,
+          filePath: pendingExport.filePath
+        })
+      }
       this.notifications.show(
         'notifications.downloadComplete',
         'notifications.downloadCompleteBody',

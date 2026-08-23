@@ -160,14 +160,21 @@
     "test": "接続をテスト",
     "testFail": "接続に失敗しました: {{error}}",
     "testOk": "Hubへの接続に成功しました。",
-    "title": "ネットワーク"
+    "title": "ネットワーク",
+    "offlineHint": "Repositories already in the local HF cache stay readable when the Hub is unreachable.",
+    "presets": {
+      "hf-mirror": "hf-mirror.com",
+      "official": "Official (huggingface.co)"
+    },
+    "tokenWarning": "Your access token is sent only to the configured Hub endpoint. Use a mirror only if you trust its operator. Switching endpoints disconnects the Hub web session."
   },
   "notifications": {
     "enabled": "システム通知",
     "minutes": "{{count}}分",
     "minutes_other": "{{count}}分",
     "pollInterval": "フォローを確認する間隔",
-    "title": "通知"
+    "title": "通知",
+    "minutes_one": "{{count}} min"
   },
   "privacy": {
     "cache": {

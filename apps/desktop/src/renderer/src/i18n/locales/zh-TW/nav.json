@@ -47,5 +47,8 @@
   "spaces": "Space",
   "toggleSidebar": "切換側邊欄",
   "upload": "上傳",
-  "users": "使用者"
+  "users": "使用者",
+  "favoritesHub": "Hub 喜歡",
+  "favoritesLocal": "本機收藏",
+  "openHubLink": "開啟 {{route}}"
 }

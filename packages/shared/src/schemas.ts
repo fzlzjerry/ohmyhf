@@ -559,7 +559,13 @@ export const ipcRequestSchemas: Partial<Record<IpcInvokeChannel, z.ZodTypeAny>> 
       repoId,
       kind: repoKind,
       revision: revision.optional(),
-      files: z.array(relPath).max(10000).optional()
+      files: z.array(relPath).max(10000).optional(),
+      autoExport: z
+        .object({
+          tool: z.enum(['ollama', 'lmstudio', 'comfyui']),
+          filePath: relPath
+        })
+        .optional()
     })
   }),
   'downloads:pause': z.object({ id: z.uuid() }),
@@ -567,6 +573,35 @@ export const ipcRequestSchemas: Partial<Record<IpcInvokeChannel, z.ZodTypeAny>> 
   'downloads:cancel': z.object({ id: z.uuid() }),
   'downloads:remove': z.object({ id: z.uuid() }),
   'downloads:reveal': z.object({ id: z.uuid() }),
+  'hub:commitFiles': z.object({
+    kind: repoKind,
+    repoId,
+    files: z
+      .array(
+        z.object({
+          path: relPath,
+          content: z.string().max(256 * 1024)
+        })
+      )
+      .min(1)
+      .max(5),
+    title: z.string().min(1).max(200),
+    description: z.string().max(4000).optional(),
+    branch: revision.optional(),
+    createPr: z.boolean().optional()
+  }),
+  'cache:snapshot': z.object({ kind: repoKind, repoId }),
+  'cache:readText': z.object({
+    kind: repoKind,
+    repoId,
+    path: relPath,
+    maxBytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(1024 * 1024)
+      .optional()
+  }),
   'cache:deleteRevisions': z.object({
     kind: repoKind,
     repoId,

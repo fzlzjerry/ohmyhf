@@ -68,6 +68,12 @@ linux:
   desktop:
     entry:
       StartupWMClass: oh-my-huggingface
+      MimeType: x-scheme-handler/ohmyhf
+
+protocols:
+  name: Oh My HuggingFace
+  schemes:
+    - ohmyhf
 
 # .deb already gets a fully sanitized name from dpkg tooling; only AppImage
 # needs the same space-free artifactName fix as mac/nsis above (scoped here,

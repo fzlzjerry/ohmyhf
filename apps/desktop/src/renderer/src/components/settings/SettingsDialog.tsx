@@ -281,6 +281,7 @@ function TokenSignInForm({ onDone }: { onDone?: () => void }): React.JSX.Element
   const setAuth = useAppStore((s) => s.setAuth)
   const endpoint = useAppStore((s) => s.settings.hubEndpoint)
   const [token, setToken] = useState('')
+  const [alsoConnect, setAlsoConnect] = useState(true)
   const [error, setError] = useState<'invalid' | 'forbidden' | 'network' | null>(null)
 
   const submit = useMutation({
@@ -290,6 +291,11 @@ function TokenSignInForm({ onDone }: { onDone?: () => void }): React.JSX.Element
         setAuth(result.state)
         setToken('')
         onDone?.()
+        if (alsoConnect && result.state.status === 'signedIn' && result.state.hubSession !== true) {
+          void invoke('auth:connectHubSession', undefined).then((session) => {
+            if (session.ok) setAuth(session.state)
+          })
+        }
       } else {
         setError(result.error)
       }
@@ -329,6 +335,15 @@ function TokenSignInForm({ onDone }: { onDone?: () => void }): React.JSX.Element
         )}
       </label>
       <p className="max-w-[65ch] text-[12px] text-ink-faint">{t('auth:tokenSignIn.hint')}</p>
+      <label className="flex items-center gap-2 text-[12.5px] text-ink">
+        <input
+          type="checkbox"
+          className="size-3.5 accent-select"
+          checked={alsoConnect}
+          onChange={(event) => setAlsoConnect(event.target.checked)}
+        />
+        {t('auth:tokenSignIn.alsoConnect')}
+      </label>
       <div className="flex flex-wrap items-center gap-2">
         <Button
           type="submit"
@@ -397,6 +412,30 @@ function TokenAccountBlock({
       <p className="max-w-[65ch] text-[12px] text-ink-faint">
         {t('settings:account.hub.tokenHint')}
       </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5 rounded-lg border border-border-card bg-card-gradient p-3">
+          <h4 className="text-[12px] font-semibold text-ink-strong">
+            {t('auth:capabilities.tokenTitle')}
+          </h4>
+          <ul className="flex list-disc flex-col gap-0.5 pl-4 text-[12px] text-ink-muted">
+            <li>{t('auth:capabilities.tokenDownload')}</li>
+            <li>{t('auth:capabilities.tokenGated')}</li>
+            <li>{t('auth:capabilities.tokenAdmin')}</li>
+            <li>{t('auth:capabilities.tokenDiscuss')}</li>
+          </ul>
+        </div>
+        <div className="flex flex-col gap-1.5 rounded-lg border border-border-card bg-card-gradient p-3">
+          <h4 className="text-[12px] font-semibold text-ink-strong">
+            {t('auth:capabilities.sessionTitle')}
+          </h4>
+          <ul className="flex list-disc flex-col gap-0.5 pl-4 text-[12px] text-ink-muted">
+            <li>{t('auth:capabilities.sessionLike')}</li>
+            <li>{t('auth:capabilities.sessionReact')}</li>
+            <li>{t('auth:capabilities.sessionPost')}</li>
+            <li>{t('auth:capabilities.sessionProfile')}</li>
+          </ul>
+        </div>
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
@@ -451,7 +490,9 @@ function HubSessionBlock({ connected }: { connected: boolean }): React.JSX.Eleme
         <h4 className="text-[12.5px] font-medium text-ink-strong">{t('auth:hubSession.title')}</h4>
         {connected && <Badge variant="success">{t('auth:hubSession.connected')}</Badge>}
       </div>
-      <p className="max-w-[65ch] text-[12px] text-ink-faint">{t('auth:hubSession.hint')}</p>
+      <p className="max-w-[65ch] text-[12px] text-ink-faint">
+        {connected ? t('auth:hubSession.hint') : t('auth:hubSession.nextStep')}
+      </p>
       {error !== null && <p className="text-[12px] text-error">{t(`auth:hubSession.${error}`)}</p>}
       <div className="flex flex-wrap items-center gap-2">
         {connected ? (

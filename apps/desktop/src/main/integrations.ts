@@ -9,4 +9,5 @@
 export type { Broadcast, ExportDeps, InferenceDeps } from './integrations/types'
 export { detectExportTargets, runExport } from './integrations/export'
 export { createRepoAndUpload } from './integrations/upload'
+export { commitRepoFiles } from './integrations/commit'
 export { cancelInference, runInference, runInferenceStream } from './integrations/inference'

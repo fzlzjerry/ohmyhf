@@ -2,7 +2,13 @@ import { join } from 'node:path'
 import { BrowserWindow, app, dialog, nativeTheme, protocol, shell } from 'electron'
 import { HubApiError } from '@oh-my-huggingface/hub-api'
 import type { IpcEventChannel, IpcEventPayload } from '@oh-my-huggingface/shared'
-import { isAllowedExternalUrl, isValidRepoId } from '@oh-my-huggingface/shared'
+import {
+  APP_PROTOCOL,
+  isAllowedExternalUrl,
+  isValidRepoId,
+  parseHubResource,
+  routeFromLaunchArgs
+} from '@oh-my-huggingface/shared'
 import { AuthManager } from './auth'
 import { mimeForOmhfFile } from './preview-mime'
 import { CacheManager } from './cache'
@@ -85,6 +91,16 @@ let recreateWindow: (() => BrowserWindow) | null = null
 // renderer has mounted and is actually listening for 'evt:navigate'.
 let pendingRoute: string | null = null
 
+function registerAppProtocol(): void {
+  if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient(APP_PROTOCOL, process.execPath, [process.argv[1]!])
+    }
+  } else {
+    app.setAsDefaultProtocolClient(APP_PROTOCOL)
+  }
+}
+
 function navigate(route: string): void {
   const win = BrowserWindow.getAllWindows()[0]
   if (!win) {
@@ -107,7 +123,21 @@ if (!gotLock) {
 } else {
   let isQuitting = false
 
-  app.on('second-instance', () => {
+  registerAppProtocol()
+
+  const enqueueLaunchRoute = (input: string | null): void => {
+    if (!input) return
+    const route = input.startsWith('/') ? input : parseHubResource(input)
+    if (route) navigate(route)
+  }
+
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    enqueueLaunchRoute(parseHubResource(url))
+  })
+
+  app.on('second-instance', (_event, argv) => {
+    enqueueLaunchRoute(routeFromLaunchArgs(argv))
     const win = BrowserWindow.getAllWindows()[0]
     if (win) {
       if (win.isMinimized()) win.restore()
@@ -182,13 +212,21 @@ if (!gotLock) {
 
     const library = new Library(db, () => settings.get().historyLimit)
     const notifications = new NotificationService(settings, i18n, navigate)
+    const integrationTasksRef: { current: IntegrationTaskManager | null } = { current: null }
     const downloads = new DownloadManager(
       db,
       settings,
       hub,
       notifications,
       () => auth.accessToken(),
-      (tasks) => broadcast('evt:downloads', tasks)
+      (tasks) => broadcast('evt:downloads', tasks),
+      (request) => {
+        try {
+          integrationTasksRef.current?.startExport(request)
+        } catch {
+          /* export already running or target missing — the download still succeeded */
+        }
+      }
     )
     // Cache cleanup must spare partials of still-resumable downloads.
     const cache = new CacheManager(
@@ -206,6 +244,7 @@ if (!gotLock) {
       broadcast: (tasks) => broadcast('evt:integrationTasks', tasks),
       notifications
     })
+    integrationTasksRef.current = integrationTasks
     const follows = new FollowsPoller(
       library,
       hub,
@@ -470,6 +509,8 @@ if (!gotLock) {
     const createAppWindow = (): BrowserWindow => createWindow(windowBackground())
     recreateWindow = createAppWindow
 
+    const launchRoute = routeFromLaunchArgs(process.argv)
+    if (launchRoute) pendingRoute = launchRoute
     createAppWindow()
     follows.start()
 

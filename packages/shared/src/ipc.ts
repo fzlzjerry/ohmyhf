@@ -12,6 +12,7 @@ import type {
   BillingUsage,
   TokenSignInResult,
   CacheReport,
+  CacheSnapshot,
   CollectionDetail,
   CollectionSummary,
   DatasetRows,
@@ -47,6 +48,8 @@ import type {
   PaperSummary,
   PostSummary,
   RepoAccessGate,
+  RepoCommitFile,
+  RepoCommitResult,
   RepoDetail,
   RepoKind,
   RepoSummary,
@@ -126,6 +129,22 @@ export interface IpcInvokeContract {
   'hub:fileTree': {
     req: { kind: RepoKind; repoId: string; revision?: string; path?: string }
     res: FileTreeEntry[]
+  }
+  /**
+   * Commit small text files (README / config) to a branch. `createPr` writes a
+   * new `omhf/edit-*` branch so the user can open a pull request on the Hub.
+   */
+  'hub:commitFiles': {
+    req: {
+      kind: RepoKind
+      repoId: string
+      files: RepoCommitFile[]
+      title: string
+      description?: string
+      branch?: string
+      createPr?: boolean
+    }
+    res: RepoCommitResult
   }
   'hub:discussions': {
     req: {
@@ -470,6 +489,12 @@ export interface IpcInvokeContract {
   'downloads:reveal': { req: { id: string }; res: void }
 
   'cache:scan': { req: void; res: CacheReport }
+  /** Latest cached snapshot, or null when this repo is not on disk. */
+  'cache:snapshot': { req: { kind: RepoKind; repoId: string }; res: CacheSnapshot | null }
+  'cache:readText': {
+    req: { kind: RepoKind; repoId: string; path: string; maxBytes?: number }
+    res: FileTextResult | null
+  }
   'cache:deleteRevisions': {
     req: { kind: RepoKind; repoId: string; commitHashes: string[] }
     res: CacheReport
@@ -542,6 +567,7 @@ export const IPC_INVOKE_CHANNELS = [
   'hub:repoDetail',
   'hub:readme',
   'hub:fileTree',
+  'hub:commitFiles',
   'hub:discussions',
   'hub:discussionDiff',
   'hub:posts',
@@ -646,6 +672,8 @@ export const IPC_INVOKE_CHANNELS = [
   'downloads:clearCompleted',
   'downloads:reveal',
   'cache:scan',
+  'cache:snapshot',
+  'cache:readText',
   'cache:deleteRevisions',
   'cache:cleanPartials',
   'cache:revealRepo',

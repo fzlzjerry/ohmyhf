@@ -47,5 +47,8 @@
   "spaces": "Spaces",
   "toggleSidebar": "收起/展开侧边栏",
   "upload": "上传",
-  "users": "用户"
+  "users": "用户",
+  "favoritesHub": "Hub 喜欢",
+  "favoritesLocal": "本机收藏",
+  "openHubLink": "打开 {{route}}"
 }

@@ -1,9 +1,25 @@
 import { existsSync } from 'node:fs'
-import { lstat, readFile, readdir, readlink, realpath, rm, unlink } from 'node:fs/promises'
+import {
+  lstat,
+  open,
+  readFile,
+  readdir,
+  readlink,
+  realpath,
+  rm,
+  stat,
+  unlink
+} from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { defaultCacheDir, repoCachePaths } from '@oh-my-huggingface/hub-api'
-import { isValidRepoId, type CacheReport, type RepoKind } from '@oh-my-huggingface/shared'
+import {
+  isValidRepoId,
+  type CacheReport,
+  type CacheSnapshot,
+  type FileTextResult,
+  type RepoKind
+} from '@oh-my-huggingface/shared'
 import type { SettingsStore } from './settings'
 
 const COMMIT_HASH = /^[0-9a-f]{40}$/
@@ -119,6 +135,20 @@ export class CacheManager {
   async cleanPartials(kind: RepoKind, repoId: string): Promise<CacheReport> {
     await deleteRepoPartials(this.cacheDir(), kind, repoId, this.protectedTaskIds())
     return this.scan()
+  }
+
+  /** Latest snapshot still on disk, or null when this repo has never been cached. */
+  async snapshot(kind: RepoKind, repoId: string): Promise<CacheSnapshot | null> {
+    return readCacheSnapshot(this.cacheDir(), kind, repoId)
+  }
+
+  async readText(
+    kind: RepoKind,
+    repoId: string,
+    path: string,
+    maxBytes = 512 * 1024
+  ): Promise<FileTextResult | null> {
+    return readCachedText(this.cacheDir(), kind, repoId, path, maxBytes)
   }
 }
 
@@ -474,4 +504,138 @@ async function lstatIfExists(path: string): Promise<Awaited<ReturnType<typeof ls
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error
+}
+
+export async function readCacheSnapshot(
+  cacheDir: string,
+  kind: RepoKind,
+  repoId: string
+): Promise<CacheSnapshot | null> {
+  const latest = await resolveLatestSnapshot(cacheDir, kind, repoId)
+  if (!latest) return null
+  const files: Array<{ path: string; size: number }> = []
+  await walkSnapshotFiles(latest.path, latest.path, latest.blobsDir, files)
+  return { commit: latest.commit, files }
+}
+
+export async function readCachedText(
+  cacheDir: string,
+  kind: RepoKind,
+  repoId: string,
+  filePath: string,
+  maxBytes: number
+): Promise<FileTextResult | null> {
+  const latest = await resolveLatestSnapshot(cacheDir, kind, repoId)
+  if (!latest) return null
+  if (!isSafeRelativeFilePath(filePath)) return null
+  const resolved = await resolveSnapshotFile(latest.path, latest.blobsDir, filePath)
+  if (!resolved) return null
+  const file = await open(resolved, 'r')
+  try {
+    const size = (await file.stat()).size
+    const length = Math.min(size, maxBytes)
+    const buffer = Buffer.alloc(length)
+    const { bytesRead } = await file.read(buffer, 0, length, 0)
+    return {
+      content: buffer.subarray(0, bytesRead).toString('utf8'),
+      truncated: size > maxBytes,
+      size
+    }
+  } finally {
+    await file.close()
+  }
+}
+
+async function resolveLatestSnapshot(
+  cacheDir: string,
+  kind: RepoKind,
+  repoId: string
+): Promise<{ commit: string; path: string; blobsDir: string | null } | null> {
+  const safeRepo = await resolveSafeRepo(cacheDir, kind, repoId)
+  if (!safeRepo?.snapshotsExist) return null
+  const snapshots = await inspectSnapshotDirectories(safeRepo)
+  if (snapshots.length === 0) return null
+
+  let preferred: string | undefined
+  if (safeRepo.refsExist) {
+    try {
+      preferred = (await readFile(join(safeRepo.refsDir, 'main'), 'utf8')).trim()
+    } catch {
+      const refs = await inspectRefFiles(safeRepo)
+      if (refs[0]) preferred = (await readFile(refs[0], 'utf8')).trim()
+    }
+  }
+  const named = preferred ? snapshots.find((snapshot) => snapshot.name === preferred) : undefined
+  const chosen = named ?? snapshots[0]
+  if (!chosen) return null
+  return {
+    commit: chosen.name,
+    path: chosen.path,
+    blobsDir: safeRepo.blobsExist ? safeRepo.blobsDir : null
+  }
+}
+
+function isSafeRelativeFilePath(path: string): boolean {
+  return path
+    .split('/')
+    .every(
+      (segment) =>
+        Boolean(segment) && segment !== '.' && segment !== '..' && !segment.includes('\\')
+    )
+}
+
+async function resolveSnapshotFile(
+  snapshotRoot: string,
+  blobsDir: string | null,
+  filePath: string
+): Promise<string | null> {
+  const target = resolve(snapshotRoot, ...filePath.split('/'))
+  const rel = relative(snapshotRoot, target)
+  if (rel === '' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null
+  const entry = await lstatIfExists(target)
+  if (!entry) return null
+  if (entry.isSymbolicLink()) {
+    if (!blobsDir) return null
+    const linked = resolve(dirname(target), await readlink(target))
+    assertContained(blobsDir, linked, `snapshot link ${filePath}`)
+    const real = await realpath(linked)
+    assertDirectChild(blobsDir, real, `snapshot link ${filePath}`)
+    return real
+  }
+  if (!entry.isFile()) return null
+  const real = await realpath(target)
+  assertContained(snapshotRoot, real, `snapshot file ${filePath}`)
+  return real
+}
+
+async function walkSnapshotFiles(
+  directory: string,
+  snapshotRoot: string,
+  blobsDir: string | null,
+  out: Array<{ path: string; size: number }>
+): Promise<void> {
+  for (const name of await readdir(directory)) {
+    const full = join(directory, name)
+    const entry = await lstat(full)
+    const rel = relative(snapshotRoot, full).split(sep).join('/')
+    if (entry.isDirectory()) {
+      const real = await realpath(full)
+      assertContained(snapshotRoot, real, `snapshot directory ${name}`)
+      await walkSnapshotFiles(real, snapshotRoot, blobsDir, out)
+      continue
+    }
+    if (entry.isSymbolicLink()) {
+      if (!blobsDir) continue
+      const linked = resolve(dirname(full), await readlink(full))
+      assertContained(blobsDir, linked, `snapshot link ${name}`)
+      const real = await realpath(linked)
+      assertDirectChild(blobsDir, real, `snapshot link ${name}`)
+      out.push({ path: rel, size: (await stat(real)).size })
+      continue
+    }
+    if (entry.isFile()) {
+      assertContained(snapshotRoot, await realpath(full), `snapshot file ${name}`)
+      out.push({ path: rel, size: entry.size })
+    }
+  }
 }

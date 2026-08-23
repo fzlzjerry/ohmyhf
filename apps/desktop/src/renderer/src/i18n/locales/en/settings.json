@@ -149,6 +149,12 @@
   "network": {
     "apply": "Apply",
     "description": "Override the Hub API base URL and optionally route traffic through an HTTP(S) proxy. Leave blank to use defaults.",
+    "offlineHint": "Repositories already in the local HF cache stay readable when the Hub is unreachable.",
+    "presets": {
+      "hf-mirror": "hf-mirror.com",
+      "official": "Official (huggingface.co)"
+    },
+    "tokenWarning": "Your access token is sent only to the configured Hub endpoint. Use a mirror only if you trust its operator. Switching endpoints disconnects the Hub web session.",
     "downloadWarning": "In-flight downloads may keep the previous endpoint or proxy until they are paused and resumed.",
     "hubEndpoint": "Hub endpoint",
     "invalidUrl": "Enter a valid http:// or https:// URL, or leave blank.",

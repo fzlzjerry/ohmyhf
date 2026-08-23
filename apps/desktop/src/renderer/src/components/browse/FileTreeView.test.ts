@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.stubGlobal('window', {
   matchMedia: () => ({ matches: false, addEventListener: () => {} })
 })
-const { exportToolsFor } = await import('./FileTreeView')
+const { exportToolsFor, treeFromSnapshot } = await import('./FileTreeView')
 
 describe('exportToolsFor', () => {
   it('offers all targets for GGUF files', () => {
@@ -25,5 +25,39 @@ describe('exportToolsFor', () => {
     expect(exportToolsFor('README.md')).toEqual([])
     expect(exportToolsFor('config.json')).toEqual([])
     expect(exportToolsFor('gguf')).toEqual([])
+  })
+})
+
+describe('treeFromSnapshot', () => {
+  it('collapses nested files into directories at the current path', () => {
+    const entries = treeFromSnapshot(
+      [
+        { path: 'README.md', size: 10 },
+        { path: 'weights/model-Q4_K_M.gguf', size: 40 },
+        { path: 'weights/model-Q8_0.gguf', size: 80 },
+        { path: 'tokenizer.json', size: 2 }
+      ],
+      ''
+    )
+    expect(entries.map((entry) => [entry.type, entry.path, entry.size])).toEqual([
+      ['directory', 'weights', 0],
+      ['file', 'README.md', 10],
+      ['file', 'tokenizer.json', 2]
+    ])
+  })
+
+  it('lists files inside a subdirectory', () => {
+    const entries = treeFromSnapshot(
+      [
+        { path: 'README.md', size: 10 },
+        { path: 'weights/model-Q4_K_M.gguf', size: 40 },
+        { path: 'weights/nested/extra.bin', size: 1 }
+      ],
+      'weights'
+    )
+    expect(entries.map((entry) => [entry.type, entry.path, entry.size])).toEqual([
+      ['directory', 'weights/nested', 0],
+      ['file', 'weights/model-Q4_K_M.gguf', 40]
+    ])
   })
 })

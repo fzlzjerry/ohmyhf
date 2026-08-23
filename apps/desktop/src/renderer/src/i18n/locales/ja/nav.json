@@ -47,5 +47,8 @@
   "spaces": "Space",
   "toggleSidebar": "サイドバーの表示切替",
   "upload": "アップロード",
-  "users": "ユーザー"
+  "users": "ユーザー",
+  "favoritesHub": "Liked on Hub",
+  "favoritesLocal": "Saved here",
+  "openHubLink": "Open {{route}}"
 }

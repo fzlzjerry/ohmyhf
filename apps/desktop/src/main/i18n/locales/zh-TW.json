@@ -45,7 +45,12 @@
     "history": "瀏覽紀錄",
     "github": "GitHub 儲存庫",
     "reportIssue": "回報問題…",
-    "disclaimer": "關於與免責聲明"
+    "disclaimer": "關於與免責聲明",
+    "home": "首頁",
+    "collections": "合集",
+    "myRepos": "我的倉庫",
+    "compare": "比較",
+    "upload": "上傳"
   },
   "notifications": {
     "downloadComplete": "下載完成",
