@@ -25,12 +25,29 @@ const FORMAT_EXT: Record<string, WeightFormat> = {
   bin: 'bin'
 }
 
-/** Quant token sitting between separators or before the extension. */
-const QUANT_RE = /(?:^|[-_.])((?:IQ|Q|F|BF)\d+(?:_[A-Z0-9]+)*|FP16|FP32|BF16)(?=[-_.]|\.|$)/i
-
 const SKIP_NAME = /(?:^|[._-])(optimizer|training_args|scheduler|rng_state)(?:[._-]|$)/i
 
 const PREFERRED_QUANTS = ['Q4_K_M', 'Q5_K_M', 'Q4_K_S', 'Q4_0', 'Q5_0', 'Q8_0', 'Q6_K']
+
+/** Hub paths are attacker-controlled; only a basename prefix is a quant label. */
+const MAX_QUANT_SCAN = 256
+
+const QUANT_ALIASES = ['FP16', 'FP32', 'BF16'] as const
+
+/** Longer prefixes first so IQ/BF win over Q/F. */
+const QUANT_PREFIXES = ['IQ', 'BF', 'Q', 'F'] as const
+
+function isQuantBoundary(ch: string | undefined): boolean {
+  return ch === undefined || ch === '-' || ch === '_' || ch === '.'
+}
+
+function isAsciiDigit(ch: string): boolean {
+  return ch >= '0' && ch <= '9'
+}
+
+function isAsciiAlnum(ch: string): boolean {
+  return (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z')
+}
 
 export function extensionOfPath(path: string): string {
   const name = path.split('/').at(-1) ?? path
@@ -38,10 +55,51 @@ export function extensionOfPath(path: string): string {
   return dot <= 0 ? '' : name.slice(dot + 1).toLowerCase()
 }
 
+/**
+ * Read a GGUF-style quant token (Q4_K_M, IQ4_XS, F16, …) from a filename.
+ * Left-to-right, no backtracking — a nested `_*` / `+` regex on Hub paths
+ * is polynomial (CodeQL js/polynomial-redos: `q9`+`_f0`, `q9_`+`0_f0_`).
+ */
 export function parseQuantLabel(path: string): string | undefined {
-  const name = path.split('/').at(-1) ?? path
-  const match = QUANT_RE.exec(name)
-  return match?.[1]?.toUpperCase()
+  const raw = path.split('/').at(-1) ?? path
+  const name = raw.length > MAX_QUANT_SCAN ? raw.slice(0, MAX_QUANT_SCAN) : raw
+  const upper = name.toUpperCase()
+
+  for (let i = 0; i < upper.length; i++) {
+    if (i > 0 && !isQuantBoundary(upper[i - 1])) continue
+
+    for (const alias of QUANT_ALIASES) {
+      if (upper.startsWith(alias, i) && isQuantBoundary(upper[i + alias.length])) {
+        return alias
+      }
+    }
+
+    for (const prefix of QUANT_PREFIXES) {
+      if (!upper.startsWith(prefix, i)) continue
+      let j = i + prefix.length
+      const firstDigit = upper[j]
+      if (firstDigit === undefined || !isAsciiDigit(firstDigit)) continue
+      j += 1
+      for (; j < upper.length; j++) {
+        const ch = upper[j]
+        if (ch === undefined || !isAsciiDigit(ch)) break
+      }
+
+      while (j < upper.length && upper[j] === '_') {
+        const start = j + 1
+        let k = start
+        for (; k < upper.length; k++) {
+          const ch = upper[k]
+          if (ch === undefined || !isAsciiAlnum(ch)) break
+        }
+        if (k === start) break
+        j = k
+      }
+
+      if (isQuantBoundary(upper[j])) return upper.slice(i, j)
+    }
+  }
+  return undefined
 }
 
 export function exportToolsForFormat(format: WeightFormat): ExportTool[] {

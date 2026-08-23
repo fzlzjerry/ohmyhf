@@ -12,11 +12,25 @@ describe('parseQuantLabel', () => {
     expect(parseQuantLabel('model-q5_k_s.gguf')).toBe('Q5_K_S')
     expect(parseQuantLabel('phi-3-mini-f16.gguf')).toBe('F16')
     expect(parseQuantLabel('weights.IQ4_XS.gguf')).toBe('IQ4_XS')
+    expect(parseQuantLabel('repo/foo_Q8_0.gguf')).toBe('Q8_0')
+    expect(parseQuantLabel('model-fp16.safetensors')).toBe('FP16')
+    expect(parseQuantLabel('weights.bf16.gguf')).toBe('BF16')
+    expect(parseQuantLabel('chunk.IQ2_XXS.gguf')).toBe('IQ2_XXS')
   })
 
   it('returns undefined when no quant token is present', () => {
     expect(parseQuantLabel('model.gguf')).toBeUndefined()
     expect(parseQuantLabel('README.md')).toBeUndefined()
+    expect(parseQuantLabel('Llama-3-8B-Instruct.gguf')).toBeUndefined()
+  })
+
+  it('stays linear on the CodeQL pump strings', () => {
+    const f0Pump = `q9${'_f0'.repeat(800)}.gguf`
+    const f0UnderscorePump = `q9_${'0_f0_'.repeat(400)}x.gguf`
+    const started = performance.now()
+    expect(parseQuantLabel(f0Pump)?.startsWith('Q9_F0')).toBe(true)
+    expect(parseQuantLabel(f0UnderscorePump)?.startsWith('Q9_0_F0')).toBe(true)
+    expect(performance.now() - started).toBeLessThan(50)
   })
 })
 
