@@ -63,10 +63,14 @@ interface RawRepo {
   trendingScore?: number
   safetensors?: { total?: number }
   cardData?: Record<string, unknown>
+  /** Canonical live-app URL, e.g. https://owner-name.hf.space or *.static.hf.space */
+  host?: string
+  /** Hub-assigned subdomain without the suffix, e.g. "owner-name". */
+  subdomain?: string
   runtime?: {
     stage?: string
     hardware?: { current?: string | null }
-    domains?: Array<{ domain?: string }>
+    domains?: Array<{ domain?: string; stage?: string }>
   }
   siblings?: Array<{ rfilename: string; size?: number }>
   sha?: string
@@ -87,6 +91,45 @@ function licenseFromTags(tags: string[] | undefined): string | undefined {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
+}
+
+function hostnameFromMaybeUrl(value: string | undefined): string | undefined {
+  const raw = optionalString(value)?.trim()
+  if (!raw) return undefined
+  try {
+    const url = raw.includes('://') ? new URL(raw) : new URL(`https://${raw}`)
+    return url.hostname || undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Hostname to iframe. `runtime.domains[0]` is often a stale rename/move alias
+ * that 404s; static Spaces live on `*.static.hf.space` with an empty domains
+ * list. The Hub `host` field is the current origin.
+ */
+function spaceEmbedHost(raw: RawRepo): string | undefined {
+  const fromHost = hostnameFromMaybeUrl(raw.host)
+  if (fromHost) return fromHost
+
+  const subdomain = optionalString(raw.subdomain)?.trim()
+  const domains = (raw.runtime?.domains ?? [])
+    .map((entry) => optionalString(entry.domain)?.trim())
+    .filter((domain): domain is string => Boolean(domain))
+
+  if (subdomain) {
+    const current = domains.find(
+      (domain) => domain === `${subdomain}.hf.space` || domain === `${subdomain}.static.hf.space`
+    )
+    if (current) return current
+    return `${subdomain}.hf.space`
+  }
+
+  const ready = raw.runtime?.domains?.find(
+    (entry) => entry.stage === 'READY' && optionalString(entry.domain)
+  )?.domain
+  return optionalString(ready) ?? domains[0]
 }
 
 export function mapRepoSummary(raw: RawRepo, kind: RepoKind): RepoSummary {
@@ -126,7 +169,7 @@ export function mapRepoDetail(raw: RawRepo, kind: RepoKind): RepoDetail {
   return {
     ...mapRepoSummary(raw, kind),
     sha: raw.sha,
-    spaceDomain: kind === 'space' ? raw.runtime?.domains?.[0]?.domain : undefined,
+    spaceDomain: kind === 'space' ? spaceEmbedHost(raw) : undefined,
     lastModified: raw.lastModified,
     cardData: raw.cardData,
     siblings: raw.siblings,

@@ -1,8 +1,9 @@
 /**
  * Cookie-session auth: the social writes the Hub blocks for Bearer tokens
- * (like, post reactions/comments, watch, discussion reactions) authenticate
- * with the huggingface.co `token` cookie instead. Endpoint shapes
- * live-captured 2026-07-11.
+ * (like, post reactions/comments, watch, discussion reactions) and the
+ * personalized following feed authenticate with the huggingface.co `token`
+ * cookie instead. Endpoint shapes live-captured 2026-07-11 (mutations) and
+ * 2026-08-23 (following feed).
  */
 import { describe, expect, it, vi } from 'vitest'
 import { CookieRequiredError, HubClient, isCookieRequired, isUnauthorized } from '../src'
@@ -677,6 +678,32 @@ describe('HubClient profile settings', () => {
     const fetchImpl = vi.fn<typeof fetch>()
     const client = new HubClient({ fetchImpl, ...FAST, getAccessToken: () => 'hf_token' })
     await expect(client.getProfileSettings()).rejects.toBeInstanceOf(CookieRequiredError)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+})
+
+describe('cookie-authenticated following feed', () => {
+  it('sends the session cookie and never the bearer token', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ recentActivity: [] }))
+    const feed = await cookieClient(fetchImpl).getRecentActivity()
+    expect(feed.items).toEqual([])
+    const { url, init } = requestOf(fetchImpl)
+    expect(url).toBe(
+      'https://huggingface.co/api/recent-activity?limit=30&feedType=following&activityType=all'
+    )
+    const headers = headersOf(init)
+    expect(headers.Cookie).toBe('token=session_cookie')
+    expect(headers.Authorization).toBeUndefined()
+    expect(headers.Origin).toBe('https://huggingface.co')
+  })
+
+  it('throws CookieRequiredError before any I/O when no web session is connected', async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+    const client = new HubClient({ fetchImpl, ...FAST, getAccessToken: () => 'hf_token' })
+    const attempt = client.getRecentActivity()
+    await expect(attempt).rejects.toBeInstanceOf(CookieRequiredError)
+    await expect(attempt).rejects.toSatisfy(isCookieRequired)
+    await expect(attempt).rejects.toSatisfy((err) => !isUnauthorized(err))
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 })

@@ -90,7 +90,7 @@ export interface RepoSummary {
 
 export interface RepoDetail extends RepoSummary {
   sha?: string
-  /** Spaces only: the *.hf.space host serving the app (for in-app embedding). */
+  /** Spaces only: hostname of the live app (*.hf.space or *.static.hf.space). */
   spaceDomain?: string
   lastModified?: string
   cardData?: Record<string, unknown>

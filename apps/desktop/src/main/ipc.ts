@@ -304,7 +304,7 @@ export function registerIpcHandlers(ctx: AppContext): void {
     ctx.hub.getDiscussionDiff(kind, repoId, num)
   )
   handle('hub:posts', (req) => ctx.hub.getPosts(req?.cursor))
-  handle('hub:recentActivity', (req) => ctx.hub.getRecentActivity(req?.cursor))
+  handle('hub:recentActivity', (req) => cookieBacked(() => ctx.hub.getRecentActivity(req?.cursor)))
   handle('hub:postDetail', ({ author, slug }) => ctx.hub.getPostDetail(author, slug))
   handle('hub:userOverview', ({ username }) => ctx.hub.getUserOverview(username))
   handle('hub:userFollowing', ({ username }) => ctx.hub.getUserFollowing(username))

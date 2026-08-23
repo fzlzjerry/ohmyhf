@@ -18,6 +18,7 @@ import { PaperRow, PostCard, RepoEventRow } from '@/components/home/FeedItems'
 import { ActivityCard } from '@/components/home/ActivityFeedItems'
 import { TrendingRail } from '@/components/home/TrendingRail'
 import { PostComposer } from '@/components/community/PostComposer'
+import { useHubSession } from '@/hooks/use-hub-session'
 import { resolveLocale, useAppStore } from '@/stores/app'
 
 const STALE_TIME = 5 * 60_000
@@ -68,20 +69,20 @@ export function HomePage(): React.JSX.Element {
   // local follows extend it (and are the only source when signed out).
   const auth = useAppStore((s) => s.auth)
   const me = auth.status === 'signedIn' ? auth.user.name : undefined
-  const signedIn = auth.status === 'signedIn'
+  const hubSession = useHubSession()
 
   // The real huggingface.co home feed: the signed-in account's personalized
-  // "following" activity stream. Primary when signed in and the Hub returns it;
-  // the merged posts/repos/papers feed below is the fallback (and the signed-out
-  // experience).
+  // "following" activity stream. The Hub rejects Bearer tokens here (401), so
+  // this waits for a Hub web session; the merged posts/repos/papers feed is
+  // the fallback (token-only and signed-out).
   const recentActivity = useQuery({
     queryKey: ['home', 'recent-activity', endpointKey],
-    enabled: signedIn,
+    enabled: hubSession,
     staleTime: STALE_TIME,
     queryFn: () => invoke('hub:recentActivity', {})
   })
   const activityItems = recentActivity.data?.items ?? []
-  const personalized = signedIn && recentActivity.isSuccess && activityItems.length > 0
+  const personalized = hubSession && recentActivity.isSuccess && activityItems.length > 0
 
   const hubFollowing = useQuery({
     queryKey: ['hub-following', me, endpointKey],
@@ -183,7 +184,8 @@ export function HomePage(): React.JSX.Element {
   // while it loads, and only fall through to the merged feed once it settles
   // empty or errored.
   const showSkeleton =
-    (signedIn && recentActivity.isPending) || (!personalized && feed.length === 0 && sourcesPending)
+    (hubSession && recentActivity.isPending) ||
+    (!personalized && feed.length === 0 && sourcesPending)
   const followSourcesSettled = follows.isSuccess && (!me || hubFollowing.isSuccess)
   // The "follow someone" nudge only applies to the fallback feed, not the
   // personalized stream (which already reflects the Hub following list).

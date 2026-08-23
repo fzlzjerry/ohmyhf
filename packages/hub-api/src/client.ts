@@ -451,11 +451,12 @@ export class HubClient {
   /**
    * `auth: 'cookie'` authenticates as the Hub web session instead of the
    * Bearer token — required for the social writes the Hub blocks for tokens
-   * (like, post reactions/comments, watch, discussion reactions; all
-   * live-verified 2026-07-11). Cookie requests deliberately omit
-   * Authorization (the Hub would prefer the header and 401), and carry
-   * Origin/Referer like the first-party web app. Throws CookieRequiredError
-   * before any I/O when no web session is connected.
+   * (like, post reactions/comments, watch, discussion reactions; live-verified
+   * 2026-07-11) and for the personalized following feed GET (Bearer returns
+   * 401 "Invalid username or password"; live-verified 2026-08-23). Cookie
+   * requests deliberately omit Authorization (the Hub would prefer the header
+   * and 401), and carry Origin/Referer like the first-party web app. Throws
+   * CookieRequiredError before any I/O when no web session is connected.
    */
   private headers(
     url: string,
@@ -476,9 +477,10 @@ export class HubClient {
     return h
   }
 
-  private cacheKey(url: string): string {
-    // Token presence changes responses (private/gated repos), so partition the
-    // cache. The web-session cookie is mutation-only and never affects GETs.
+  private cacheKey(url: string, auth: 'token' | 'cookie' = 'token'): string {
+    // Token presence changes private/gated GETs. Cookie GETs (following feed)
+    // are account-specific and must not share the token/anon partition.
+    if (auth === 'cookie') return `cookie:${url}`
     return `${this.getAccessToken() ? 'auth' : 'anon'}:${url}`
   }
 
@@ -576,13 +578,14 @@ export class HubClient {
 
   private async getJson<T>(
     url: string,
-    opts: { ttl?: number } = {}
+    opts: { ttl?: number; auth?: 'token' | 'cookie' } = {}
   ): Promise<{
     body: T
     nextUrl?: string
   }> {
     const ttl = opts.ttl ?? this.cacheTtlMs
-    const key = this.cacheKey(url)
+    const auth = opts.auth ?? 'token'
+    const key = this.cacheKey(url, auth)
     const hit = this.cache.get(key)
     if (hit && Date.now() - hit.at < ttl) {
       return { body: hit.body as T, nextUrl: hit.nextUrl }
@@ -591,7 +594,7 @@ export class HubClient {
     const inflightKey = `json:${key}`
     const pending = this.inflight.get(inflightKey)
     if (pending) return pending as Promise<{ body: T; nextUrl?: string }>
-    const request = this.fetchJson<T>(url, key, ttl).finally(() => {
+    const request = this.fetchJson<T>(url, key, ttl, auth).finally(() => {
       this.inflight.delete(inflightKey)
     })
     this.inflight.set(inflightKey, request)
@@ -601,10 +604,11 @@ export class HubClient {
   private async fetchJson<T>(
     url: string,
     key: string,
-    ttl: number
+    ttl: number,
+    auth: 'token' | 'cookie' = 'token'
   ): Promise<{ body: T; nextUrl?: string }> {
     try {
-      const res = await this.fetchWithPolicy(url, { headers: this.headers(url) })
+      const res = await this.fetchWithPolicy(url, { headers: this.headers(url, auth) })
       if (!res.ok) await this.throwHttpError(res, 'GET', url)
       const body = (await res.json()) as T
       const nextUrl = parseLinkNext(res.headers.get('Link'))
@@ -834,13 +838,18 @@ export class HubClient {
 
   /**
    * Personalized "following" activity feed — the real huggingface.co home feed.
-   * Requires a signed-in token (it's account-specific). Paginates by an opaque
-   * cursor plus an advancing skip; `cursor` in the return is the next-page URL.
+   * Live-verified 2026-08-23: Bearer access tokens get 401 "Invalid username or
+   * password" (same as likes/comments). Cookie-session only. Paginates by an
+   * opaque cursor plus an advancing skip; `cursor` in the return is the
+   * next-page URL.
    */
   async getRecentActivity(cursor?: string): Promise<ActivityFeed> {
     const url =
       cursor ?? `${this.endpoint}/api/recent-activity?limit=30&feedType=following&activityType=all`
-    const { body } = await this.getJson<{ recentActivity?: unknown[]; cursor?: string }>(url)
+    if (!this.getSessionCookie() || !this.allowsAuth(url)) throw new CookieRequiredError(url)
+    const { body } = await this.getJson<{ recentActivity?: unknown[]; cursor?: string }>(url, {
+      auth: 'cookie'
+    })
     const feed = mapActivityFeed(body as never, this.endpoint)
     let nextCursor: string | undefined
     if (feed.cursor && (body.recentActivity?.length ?? 0) > 0) {
