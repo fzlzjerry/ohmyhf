@@ -84,6 +84,45 @@ export interface IpcInvokeContract {
   'settings:selectCacheDir': { req: void; res: AppSettings | null }
   'settings:resetCacheDir': { req: void; res: AppSettings }
 
+  /** Atomically reserves the one-time, opt-in telemetry explanation card. */
+  'telemetry:claimConsentPrompt': {
+    req: void
+    res: { show: false } | { show: true; claimId: string }
+  }
+  /** Confirms that the reserved consent card reached a visible renderer. */
+  'telemetry:acknowledgeConsentPrompt': {
+    req: { claimId: string }
+    res: { accepted: false; newlyAccepted: false } | { accepted: true; newlyAccepted: boolean }
+  }
+
+  /** Claims a rate-limited GitHub Star reminder after meaningful local use. */
+  'starReminder:claim': {
+    req: void
+    res: { show: false } | { show: true; claimId: string }
+  }
+  /** Confirms that a claimed reminder reached a visible, foreground renderer. */
+  'starReminder:acknowledgeShown': {
+    req: { claimId: string }
+    res: { accepted: false } | { accepted: true; promptNumber: number; newlyAccepted: boolean }
+  }
+  /** Atomically records one outcome; only the accepted `open` reply launches the browser. */
+  'starReminder:respond': {
+    req: { claimId: string; action: 'open' | 'later' | 'disable' }
+    res:
+      | { accepted: false }
+      | {
+          accepted: true
+          outcome: 'snoozed' | 'exhausted' | 'disabled'
+          promptNumber: number
+        }
+      | {
+          accepted: true
+          outcome: 'opened'
+          promptNumber: number
+          externalOpened: boolean
+        }
+  }
+
   /** Wipe selected app SQLite library tables; optional Hub sign-out. Never deletes HF cache files. */
   'privacy:clearLocalData': {
     req: {
@@ -557,6 +596,11 @@ export const IPC_INVOKE_CHANNELS = [
   'settings:set',
   'settings:selectCacheDir',
   'settings:resetCacheDir',
+  'telemetry:claimConsentPrompt',
+  'telemetry:acknowledgeConsentPrompt',
+  'starReminder:claim',
+  'starReminder:acknowledgeShown',
+  'starReminder:respond',
   'settings:export',
   'settings:import',
   'privacy:clearLocalData',

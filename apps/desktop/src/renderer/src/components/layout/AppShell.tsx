@@ -10,6 +10,7 @@ import { ShortcutsHelpDialog } from '@/components/ShortcutsHelpDialog'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { TopBar } from '@/components/layout/TopBar'
 import { SettingsDialog } from '@/components/settings/SettingsDialog'
+import { CommunityPrompt } from '@/components/CommunityPrompt'
 import { useIpcEvent } from '@/hooks/use-ipc-event'
 import { invoke } from '@/lib/ipc'
 import { APP_UPDATE_QUERY_KEY } from '@/lib/query'
@@ -244,7 +245,9 @@ export function AppShell(): React.JSX.Element {
       <CommandPalette />
       <SettingsDialog />
       <ShortcutsHelpDialog />
-      <Toaster />
+      <Toaster>
+        <CommunityPrompt />
+      </Toaster>
     </TooltipProvider>
   )
 }

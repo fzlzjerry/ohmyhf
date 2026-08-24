@@ -15,7 +15,7 @@ import type {
   IpcResponse
 } from '@oh-my-huggingface/shared'
 import {
-  DEFAULT_SETTINGS,
+  PROJECT_REPOSITORY_URL,
   SUPPORTED_LOCALES,
   isAllowedExternalUrl,
   ipcRequestSchemas,
@@ -35,6 +35,9 @@ import type { IntegrationTaskManager } from './integration-tasks'
 import type { Library } from './library'
 import { clearLocalAppData } from './privacy'
 import type { SettingsStore } from './settings'
+import { portableSettingsForExport, settingsFromImport } from './settings-transfer'
+import type { StarReminderService } from './star-reminder'
+import type { TelemetryService } from './telemetry'
 import type { UpdateManager } from './updater'
 import {
   cancelInference,
@@ -50,6 +53,9 @@ export interface AppContext {
   hub: HubClient
   auth: AuthManager
   settings: SettingsStore
+  telemetry: TelemetryService
+  starReminder: StarReminderService
+  starReminderEnabled: boolean
   library: Library
   downloads: DownloadManager
   cache: CacheManager
@@ -97,11 +103,39 @@ async function applySettingsPatch(
   patch: Partial<AppSettings>
 ): Promise<AppSettings> {
   const prev = ctx.settings.get()
-  const next = ctx.settings.set(patch)
+  const telemetryWasEnabled = prev.telemetryEnabled === true
+  const explicitTelemetryOptIn = !telemetryWasEnabled && patch.telemetryEnabled === true
+  if (explicitTelemetryOptIn) {
+    if (!ctx.telemetry.isConfigured()) {
+      throw new Error('Telemetry is not configured in this build')
+    }
+    if (!ctx.telemetry.prepareIdentityForOptIn()) {
+      throw new Error('Could not create the local telemetry identifier')
+    }
+  }
+
+  let next: AppSettings
+  try {
+    next = ctx.settings.set(patch)
+  } catch (error) {
+    if (explicitTelemetryOptIn) ctx.telemetry.clearIdentity()
+    throw error
+  }
+  const telemetryIsEnabled = next.telemetryEnabled === true
+  if (telemetryWasEnabled && !telemetryIsEnabled) {
+    // Stop and erase the pseudonymous identity before any unrelated, fallible
+    // network or desktop side effect can interrupt the opt-out path.
+    ctx.telemetry.clearIdentity()
+  }
   const locale = next.locale === 'system' ? matchLocale(app.getLocale()) : next.locale
   if (SUPPORTED_LOCALES.includes(locale) && locale !== ctx.i18n.getLocale()) {
     ctx.i18n.setLocale(locale)
     ctx.rebuildMenu()
+  }
+  if (!telemetryWasEnabled && telemetryIsEnabled) {
+    // Queue the consent event before an unrelated combined proxy patch can
+    // fail. The transport itself reads the already-persisted current proxy.
+    void ctx.telemetry.capture('telemetry_enabled')
   }
   await ctx.applyNetworkSettings(
     { hubEndpoint: next.hubEndpoint, proxyUrl: next.proxyUrl },
@@ -202,17 +236,106 @@ export function registerIpcHandlers(ctx: AppContext): void {
   })
   handle('settings:resetCacheDir', () => applySettingsPatch(ctx, { hfCacheDir: null }))
 
+  // --- community -------------------------------------------------------------
+  handle('telemetry:claimConsentPrompt', () => {
+    const claim = ctx.telemetry.claimConsentPrompt()
+    return claim ? { show: true as const, claimId: claim.claimId } : { show: false as const }
+  })
+  handle('telemetry:acknowledgeConsentPrompt', ({ claimId }) =>
+    ctx.telemetry.acknowledgeConsentPrompt(claimId)
+  )
+  handle('starReminder:claim', () => {
+    if (!ctx.starReminderEnabled) return { show: false as const }
+    try {
+      const claim = ctx.starReminder.claim()
+      if (!claim) return { show: false as const }
+      return { show: true as const, claimId: claim.claimId }
+    } catch {
+      return { show: false as const }
+    }
+  })
+  handle('starReminder:acknowledgeShown', ({ claimId }) => {
+    if (!ctx.starReminderEnabled) return { accepted: false as const }
+    try {
+      const acknowledged = ctx.starReminder.acknowledgeShown(claimId)
+      if (acknowledged.accepted && acknowledged.newlyAccepted) {
+        void ctx.telemetry.capture('star_prompt_shown', {
+          prompt_number: acknowledged.promptNumber,
+          action: 'shown'
+        })
+      }
+      return acknowledged
+    } catch {
+      return { accepted: false as const }
+    }
+  })
+  handle('starReminder:respond', async ({ claimId, action }) => {
+    if (!ctx.starReminderEnabled) return { accepted: false as const }
+
+    // The token check and state transition are one IMMEDIATE transaction. Only
+    // its winner performs a browser side effect or emits outcome telemetry.
+    const result = ctx.starReminder.respond(claimId, action)
+    if (!result.accepted) return result
+
+    if (result.outcome === 'opened') {
+      let externalOpened = false
+      try {
+        await shell.openExternal(PROJECT_REPOSITORY_URL)
+        externalOpened = true
+        void ctx.telemetry.capture('star_prompt_opened', {
+          prompt_number: result.promptNumber,
+          action: 'open'
+        })
+      } catch {
+        // The atomic response is still consumed; the renderer reports a generic
+        // browser-launch error instead of retrying the already-used claim token.
+      }
+      return { ...result, externalOpened }
+    }
+
+    if (result.outcome === 'snoozed') {
+      void ctx.telemetry.capture('star_prompt_snoozed', {
+        prompt_number: result.promptNumber,
+        action: 'later'
+      })
+      return {
+        accepted: true as const,
+        outcome: 'snoozed' as const,
+        promptNumber: result.promptNumber
+      }
+    }
+    if (result.outcome === 'exhausted') {
+      void ctx.telemetry.capture('star_prompt_exhausted', {
+        prompt_number: 2,
+        action: 'exhausted'
+      })
+      return {
+        accepted: true as const,
+        outcome: 'exhausted' as const,
+        promptNumber: result.promptNumber
+      }
+    }
+    void ctx.telemetry.capture('star_prompt_disabled', {
+      prompt_number: result.promptNumber,
+      action: 'disable'
+    })
+    return {
+      accepted: true as const,
+      outcome: 'disabled' as const,
+      promptNumber: result.promptNumber
+    }
+  })
+
   handle('settings:export', async () => {
     const result = await dialog.showSaveDialog({
       defaultPath: 'ohmyhf-settings.json',
       filters: [{ name: 'JSON', extensions: ['json'] }]
     })
     if (result.canceled || !result.filePath) return { canceled: true as const }
-    const { hfCacheDir: _machineCacheDir, ...portableSettings } = ctx.settings.get()
     const payload = {
       version: 1 as const,
       exportedAt: new Date().toISOString(),
-      settings: portableSettings
+      settings: portableSettingsForExport(ctx.settings.get())
     }
     await writeFile(result.filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8')
     return { canceled: false as const, path: result.filePath }
@@ -233,12 +356,10 @@ export function registerIpcHandlers(ctx: AppContext): void {
     }
     const parsed = settingsExportFileSchema.safeParse(raw)
     if (!parsed.success) throw new Error('Invalid settings file')
-    const prev = ctx.settings.get()
-    const next = await applySettingsPatch(ctx, {
-      ...DEFAULT_SETTINGS,
-      ...parsed.data.settings,
-      hfCacheDir: prev.hfCacheDir
-    })
+    const next = await applySettingsPatch(
+      ctx,
+      settingsFromImport(ctx.settings.get(), parsed.data.settings)
+    )
     return { canceled: false as const, settings: next }
   })
 
@@ -248,8 +369,10 @@ export function registerIpcHandlers(ctx: AppContext): void {
       ['favorites', 'history', 'downloads', 'follows', 'inbox', 'otherKv'] as const
     ).some((key) => req[key] !== undefined)
     const clearDownloads = selective ? req.downloads === true : true
+    const clearOtherKv = selective ? req.otherKv === true : true
     if (clearDownloads) ctx.downloads.clearAll()
     clearLocalAppData(ctx.db, req)
+    if (clearOtherKv) ctx.telemetry.clearIdentity()
     if (signOut) {
       await ctx.auth.signOut()
     }

@@ -15,7 +15,13 @@ import { CacheManager } from './cache'
 import { openDatabase } from './db'
 import { DownloadManager } from './downloads'
 import { FollowsPoller } from './follows'
-import { createHubClient, createHubProxy, rebuildHubClient, type HubHolder } from './hub'
+import {
+  createFailClosedDynamicProxiedFetch,
+  createHubClient,
+  createHubProxy,
+  rebuildHubClient,
+  type HubHolder
+} from './hub'
 import { MainI18n, matchLocale } from './i18n'
 import { IntegrationTaskManager } from './integration-tasks'
 import { registerIpcHandlers } from './ipc'
@@ -24,8 +30,18 @@ import { buildMenu } from './menu'
 import { NotificationService } from './notifications'
 import { applyAppProxy } from './proxy'
 import { SettingsStore } from './settings'
+import { StarReminderService } from './star-reminder'
+import { TelemetryService } from './telemetry'
 import { TrayManager } from './tray'
 import { resolveUpdateClient, UpdateManager } from './updater'
+
+declare const __OMH_POSTHOG_PROJECT_KEY__: string
+declare const __OMH_POSTHOG_HOST__: string
+
+const bundledPostHogProjectKey =
+  typeof __OMH_POSTHOG_PROJECT_KEY__ === 'string' ? __OMH_POSTHOG_PROJECT_KEY__ : ''
+const bundledPostHogHost =
+  typeof __OMH_POSTHOG_HOST__ === 'string' ? __OMH_POSTHOG_HOST__ : 'https://eu.i.posthog.com'
 
 // One identity everywhere: dev and packaged share the same safeStorage keychain
 // entry and userData, so the ~/.oh_my_hf credentials decrypt in every session.
@@ -177,6 +193,37 @@ if (!gotLock) {
     const i18n = new MainI18n()
     const configuredLocale = settings.get().locale
     i18n.setLocale(configuredLocale === 'system' ? matchLocale(app.getLocale()) : configuredLocale)
+
+    const telemetry = new TelemetryService({
+      db,
+      enabled: () => settings.get().telemetryEnabled,
+      // Development/test builds must not pollute production analytics even if
+      // a developer happens to have the release variable in their shell.
+      apiKey: app.isPackaged ? bundledPostHogProjectKey : '',
+      endpoint: bundledPostHogHost,
+      appVersion: app.getVersion(),
+      platform: process.platform,
+      arch: process.arch,
+      locale: () => i18n.getLocale(),
+      // Respect both the current app-level proxy override and the OS proxy.
+      // The getter is evaluated per event so Settings changes apply immediately.
+      fetchImpl: createFailClosedDynamicProxiedFetch(() => settings.get().proxyUrl)
+    })
+    const starReminder = new StarReminderService({
+      db,
+      hasMeaningfulActivity: () => {
+        const row = db
+          .prepare(
+            `SELECT (
+               EXISTS (SELECT 1 FROM downloads WHERE status = 'completed')
+               OR EXISTS (SELECT 1 FROM favorites)
+               OR (SELECT COUNT(*) FROM history) >= 5
+             ) AS eligible`
+          )
+          .get() as { eligible: number }
+        return row.eligible === 1
+      }
+    })
 
     const auth = new AuthManager(db, (state) => broadcast('evt:auth', state))
     const initial = settings.get()
@@ -374,6 +421,9 @@ if (!gotLock) {
       hub,
       auth,
       settings,
+      telemetry,
+      starReminder,
+      starReminderEnabled: app.isPackaged,
       library,
       downloads,
       cache,
@@ -537,6 +587,15 @@ if (!gotLock) {
     const launchRoute = routeFromLaunchArgs(process.argv, settings.get().hubEndpoint)
     if (launchRoute) pendingRoute = launchRoute
     createAppWindow()
+    if (app.isPackaged) {
+      try {
+        starReminder.sessionStart()
+      } catch {
+        // Optional community UX must not interrupt updater/auth/follows startup.
+        console.error('[star-reminder] failed to record session start')
+      }
+    }
+    void telemetry.capture('app_launched')
     follows.start()
 
     if (!isDev) {

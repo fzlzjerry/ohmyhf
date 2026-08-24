@@ -10,7 +10,12 @@ ML engineers, researchers, and local-AI hobbyists who live on the Hugging Face H
 models/datasets/spaces daily, download large model weights to run locally (llama.cpp, Ollama,
 ComfyUI, transformers), and follow orgs/papers to keep up. They are keyboard-fluent, tool-savvy
 (Linear, Raycast, VS Code), and often on flaky or metered connections where resumable, rate-limited
-downloads matter. They value privacy: everything stays on their machine.
+downloads matter. They value privacy and expect every outbound data flow to be transparent and
+under their control. Optional pseudonymous usage telemetry is disabled by default and starts only
+after an explicit opt-in; it can be disabled again at any time. When enabled, it sends only seven
+fixed events to PostHog with a random installation identifier that persists across launches while
+telemetry stays enabled, plus the app version, platform, architecture, and locale. Disabling
+telemetry deletes that identifier; a later opt-in creates a new one.
 
 ## Product Purpose
 
@@ -52,7 +57,11 @@ the persuading.
 2. **The list is the app.** Virtualized, instant, dense lists with a live preview pane; no
    navigation dead-ends, no full-page reloads.
 3. **Trust through visibility.** Downloads show bytes, hashes, and cache paths; auth shows exactly
-   what is stored and where; nothing hidden, nothing phoned home.
+   what is stored and where. Optional pseudonymous telemetry uses a documented, minimal event
+   allow-list, remains off until the user opts in, and has a readily available off switch. PostHog
+   may see the source IP during transport, so its project settings must disable IP capture;
+   `$geoip_disable` only disables geographic enrichment. See
+   [`docs/telemetry.md`](docs/telemetry.md) for the complete data contract.
 4. **Native citizen.** System notifications, native menus, OS conventions per platform, localized
    everywhere (en, zh-CN at launch).
 5. **Interoperate, don't silo.** Standard HF cache layout, exports into local tools; the app is an

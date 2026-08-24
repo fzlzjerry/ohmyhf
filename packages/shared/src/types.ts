@@ -724,6 +724,8 @@ export interface AppSettings {
   repoOpenTarget: RepoOpenTarget
   /** Max local history rows retained. */
   historyLimit: HistoryLimit
+  /** Pseudonymous, low-cardinality product telemetry. Disabled until the user opts in. */
+  telemetryEnabled: boolean
 }
 
 /** Renderer-writable settings. Cache roots are selected and persisted by main. */
@@ -750,7 +752,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sidebarCollapsed: false,
   browsePageSize: 30,
   repoOpenTarget: 'app',
-  historyLimit: 200
+  historyLimit: 200,
+  telemetryEnabled: false
 }
 
 /** Subset of process.platform values the app runs on (kept Node-types-free for the renderer). */

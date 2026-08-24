@@ -31,7 +31,12 @@ import type {
   RepoSort,
   UiDensity
 } from '@oh-my-huggingface/shared'
-import { hubSettingsUrl, normalizeHubEndpoint, SUPPORTED_LOCALES } from '@oh-my-huggingface/shared'
+import {
+  hubSettingsUrl,
+  normalizeHubEndpoint,
+  PROJECT_REPOSITORY_URL,
+  SUPPORTED_LOCALES
+} from '@oh-my-huggingface/shared'
 import { invoke, openExternal } from '@/lib/ipc'
 import { ACCENT_SWATCH } from '@/lib/appearance'
 import { changeLanguage } from '@/i18n'
@@ -62,8 +67,7 @@ import { ProfileSection } from '@/components/settings/ProfileSection'
 import { NetworkSection } from '@/components/settings/NetworkSection'
 import { DesktopSection } from '@/components/settings/DesktopSection'
 
-const REPO_URL = 'https://github.com/oh-my-hf/ohmyhf'
-const RELEASES_URL = `${REPO_URL}/releases`
+const RELEASES_URL = `${PROJECT_REPOSITORY_URL}/releases`
 const SPEED_OPTIONS = [1, 5, 10, 20, 50] // MB/s
 const UI_SCALE_MIN = 80
 const UI_SCALE_MAX = 140
@@ -1144,7 +1148,7 @@ function AboutSection(): React.JSX.Element {
           <button
             type="button"
             className="flex items-center gap-1 text-link hover:underline"
-            onClick={() => openExternal(REPO_URL)}
+            onClick={() => openExternal(PROJECT_REPOSITORY_URL)}
           >
             <ExternalLink className="size-3.5" aria-hidden />
             {t('settings:about.github')}

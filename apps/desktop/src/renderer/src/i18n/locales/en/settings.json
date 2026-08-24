@@ -3,7 +3,7 @@
     "disclaimer": "This application is not affiliated with, endorsed by, or sponsored by Hugging Face, Inc. \"Hugging Face\" is a trademark of Hugging Face, Inc., used here only to refer to the service this application connects to.",
     "github": "Source code on GitHub",
     "license": "Licensed under Apache-2.0",
-    "privacy": "Privacy: everything stays on your machine. No telemetry, no analytics. Your token is encrypted with your OS keychain and stored locally.",
+    "privacy": "Your data stays on this device unless you explicitly enable optional usage telemetry under Privacy & data. Opt in to seven fixed PostHog events with a random installation ID that persists across launches only while telemetry remains enabled, plus app version, platform, architecture, and locale. Turning telemetry off deletes the ID; opting in again later creates a new one. PostHog may see your IP in transit; the release PostHog project must be configured to discard IP data, while $geoip_disable only disables GeoIP enrichment. No account, token, repository, path, filename, search, download, or content is sent. Turn it off anytime. Your access token remains encrypted by the operating-system keychain and stored only on this device.",
     "title": "About",
     "unofficialTitle": "UNOFFICIAL",
     "updates": {
@@ -38,6 +38,23 @@
       "view": "View"
     },
     "version": "Version {{version}}"
+  },
+  "community": {
+    "telemetry": {
+      "title": "Optional usage telemetry",
+      "body": "Opt in to seven fixed PostHog events with a random installation ID that persists across launches only while telemetry remains enabled, plus app version, platform, architecture, and locale. Turning telemetry off deletes the ID; opting in again later creates a new one. PostHog may see your IP in transit; the release PostHog project must be configured to discard IP data, while $geoip_disable only disables GeoIP enrichment. No account, token, repository, path, filename, search, download, or content is sent. Turn it off anytime.",
+      "accept": "Enable telemetry",
+      "decline": "No thanks",
+      "details": "Privacy details"
+    },
+    "star": {
+      "title": "Enjoying Oh My HuggingFace?",
+      "body": "A GitHub Star helps more people discover the project. We will open the project page, and this reminder appears at most twice.",
+      "open": "Star on GitHub",
+      "later": "Maybe later",
+      "disable": "Don't show again",
+      "laterFinal": "Don't remind me again"
+    }
   },
   "account": {
     "billing": {
@@ -212,6 +229,13 @@
       "import": "Import settings…",
       "importSuccess": "Settings imported.",
       "title": "Settings transfer"
+    },
+    "telemetry": {
+      "title": "Optional usage telemetry",
+      "description": "PostHog receives only seven fixed events with a random installation ID that persists across launches only while telemetry is enabled, app version, platform, architecture, locale, and, for Star reminders, the prompt number and action. Turning telemetry off deletes the ID; opting in again later creates a new one. PostHog may see the source IP in transit. The release PostHog project must be configured to discard IP data; $geoip_disable only disables GeoIP enrichment. No account, token, repository, path, filename, search, download, or file content is sent.",
+      "enabled": "Share pseudonymous usage",
+      "enabledHint": "Enabled. Fixed events are sent to PostHog; you can turn this off immediately at any time.",
+      "disabledHint": "Off by default. Nothing is sent until you enable it."
     }
   },
   "profile": {

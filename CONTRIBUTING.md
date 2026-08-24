@@ -11,8 +11,17 @@ Hugging Face Hub, licensed under Apache-2.0.
   `eslint-plugin-i18next`.
 - **No Hugging Face branding.** Never add the 🤗 emoji, HF logos, or anything implying official
   status.
-- **Privacy-first.** No telemetry, no third-party services. Tokens are only ever stored encrypted
-  via `safeStorage`.
+- **Privacy-first.** Optional pseudonymous usage telemetry is disabled by default and requires
+  explicit user opt-in. Its event allow-list is `telemetry_enabled`, `app_launched`,
+  `star_prompt_shown`, `star_prompt_opened`, `star_prompt_snoozed`, `star_prompt_disabled`, and
+  `star_prompt_exhausted`; the last event is restricted to prompt 2 with `action=exhausted`. Keep
+  properties limited to a random installation ID that persists only while telemetry remains
+  enabled, schema/app version, platform, architecture, locale, and fixed prompt fields. Never
+  include accounts, tokens, repository data, local paths, or file names, and preserve the immediate
+  opt-out path. PostHog may see the source IP during transport: the project must disable IP capture
+  in PostHog, and `$geoip_disable` must remain set while being documented accurately as disabling
+  only geographic enrichment. New events or properties must update tests and the documented
+  [telemetry contract](docs/telemetry.md). Tokens are only ever stored encrypted via `safeStorage`.
 - **Security baseline.** Renderer stays sandboxed (`contextIsolation`, no `nodeIntegration`);
   all IPC goes through the typed contract in `packages/shared` and validates input in the handler.
 

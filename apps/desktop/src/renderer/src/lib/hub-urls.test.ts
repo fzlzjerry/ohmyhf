@@ -65,7 +65,7 @@ describe('Hub URL helpers', () => {
 
   it('allows HTTPS globally but scopes HTTP to the configured Hub path', () => {
     const endpoint = 'http://hub.internal.test/hf'
-    expect(isAllowedExternalUrl('https://github.com/oh-my-hf/ohmyhf', endpoint)).toBe(true)
+    expect(isAllowedExternalUrl('https://github.com/fzlzjerry/ohmyhf', endpoint)).toBe(true)
     expect(isAllowedExternalUrl('http://hub.internal.test/hf/models/acme/repo', endpoint)).toBe(
       true
     )

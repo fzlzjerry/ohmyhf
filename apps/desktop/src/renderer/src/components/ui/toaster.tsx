@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { create } from 'zustand'
 import { CheckCircle2, CircleAlert, Info, X } from 'lucide-react'
@@ -139,13 +139,11 @@ function ToastCard({ toast }: { toast: Toast }): React.JSX.Element {
   )
 }
 
-export function Toaster(): React.JSX.Element {
+export function Toaster({ children }: { children?: ReactNode }): React.JSX.Element {
   const toasts = useToasts((s) => s.toasts)
   return (
-    <div
-      aria-live="polite"
-      className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-80 flex-col gap-2"
-    >
+    <div className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-80 flex-col gap-2">
+      {children}
       {toasts.map((toast) => (
         <ToastCard key={`${toast.id}:${toast.nonce}`} toast={toast} />
       ))}

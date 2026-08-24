@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Download, FolderOpen, HardDrive, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { TELEMETRY_DOCUMENTATION_URL } from '@oh-my-huggingface/shared'
+import { BarChart3, Download, FolderOpen, HardDrive, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { invoke } from '@/lib/ipc'
 import { changeLanguage } from '@/i18n'
 import { formatBytes } from '@/lib/utils'
@@ -41,6 +42,7 @@ export function PrivacySection(): React.JSX.Element {
   const appInfo = useAppStore((s) => s.appInfo)
   const settings = useAppStore((s) => s.settings)
   const setSettings = useAppStore((s) => s.setSettings)
+  const updateSettings = useAppStore((s) => s.updateSettings)
   const closeSettings = useAppStore((s) => s.closeSettings)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [signOutAlso, setSignOutAlso] = useState(false)
@@ -104,6 +106,51 @@ export function PrivacySection(): React.JSX.Element {
   return (
     <section className="flex flex-col gap-4">
       <h2 className="text-smd font-semibold text-ink-strong">{t('settings:privacy.title')}</h2>
+
+      <div className="flex flex-col gap-3 rounded-lg border p-4">
+        <div className="flex items-center gap-2 text-[13px] font-medium text-ink-strong">
+          <BarChart3 className="size-4 shrink-0" aria-hidden />
+          {t('settings:privacy.telemetry.title')}
+        </div>
+        <p className="text-[12.5px] leading-relaxed text-ink-muted">
+          {t('settings:privacy.telemetry.description')}
+        </p>
+        <label className="flex items-center justify-between gap-3 text-[13px] text-ink">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className="font-medium text-ink-strong">
+              {t('settings:privacy.telemetry.enabled')}
+            </span>
+            <span className="text-[12px] text-ink-muted">
+              {t(
+                settings.telemetryEnabled
+                  ? 'settings:privacy.telemetry.enabledHint'
+                  : 'settings:privacy.telemetry.disabledHint'
+              )}
+            </span>
+          </div>
+          <Switch
+            checked={settings.telemetryEnabled}
+            onCheckedChange={(telemetryEnabled) => {
+              void updateSettings({ telemetryEnabled }).catch((error: unknown) =>
+                push(error instanceof Error ? error.message : t('common:error.generic'), 'error')
+              )
+            }}
+          />
+        </label>
+        <div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              void invoke('system:openExternal', { url: TELEMETRY_DOCUMENTATION_URL }).catch(
+                (error: Error) => push(error.message, 'error')
+              )
+            }}
+          >
+            {t('settings:community.telemetry.details')}
+          </Button>
+        </div>
+      </div>
 
       <div className="flex flex-col gap-3 rounded-lg border p-4">
         <div className="flex items-center gap-2 text-[13px] font-medium text-ink-strong">

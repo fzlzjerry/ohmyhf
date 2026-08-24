@@ -23,6 +23,13 @@ function devCsp(): Plugin {
 
 export default defineConfig({
   main: {
+    // PostHog's project key is intentionally embedded in packaged builds (it is
+    // an ingestion identifier, not a personal API key). An empty key keeps the
+    // telemetry service and its opt-in prompt completely disabled.
+    define: {
+      __OMH_POSTHOG_PROJECT_KEY__: JSON.stringify(process.env.POSTHOG_PROJECT_KEY ?? ''),
+      __OMH_POSTHOG_HOST__: JSON.stringify(process.env.POSTHOG_HOST || 'https://eu.i.posthog.com')
+    },
     build: {
       rollupOptions: {
         // Pure-JS deps (workspace packages, @huggingface/*, zod) are bundled;

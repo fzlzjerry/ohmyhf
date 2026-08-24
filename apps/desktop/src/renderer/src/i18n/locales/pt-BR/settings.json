@@ -3,7 +3,7 @@
     "disclaimer": "Este aplicativo não é afiliado, endossado ou patrocinado pela Hugging Face, Inc. \"Hugging Face\" é uma marca registrada da Hugging Face, Inc., usada aqui apenas para se referir ao serviço ao qual este aplicativo se conecta.",
     "github": "Código-fonte no GitHub",
     "license": "Licenciado sob Apache-2.0",
-    "privacy": "Privacidade: tudo permanece na sua máquina. Sem telemetria, sem análises. Seu token é criptografado com o chaveiro do seu sistema operacional e armazenado localmente.",
+    "privacy": "Seus dados permanecem neste dispositivo, a menos que você ative explicitamente a telemetria de uso opcional em Privacidade e dados. Com seu consentimento, sete eventos fixos do PostHog são enviados com um identificador de instalação aleatório que persiste entre inicializações somente enquanto a telemetria permanece ativada, além da versão, plataforma, arquitetura e idioma. Desativar a telemetria exclui esse identificador; se você aderir novamente mais tarde, um novo será criado. O PostHog pode ver seu IP durante o transporte. O projeto PostHog usado na versão deve ser configurado para descartar os dados de IP; $geoip_disable desativa apenas o enriquecimento GeoIP. Nenhuma conta, token, repositório, caminho, nome de arquivo, pesquisa, download ou conteúdo é enviado. Você pode desativar a qualquer momento. Seu token de acesso permanece criptografado pelo chaveiro do sistema operacional e armazenado somente neste dispositivo.",
     "title": "Sobre",
     "unofficialTitle": "NÃO OFICIAL",
     "updates": {
@@ -38,6 +38,23 @@
       "view": "Ver"
     },
     "version": "Versão {{version}}"
+  },
+  "community": {
+    "telemetry": {
+      "title": "Telemetria de uso opcional",
+      "body": "Com seu consentimento, sete eventos fixos do PostHog são enviados com um identificador de instalação aleatório que persiste entre inicializações somente enquanto a telemetria permanece ativada, além da versão, plataforma, arquitetura e idioma. Desativar a telemetria exclui esse identificador; se você aderir novamente mais tarde, um novo será criado. O PostHog pode ver seu IP durante o transporte. O projeto PostHog usado na versão deve ser configurado para descartar os dados de IP; $geoip_disable desativa apenas o enriquecimento GeoIP. Nenhuma conta, token, repositório, caminho, nome de arquivo, pesquisa, download ou conteúdo é enviado. Você pode desativar a qualquer momento.",
+      "accept": "Ativar telemetria",
+      "decline": "Agora não",
+      "details": "Detalhes da telemetria"
+    },
+    "star": {
+      "title": "Gostando do Oh My HuggingFace?",
+      "body": "Uma estrela no GitHub ajuda mais pessoas a descobrir o projeto. Abriremos a página do projeto, e este lembrete aparecerá no máximo duas vezes.",
+      "open": "Dar Star no GitHub",
+      "later": "Talvez depois",
+      "disable": "Não mostrar novamente",
+      "laterFinal": "Não lembrar novamente"
+    }
   },
   "account": {
     "billing": {
@@ -212,6 +229,13 @@
       "import": "Importar configurações…",
       "importSuccess": "Configurações importadas.",
       "title": "Transferência de configurações"
+    },
+    "telemetry": {
+      "title": "Telemetria de uso opcional",
+      "description": "O PostHog recebe apenas sete eventos fixos com um identificador de instalação aleatório que persiste entre inicializações somente enquanto a telemetria permanece ativada, versão, plataforma, arquitetura, idioma e, nos lembretes de Star, número e ação. Desativar a telemetria exclui esse identificador; se você aderir novamente mais tarde, um novo será criado. O PostHog pode ver o IP de origem durante o transporte. O projeto PostHog usado na versão deve ser configurado para descartar os dados de IP; $geoip_disable desativa apenas o enriquecimento GeoIP. Nenhuma conta, token, repositório, caminho, nome de arquivo, pesquisa, download ou conteúdo é enviado.",
+      "enabled": "Compartilhar uso pseudônimo",
+      "enabledHint": "Ativada. Eventos fixos são enviados ao PostHog; você pode desativar imediatamente a qualquer momento.",
+      "disabledHint": "Desativada por padrão. Nada é enviado até você ativar."
     }
   },
   "profile": {

@@ -1,12 +1,16 @@
 import { app, session, type Session } from 'electron'
 import { ProxyAgent, fetch as undiciFetch } from 'undici'
 import { HubClient } from '@oh-my-huggingface/hub-api'
+import { PROJECT_REPOSITORY_URL } from '@oh-my-huggingface/shared'
 
 export interface HubHolder {
   current: HubClient
 }
 
 type ProxyResolver = (url: string) => Promise<string>
+
+export type SystemProxyRoute =
+  { kind: 'proxy'; url: string } | { kind: 'direct' } | { kind: 'unavailable' }
 
 const SYSTEM_PROXY_PARTITION = 'ohmyhf-system-proxy'
 let systemProxySessionPromise: Promise<Session> | null = null
@@ -17,11 +21,11 @@ const proxyAgents = new Map<string, ProxyAgent>()
  * "PROXY 127.0.0.1:7890; DIRECT". Undici needs an absolute proxy URL.
  * SOCKS/QUIC routes are skipped because undici's ProxyAgent supports HTTP(S).
  */
-export function proxyUrlFromResolution(resolution: string): string | null {
+export function systemProxyRouteFromResolution(resolution: string): SystemProxyRoute {
   for (const directive of resolution.split(';')) {
     const [kind = '', address = ''] = directive.trim().split(/\s+/, 2)
     const normalizedKind = kind.toUpperCase()
-    if (normalizedKind === 'DIRECT') return null
+    if (normalizedKind === 'DIRECT') return { kind: 'direct' }
     if (!address) continue
     const protocol =
       normalizedKind === 'PROXY' || normalizedKind === 'HTTP'
@@ -33,12 +37,19 @@ export function proxyUrlFromResolution(resolution: string): string | null {
     const candidate = /^[a-z][a-z\d+.-]*:\/\//i.test(address) ? address : `${protocol}://${address}`
     try {
       const parsed = new URL(candidate)
-      if (parsed.hostname) return parsed.toString().replace(/\/$/, '')
+      if (parsed.hostname) {
+        return { kind: 'proxy', url: parsed.toString().replace(/\/$/, '') }
+      }
     } catch {
       // Ignore malformed PAC entries and continue to the next fallback.
     }
   }
-  return null
+  return { kind: 'unavailable' }
+}
+
+export function proxyUrlFromResolution(resolution: string): string | null {
+  const route = systemProxyRouteFromResolution(resolution)
+  return route.kind === 'proxy' ? route.url : null
 }
 
 async function systemProxySession(): Promise<Session> {
@@ -66,6 +77,18 @@ export async function resolveSystemProxyUrl(
   } catch {
     // Preserve direct networking if Chromium cannot initialize its proxy service.
     return null
+  }
+}
+
+/** Resolve a system route without conflating explicit DIRECT with errors/unsupported PAC routes. */
+export async function resolveSystemProxyRoute(
+  url: string,
+  resolver: ProxyResolver = resolveSystemProxy
+): Promise<SystemProxyRoute> {
+  try {
+    return systemProxyRouteFromResolution(await resolver(url))
+  } catch {
+    return { kind: 'unavailable' }
   }
 }
 
@@ -112,6 +135,42 @@ export function createProxiedFetch(
   }) as typeof fetch
 }
 
+/**
+ * Proxy-aware fetch that resolves the app override for every request. Long-lived
+ * services (telemetry, updater helpers, and similar clients) use this wrapper so
+ * a Settings -> Network change takes effect without recreating the service.
+ */
+export function createDynamicProxiedFetch(
+  getProxyUrl: () => string | null,
+  resolver: ProxyResolver = resolveSystemProxy
+): typeof fetch {
+  return (async (input: Parameters<typeof fetch>[0], init?: RequestInit) =>
+    createProxiedFetch(getProxyUrl(), resolver)(input, init)) as typeof fetch
+}
+
+/**
+ * Dynamic proxy transport for privacy-sensitive third-party requests. It goes
+ * direct only when the OS proxy resolver explicitly returns DIRECT; an error,
+ * malformed route, or unsupported proxy type rejects instead of leaking around
+ * the configured system route.
+ */
+export function createFailClosedDynamicProxiedFetch(
+  getProxyUrl: () => string | null,
+  resolver: ProxyResolver = resolveSystemProxy
+): typeof fetch {
+  return (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    const configuredProxy = getProxyUrl()
+    if (configuredProxy) return createProxiedFetch(configuredProxy, resolver)(input, init)
+
+    const route = await resolveSystemProxyRoute(fetchInputUrl(input), resolver)
+    if (route.kind === 'unavailable') {
+      throw new Error('System proxy route is unavailable')
+    }
+    if (route.kind === 'proxy') return createProxiedFetch(route.url, resolver)(input, init)
+    return undiciFetch(input as never, init as never) as unknown as Promise<Response>
+  }) as typeof fetch
+}
+
 export interface HubNetworkOptions {
   endpoint: string | null
   proxyUrl: string | null
@@ -149,7 +208,7 @@ export function buildHubClient(
   return new HubClient({
     endpoint: options?.endpoint ?? undefined,
     fetchImpl: createProxiedFetch(options?.proxyUrl ?? null),
-    userAgent: `oh-my-huggingface/${app.getVersion()} (unofficial desktop client; +https://github.com/oh-my-hf/ohmyhf)`,
+    userAgent: `oh-my-huggingface/${app.getVersion()} (unofficial desktop client; +${PROJECT_REPOSITORY_URL})`,
     cacheTtlMs: 120_000,
     // Desktop browsing bursts (grids, file trees) get smoothed out instead of tripping
     // the Hub's per-IP rate limits: few sockets, spaced starts, a couple of retries.

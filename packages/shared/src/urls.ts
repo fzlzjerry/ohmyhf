@@ -1,6 +1,8 @@
 import type { RepoKind } from './types'
 
 export const DEFAULT_HUB_ENDPOINT = 'https://huggingface.co'
+export const PROJECT_REPOSITORY_URL = 'https://github.com/fzlzjerry/ohmyhf'
+export const TELEMETRY_DOCUMENTATION_URL = `${PROJECT_REPOSITORY_URL}/blob/main/docs/telemetry.md`
 
 const REPO_PREFIX: Record<RepoKind, string> = {
   model: '',

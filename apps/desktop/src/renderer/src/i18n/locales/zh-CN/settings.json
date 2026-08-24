@@ -3,7 +3,7 @@
     "disclaimer": "本应用与 Hugging Face, Inc. 无任何隶属、背书或赞助关系。“Hugging Face” 是 Hugging Face, Inc. 的商标，此处仅用于指称本应用所连接的服务。",
     "github": "GitHub 源代码",
     "license": "基于 Apache-2.0 许可证发布",
-    "privacy": "隐私：一切数据都保存在你的设备上。无遥测、无分析统计。访问令牌经操作系统钥匙串加密后仅存储在本地。",
+    "privacy": "除非你在“隐私与数据”中明确开启可选使用遥测，否则数据保留在本机。选择加入后，应用会向 PostHog 发送 7 类固定事件，其中包含只在遥测保持开启期间跨启动持久的随机安装标识、应用版本、平台、架构和语言。关闭遥测会删除该标识；日后再次选择加入时会创建新标识。传输时 PostHog 可能看到你的 IP；发布所用的 PostHog 项目必须配置为丢弃 IP 数据，$geoip_disable 只关闭 GeoIP 地理增强。不发送账号、令牌、仓库、路径、文件名、搜索、下载记录或内容，并可随时关闭。访问令牌仍由操作系统钥匙串加密，并且只存储在本机。",
     "title": "关于",
     "unofficialTitle": "非官方声明",
     "updates": {
@@ -38,6 +38,23 @@
       "view": "查看"
     },
     "version": "版本 {{version}}"
+  },
+  "community": {
+    "telemetry": {
+      "title": "可选使用遥测",
+      "body": "选择加入后，应用会向 PostHog 发送 7 类固定事件，其中包含只在遥测保持开启期间跨启动持久的随机安装标识、应用版本、平台、架构和语言。关闭遥测会删除该标识；日后再次选择加入时会创建新标识。传输时 PostHog 可能看到你的 IP；发布所用的 PostHog 项目必须配置为丢弃 IP 数据，$geoip_disable 只关闭 GeoIP 地理增强。不发送账号、令牌、仓库、路径、文件名、搜索、下载记录或内容，并可随时关闭。",
+      "accept": "开启遥测",
+      "decline": "暂不开启",
+      "details": "遥测详情"
+    },
+    "star": {
+      "title": "喜欢 Oh My HuggingFace 吗？",
+      "body": "一个 GitHub Star 能让更多人发现这个项目。点击后会打开项目页面；此提醒最多出现两次。",
+      "open": "去 GitHub 点 Star",
+      "later": "稍后提醒",
+      "disable": "不再提醒",
+      "laterFinal": "不再提醒"
+    }
   },
   "account": {
     "billing": {
@@ -212,6 +229,13 @@
       "import": "导入设置…",
       "importSuccess": "设置已导入。",
       "title": "设置迁移"
+    },
+    "telemetry": {
+      "title": "可选使用遥测",
+      "description": "PostHog 只会收到 7 类固定事件，其中包含只在遥测保持开启期间跨启动持久的随机安装标识、应用版本、平台、架构、语言，以及 Star 提醒的次数和操作。关闭遥测会删除该标识；日后再次选择加入时会创建新标识。网络传输时 PostHog 可能看到源 IP；发布所用的 PostHog 项目必须配置为丢弃 IP 数据，$geoip_disable 只负责关闭 GeoIP 地理增强。不发送账号、令牌、仓库、路径、文件名、搜索、下载记录或文件内容。",
+      "enabled": "分享化名化使用数据",
+      "enabledHint": "已开启；固定事件会发送到 PostHog，可随时立即关闭。",
+      "disabledHint": "默认关闭；开启前不会发送任何遥测。"
     }
   },
   "profile": {

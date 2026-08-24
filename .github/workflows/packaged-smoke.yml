@@ -22,6 +22,10 @@ on:
         required: false
       MAC_CSC_KEY_PASSWORD:
         required: false
+      POSTHOG_PROJECT_KEY:
+        required: false
+      POSTHOG_HOST:
+        required: false
 
 permissions:
   contents: read
@@ -61,6 +65,29 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Require telemetry configuration for publishable builds
+        if: inputs.publishable
+        shell: bash
+        env:
+          POSTHOG_PROJECT_KEY: ${{ secrets.POSTHOG_PROJECT_KEY }}
+          POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${POSTHOG_PROJECT_KEY:-}" || "$POSTHOG_PROJECT_KEY" =~ ^[[:space:]]*$ ]]; then
+            echo "::error::POSTHOG_PROJECT_KEY is required for publishable builds."
+            exit 1
+          fi
+          node -e '
+            const value = process.env.POSTHOG_HOST || "https://eu.i.posthog.com"
+            let url
+            try { url = new URL(value) } catch { process.exit(1) }
+            if (url.protocol !== "https:" || url.username || url.password) process.exit(1)
+          ' || {
+            echo "::error::POSTHOG_HOST must be a valid HTTPS URL without credentials."
+            exit 1
+          }
+          echo "Publishable telemetry configuration is present."
+
       - name: Import macOS release signing certificate
         if: matrix.platform == 'macos' && inputs.signed_macos
         shell: bash
@@ -95,6 +122,8 @@ jobs:
         shell: bash
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          POSTHOG_PROJECT_KEY: ${{ secrets.POSTHOG_PROJECT_KEY }}
+          POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
         run: |
           set -euo pipefail
           set -o pipefail
@@ -105,6 +134,24 @@ jobs:
           fi
           {
             pnpm --filter oh-my-huggingface-desktop exec electron-vite build
+            if [[ "${{ inputs.publishable }}" == "true" ]]; then
+              node -e '
+                const { readFileSync } = require("node:fs")
+                const bundle = readFileSync("apps/desktop/out/main/index.mjs", "utf8")
+                const key = process.env.POSTHOG_PROJECT_KEY
+                const host = process.env.POSTHOG_HOST || "https://eu.i.posthog.com"
+                if (!key || !bundle.includes(key)) {
+                  throw new Error("Packaged main bundle is missing its telemetry project key")
+                }
+                if (!bundle.includes(host)) {
+                  throw new Error("Packaged main bundle is missing its telemetry host")
+                }
+                if (!bundle.includes("/i/v0/e/")) {
+                  throw new Error("Packaged main bundle is missing the telemetry ingestion marker")
+                }
+              '
+              echo "Verified telemetry configuration in the compiled main bundle."
+            fi
             pnpm --filter oh-my-huggingface-desktop exec electron-builder \
               "${builder_arguments[@]}"
           } 2>&1 | tee ".ci-logs/build-${{ matrix.platform }}.log"

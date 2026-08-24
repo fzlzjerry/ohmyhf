@@ -95,7 +95,8 @@ const settingsPatch = z
     sidebarCollapsed: z.boolean(),
     browsePageSize: z.union([z.literal(20), z.literal(30), z.literal(50)]),
     repoOpenTarget: z.enum(['app', 'browser']),
-    historyLimit: z.union([z.literal(50), z.literal(100), z.literal(200), z.literal(500)])
+    historyLimit: z.union([z.literal(50), z.literal(100), z.literal(200), z.literal(500)]),
+    telemetryEnabled: z.boolean()
   })
   .partial()
   .strict()
@@ -130,6 +131,10 @@ const collectionNote = z.string().max(500)
 
 const discussionNum = z.number().int().min(1)
 
+const communityPromptClaimId = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+
 /** Env-var style key for Space secrets and variables. */
 const spaceEnvKey = z
   .string()
@@ -163,6 +168,22 @@ export const ipcRequestSchemas: Partial<Record<IpcInvokeChannel, z.ZodTypeAny>> 
     otherKv: z.boolean().optional(),
     signOut: z.boolean().optional()
   }),
+  'telemetry:acknowledgeConsentPrompt': z
+    .object({
+      claimId: communityPromptClaimId
+    })
+    .strict(),
+  'starReminder:acknowledgeShown': z
+    .object({
+      claimId: communityPromptClaimId
+    })
+    .strict(),
+  'starReminder:respond': z
+    .object({
+      claimId: communityPromptClaimId,
+      action: z.enum(['open', 'later', 'disable'])
+    })
+    .strict(),
   // Draft endpoint/proxy from Settings → Network "Test connection"; same URL
   // rules as the settings patch. Omitted fields fall back to applied settings.
   'network:testConnection': z

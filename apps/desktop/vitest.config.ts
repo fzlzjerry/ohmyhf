@@ -22,6 +22,9 @@ export default defineConfig({
         'src/main/downloads.ts',
         'src/main/integration-tasks.ts',
         'src/main/notifications.ts',
+        'src/main/settings-transfer.ts',
+        'src/main/telemetry.ts',
+        'src/main/star-reminder.ts',
         'src/main/integrations/{upload,export}.ts',
         'src/main/workers/{cache-worker,download-worker}.ts',
         'src/renderer/src/lib/{csv,diff,editor,errors,file-kinds,gguf,history,hub-urls,notebook,onnx,parquet,query,quote,syntax-highlighting,tag-colors,utils}.ts'

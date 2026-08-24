@@ -13,7 +13,7 @@ asarUnpack:
   - '**/*.node'
 
 npmRebuild: true
-electronVersion: 43.1.0
+electronVersion: 43.4.0
 
 # Strip extended attributes (com.apple.provenance, iCloud fileprovider tags)
 # before signing; codesign hard-fails on them ("detritus not allowed").
@@ -85,5 +85,5 @@ appImage:
 # there, and electron-updater reads this same config to find update artifacts.
 publish:
   provider: github
-  owner: oh-my-hf
+  owner: fzlzjerry
   repo: ohmyhf

@@ -1,8 +1,6 @@
 import { Menu, app, dialog, shell, type MenuItemConstructorOptions } from 'electron'
-import { NAVIGATION_SHORTCUTS } from '@oh-my-huggingface/shared'
+import { NAVIGATION_SHORTCUTS, PROJECT_REPOSITORY_URL } from '@oh-my-huggingface/shared'
 import type { MainI18n } from './i18n'
-
-const REPO_URL = 'https://github.com/oh-my-hf/ohmyhf'
 
 /** Fully localized native application menu. Rebuilt whenever the locale changes. */
 export function buildMenu(i18n: MainI18n, navigate: (route: string) => void): void {
@@ -109,10 +107,13 @@ export function buildMenu(i18n: MainI18n, navigate: (route: string) => void): vo
       label: t('menu.help'),
       role: 'help',
       submenu: [
-        { label: t('menu.github'), click: () => void shell.openExternal(REPO_URL) },
+        {
+          label: t('menu.github'),
+          click: () => void shell.openExternal(PROJECT_REPOSITORY_URL)
+        },
         {
           label: t('menu.reportIssue'),
-          click: () => void shell.openExternal(`${REPO_URL}/issues/new`)
+          click: () => void shell.openExternal(`${PROJECT_REPOSITORY_URL}/issues/new`)
         },
         { type: 'separator' },
         { label: t('menu.disclaimer'), click: showAbout }

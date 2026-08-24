@@ -66,6 +66,8 @@ jobs:
     secrets:
       MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
       MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      POSTHOG_PROJECT_KEY: ${{ secrets.POSTHOG_PROJECT_KEY }}
+      POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
 
   preflight:
     name: Verify release assets and updater metadata
@@ -78,6 +80,18 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ needs.detect.outputs.commit_sha }}
+
+      - name: Require release telemetry configuration
+        shell: bash
+        env:
+          POSTHOG_PROJECT_KEY: ${{ secrets.POSTHOG_PROJECT_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${POSTHOG_PROJECT_KEY:-}" || "$POSTHOG_PROJECT_KEY" =~ ^[[:space:]]*$ ]]; then
+            echo "::error::POSTHOG_PROJECT_KEY is required for release preflight."
+            exit 1
+          fi
+          echo "Release telemetry configuration is present."
 
       - name: Download all platform release assets
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0

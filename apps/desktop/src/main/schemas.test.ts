@@ -74,16 +74,40 @@ describe('ipcRequestSchemas', () => {
           sidebarCollapsed: true,
           browsePageSize: 50,
           repoOpenTarget: 'browser',
-          historyLimit: 100
+          historyLimit: 100,
+          telemetryEnabled: true
         }
       }).success
     ).toBe(true)
     expect(schema.safeParse({ patch: { fontScale: 80 } }).success).toBe(false)
     expect(schema.safeParse({ patch: { browsePageSize: 25 } }).success).toBe(false)
     expect(schema.safeParse({ patch: { accent: 'pink' } }).success).toBe(false)
+    expect(schema.safeParse({ patch: { telemetryEnabled: 'yes' } }).success).toBe(false)
     expect(schema.safeParse({ patch: { hfCacheDir: '/tmp/renderer-controlled' } }).success).toBe(
       false
     )
+  })
+
+  it('accepts only fixed GitHub Star reminder actions', () => {
+    const claimId = '12345678-1234-4234-8234-123456789abc'
+    const acknowledge = ipcRequestSchemas['starReminder:acknowledgeShown']!
+    const schema = ipcRequestSchemas['starReminder:respond']!
+    expect(acknowledge.safeParse({ claimId }).success).toBe(true)
+    expect(acknowledge.safeParse({ claimId: 'guessable-token' }).success).toBe(false)
+    for (const action of ['open', 'later', 'disable']) {
+      expect(schema.safeParse({ claimId, action }).success).toBe(true)
+    }
+    expect(schema.safeParse({ claimId, action: 'starred' }).success).toBe(false)
+    expect(schema.safeParse({ claimId, action: 'open', repo: 'attacker/repo' }).success).toBe(false)
+    expect(schema.safeParse({ claimId: 'not-a-uuid', action: 'open' }).success).toBe(false)
+  })
+
+  it('accepts only UUIDv4 telemetry consent claim tokens', () => {
+    const schema = ipcRequestSchemas['telemetry:acknowledgeConsentPrompt']!
+    const claimId = '12345678-1234-4234-8234-123456789abc'
+    expect(schema.safeParse({ claimId }).success).toBe(true)
+    expect(schema.safeParse({ claimId: 'guessable-token' }).success).toBe(false)
+    expect(schema.safeParse({ claimId, extra: true }).success).toBe(false)
   })
 
   it('accepts a version-1 settings export envelope', () => {

@@ -3,7 +3,7 @@
     "disclaimer": "Diese Anwendung steht in keiner Verbindung zu Hugging Face, Inc. und wird von diesem Unternehmen weder unterstützt noch gesponsert. „Hugging Face“ ist eine Marke von Hugging Face, Inc. und wird hier nur verwendet, um auf den Dienst zu verweisen, mit dem diese Anwendung verbunden ist.",
     "github": "Quellcode auf GitHub",
     "license": "Lizenziert unter Apache-2.0",
-    "privacy": "Datenschutz: Alles bleibt auf Ihrem Gerät. Keine Telemetrie, keine Analyse. Ihr Token wird mit dem Schlüsselbund Ihres Betriebssystems verschlüsselt und lokal gespeichert.",
+    "privacy": "Deine Daten bleiben auf diesem Gerät, sofern du nicht unter „Datenschutz & Daten“ ausdrücklich optionale Nutzungs-Telemetrie aktivierst. Mit deiner Zustimmung werden sieben feste PostHog-Ereignisse mit einer zufälligen Installationskennung, die nur bei aktivierter Telemetrie über App-Starts hinweg bestehen bleibt, sowie App-Version, Plattform, Architektur und Sprache gesendet. Beim Abschalten der Telemetrie wird die Kennung gelöscht; eine spätere erneute Zustimmung erstellt eine neue. PostHog kann deine IP beim Transport sehen. Das für Releases verwendete PostHog-Projekt muss so konfiguriert sein, dass IP-Daten verworfen werden; $geoip_disable deaktiviert nur die GeoIP-Anreicherung. Konten, Tokens, Repositories, Pfade, Dateinamen, Suchen, Downloads und Inhalte werden nicht gesendet. Jederzeit abschaltbar. Dein Zugriffstoken bleibt durch den Schlüsselbund des Betriebssystems verschlüsselt und wird nur auf diesem Gerät gespeichert.",
     "title": "Über",
     "unofficialTitle": "INOFFIZIELL",
     "updates": {
@@ -38,6 +38,23 @@
       "view": "Anzeigen"
     },
     "version": "Version {{version}}"
+  },
+  "community": {
+    "telemetry": {
+      "title": "Optionale Nutzungs-Telemetrie",
+      "body": "Mit deiner Zustimmung werden sieben feste PostHog-Ereignisse mit einer zufälligen Installationskennung, die nur bei aktivierter Telemetrie über App-Starts hinweg bestehen bleibt, sowie App-Version, Plattform, Architektur und Sprache gesendet. Beim Abschalten der Telemetrie wird die Kennung gelöscht; eine spätere erneute Zustimmung erstellt eine neue. PostHog kann deine IP beim Transport sehen. Das für Releases verwendete PostHog-Projekt muss so konfiguriert sein, dass IP-Daten verworfen werden; $geoip_disable deaktiviert nur die GeoIP-Anreicherung. Konten, Tokens, Repositories, Pfade, Dateinamen, Suchen, Downloads und Inhalte werden nicht gesendet. Jederzeit abschaltbar.",
+      "accept": "Telemetrie aktivieren",
+      "decline": "Nein, danke",
+      "details": "Telemetrie-Details"
+    },
+    "star": {
+      "title": "Gefällt dir Oh My HuggingFace?",
+      "body": "Ein GitHub-Star hilft mehr Menschen, das Projekt zu entdecken. Wir öffnen die Projektseite; dieser Hinweis erscheint höchstens zweimal.",
+      "open": "GitHub-Star vergeben",
+      "later": "Vielleicht später",
+      "disable": "Nicht mehr anzeigen",
+      "laterFinal": "Nicht mehr erinnern"
+    }
   },
   "account": {
     "billing": {
@@ -212,6 +229,13 @@
       "import": "Einstellungen importieren…",
       "importSuccess": "Einstellungen importiert.",
       "title": "Einstellungsübertragung"
+    },
+    "telemetry": {
+      "title": "Optionale Nutzungs-Telemetrie",
+      "description": "PostHog erhält nur sieben feste Ereignisse mit einer zufälligen Installationskennung, die nur bei aktivierter Telemetrie über App-Starts hinweg bestehen bleibt, App-Version, Plattform, Architektur, Sprache sowie bei Star-Hinweisen deren Nummer und Aktion. Beim Abschalten der Telemetrie wird die Kennung gelöscht; eine spätere erneute Zustimmung erstellt eine neue. PostHog kann die Quell-IP beim Transport sehen. Das für Releases verwendete PostHog-Projekt muss so konfiguriert sein, dass IP-Daten verworfen werden; $geoip_disable deaktiviert nur die GeoIP-Anreicherung. Konten, Tokens, Repositories, Pfade, Dateinamen, Suchen, Downloads und Dateiinhalte werden nicht gesendet.",
+      "enabled": "Pseudonyme Nutzung teilen",
+      "enabledHint": "Aktiviert. Feste Ereignisse werden an PostHog gesendet; jederzeit sofort abschaltbar.",
+      "disabledHint": "Standardmäßig aus. Bis zur Aktivierung wird nichts gesendet."
     }
   },
   "profile": {
