@@ -1,6 +1,6 @@
 {
   "name": "@oh-my-huggingface/hub-api",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "private": true,
   "description": "Pure-TypeScript Hugging Face Hub API client (zero Electron dependencies)",
   "license": "Apache-2.0",
