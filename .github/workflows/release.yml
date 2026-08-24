@@ -67,7 +67,6 @@ jobs:
       MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
       MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
       POSTHOG_PROJECT_KEY: ${{ secrets.POSTHOG_PROJECT_KEY }}
-      POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
 
   preflight:
     name: Verify release assets and updater metadata
@@ -85,10 +84,15 @@ jobs:
         shell: bash
         env:
           POSTHOG_PROJECT_KEY: ${{ secrets.POSTHOG_PROJECT_KEY }}
+          POSTHOG_HOST: https://us.i.posthog.com
         run: |
           set -euo pipefail
           if [[ -z "${POSTHOG_PROJECT_KEY:-}" || "$POSTHOG_PROJECT_KEY" =~ ^[[:space:]]*$ ]]; then
             echo "::error::POSTHOG_PROJECT_KEY is required for release preflight."
+            exit 1
+          fi
+          if [[ -z "${POSTHOG_HOST:-}" || "$POSTHOG_HOST" =~ ^[[:space:]]*$ ]]; then
+            echo "::error::POSTHOG_HOST is required for release preflight."
             exit 1
           fi
           echo "Release telemetry configuration is present."

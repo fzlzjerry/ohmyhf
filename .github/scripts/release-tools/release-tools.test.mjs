@@ -10,6 +10,26 @@ import assert from 'node:assert/strict'
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const toolsDirectory = join(repositoryRoot, '.github/scripts/release-tools')
 
+test('publishable builds require an explicit PostHog ingestion region', () => {
+  const workflow = readFileSync(
+    join(repositoryRoot, '.github/workflows/packaged-smoke.yml'),
+    'utf8'
+  )
+  const releaseWorkflow = readFileSync(
+    join(repositoryRoot, '.github/workflows/release.yml'),
+    'utf8'
+  )
+  const telemetrySource = readFileSync(
+    join(repositoryRoot, 'apps/desktop/src/main/telemetry.ts'),
+    'utf8'
+  )
+
+  assert.match(workflow, /POSTHOG_HOST is required for publishable builds/)
+  assert.match(releaseWorkflow, /POSTHOG_HOST is required for release preflight/)
+  assert.doesNotMatch(workflow, /POSTHOG_HOST\s*\|\|/)
+  assert.match(telemetrySource, /DEFAULT_POSTHOG_HOST = 'https:\/\/us\.i\.posthog\.com'/)
+})
+
 function asset(name, contents) {
   return {
     name,

@@ -3,6 +3,7 @@ import { defineConfig } from 'electron-vite'
 import type { Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { DEFAULT_POSTHOG_HOST } from './src/main/telemetry'
 
 /**
  * The production CSP in index.html is strict. The Vite dev server needs inline
@@ -28,7 +29,7 @@ export default defineConfig({
     // telemetry service and its opt-in prompt completely disabled.
     define: {
       __OMH_POSTHOG_PROJECT_KEY__: JSON.stringify(process.env.POSTHOG_PROJECT_KEY ?? ''),
-      __OMH_POSTHOG_HOST__: JSON.stringify(process.env.POSTHOG_HOST || 'https://eu.i.posthog.com')
+      __OMH_POSTHOG_HOST__: JSON.stringify(process.env.POSTHOG_HOST || DEFAULT_POSTHOG_HOST)
     },
     build: {
       rollupOptions: {

@@ -87,9 +87,9 @@ describe('Hub system proxy transport', () => {
     const resolver = vi.fn(async () => 'PROXY 127.0.0.1:9999')
     const fetchImpl = createFailClosedDynamicProxiedFetch(() => proxyUrl, resolver)
 
-    await fetchImpl('https://eu.i.posthog.com/i/v0/e/')
+    await fetchImpl('https://us.i.posthog.com/i/v0/e/')
     proxyUrl = 'http://127.0.0.1:7891'
-    await fetchImpl('https://eu.i.posthog.com/i/v0/e/')
+    await fetchImpl('https://us.i.posthog.com/i/v0/e/')
 
     expect(resolver).not.toHaveBeenCalled()
     expect(
@@ -111,16 +111,16 @@ describe('Hub system proxy transport', () => {
   })
 
   it('fails closed for privacy-sensitive requests when the system route is unusable', async () => {
-    expect(await resolveSystemProxyRoute('https://eu.i.posthog.com', async () => 'DIRECT')).toEqual(
+    expect(await resolveSystemProxyRoute('https://us.i.posthog.com', async () => 'DIRECT')).toEqual(
       {
         kind: 'direct'
       }
     )
     expect(
-      await resolveSystemProxyRoute('https://eu.i.posthog.com', async () => 'SOCKS5 127.0.0.1:1080')
+      await resolveSystemProxyRoute('https://us.i.posthog.com', async () => 'SOCKS5 127.0.0.1:1080')
     ).toEqual({ kind: 'unavailable' })
     expect(
-      await resolveSystemProxyRoute('https://eu.i.posthog.com', async () => {
+      await resolveSystemProxyRoute('https://us.i.posthog.com', async () => {
         throw new Error('resolver failed')
       })
     ).toEqual({ kind: 'unavailable' })
@@ -129,7 +129,7 @@ describe('Hub system proxy transport', () => {
       () => null,
       async () => 'SOCKS5 127.0.0.1:1080'
     )
-    await expect(socksOnly('https://eu.i.posthog.com/i/v0/e/')).rejects.toThrow(
+    await expect(socksOnly('https://us.i.posthog.com/i/v0/e/')).rejects.toThrow(
       /proxy route is unavailable/i
     )
     expect(mocks.fetchCalls).toHaveLength(0)
@@ -138,7 +138,7 @@ describe('Hub system proxy transport', () => {
       () => null,
       async () => Promise.reject(new Error('resolver failed'))
     )
-    await expect(resolverFailure('https://eu.i.posthog.com/i/v0/e/')).rejects.toThrow(
+    await expect(resolverFailure('https://us.i.posthog.com/i/v0/e/')).rejects.toThrow(
       /proxy route is unavailable/i
     )
     expect(mocks.fetchCalls).toHaveLength(0)
@@ -150,7 +150,7 @@ describe('Hub system proxy transport', () => {
       async () => 'SOCKS5 127.0.0.1:1080; DIRECT'
     )
 
-    await fetchImpl('https://eu.i.posthog.com/i/v0/e/')
+    await fetchImpl('https://us.i.posthog.com/i/v0/e/')
 
     expect(mocks.fetchCalls).toHaveLength(1)
     expect(mocks.fetchCalls[0]?.init?.dispatcher).toBeUndefined()

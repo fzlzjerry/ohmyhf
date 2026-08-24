@@ -16,32 +16,35 @@ Telemetry is configured at build time:
 | Variable              | Required               | Meaning                                                                                                                                                                                                                              |
 | --------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `POSTHOG_PROJECT_KEY` | For publishable builds | PostHog project ingestion key. An absent or empty value disables telemetry and its consent prompt. The key is embedded in every released desktop binary, so it is a public ingestion identifier rather than an authorization secret. |
-| `POSTHOG_HOST`        | No                     | HTTPS PostHog ingestion origin. Defaults to `https://eu.i.posthog.com`.                                                                                                                                                              |
+| `POSTHOG_HOST`        | For publishable builds | Region-specific HTTPS PostHog ingestion origin. This repository's US Cloud project uses `https://us.i.posthog.com`. Local builds default to that origin, but release CI requires it explicitly to prevent cross-region delivery.     |
 
 Provide the same values to every platform build so macOS, Windows, and Linux releases have the
 same behavior. For example:
 
 ```sh
 POSTHOG_PROJECT_KEY=phc_PROJECT_KEY \
-POSTHOG_HOST=https://eu.i.posthog.com \
+POSTHOG_HOST=https://us.i.posthog.com \
 pnpm build
 ```
 
-For this repository's GitHub Actions release workflow, create Actions secrets named
-`POSTHOG_PROJECT_KEY` and, optionally, `POSTHOG_HOST`. The reusable packaging workflow passes them
-to each platform build without printing their values.
+For this repository's GitHub Actions release workflow, create the Actions secret
+`POSTHOG_PROJECT_KEY`. The US Cloud ingestion origin is non-sensitive and is pinned visibly to
+`https://us.i.posthog.com` in the reusable packaging workflow, so all three platform builds use
+the same reviewed region instead of depending on a mutable secret.
 
 - Ordinary non-publishable smoke builds may omit the project key. They exercise the deliberately
   disabled telemetry path.
-- A build with `publishable: true`, including a formal release dry run, must fail when
-  `POSTHOG_PROJECT_KEY` is empty or whitespace.
+- A build with `publishable: true`, including a formal release dry run, must fail when either the
+  injected `POSTHOG_PROJECT_KEY` or pinned `POSTHOG_HOST` is empty or whitespace. The host must be
+  a credential-free HTTPS origin without a path, query, or fragment.
 - After `electron-vite` builds the main process, the publishable workflow verifies without logging
   the key that the compiled bundle contains the configured key and PostHog ingestion marker.
 
-The client posts to the configured HTTPS host's `/i/v0/e/` endpoint. Arbitrary HTTP origins and
-origins containing credentials are rejected. A project ingestion key in a distributed application
-cannot provide access control; protect the PostHog project with event allow-lists, quotas, and
-ingestion rate limits.
+The client posts to the configured HTTPS host's `/i/v0/e/` endpoint. PostHog Cloud project tokens
+are region-bound, so the collector must match the project's **US Cloud** or **EU Cloud** region.
+Arbitrary HTTP origins and origins containing credentials are rejected. A project ingestion key in
+a distributed application cannot provide access control; protect the PostHog project with event
+allow-lists, quotas, and ingestion rate limits.
 
 Requests use the app's currently configured HTTP(S) proxy when present. Otherwise they resolve the
 operating system's proxy for each request. Changing **Settings → Network** takes effect for later

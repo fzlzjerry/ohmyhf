@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AppDatabase } from './db'
-import { TelemetryService, type TelemetryEvent } from './telemetry'
+import { DEFAULT_POSTHOG_HOST, TelemetryService, type TelemetryEvent } from './telemetry'
 
 const INSTALL_ID_1 = '11111111-1111-4111-8111-111111111111'
 const INSTALL_ID_2 = '22222222-2222-4222-8222-222222222222'
@@ -83,7 +83,7 @@ function makeService(overrides: Partial<ConstructorParameters<typeof TelemetrySe
     db,
     enabled: () => true,
     apiKey: 'phc_public_test_key',
-    endpoint: 'https://eu.i.posthog.com',
+    endpoint: 'https://us.i.posthog.com',
     appVersion: '1.2.3',
     platform: 'linux',
     arch: 'x64',
@@ -97,6 +97,10 @@ function makeService(overrides: Partial<ConstructorParameters<typeof TelemetrySe
 }
 
 describe('TelemetryService', () => {
+  it("defaults release builds to this repository's US Cloud ingestion region", () => {
+    expect(DEFAULT_POSTHOG_HOST).toBe('https://us.i.posthog.com')
+  })
+
   it('persists and reuses one consent reservation across service instances', () => {
     const backing = createKvDb()
     const createFirstClaimId = vi.fn(() => CONSENT_CLAIM_ID_1)
@@ -459,7 +463,7 @@ describe('TelemetryService', () => {
 
   it('matches the documented PostHog raw single-event schema and property allow-list', async () => {
     const { service, fetchImpl } = makeService({
-      endpoint: 'https://eu.i.posthog.com/some/ignored/path?secret=discarded#fragment'
+      endpoint: 'https://us.i.posthog.com/some/ignored/path?secret=discarded#fragment'
     })
 
     await expect(
@@ -468,7 +472,7 @@ describe('TelemetryService', () => {
 
     expect(fetchImpl).toHaveBeenCalledOnce()
     const [url, init] = fetchImpl.mock.calls[0]!
-    expect(url).toBe('https://eu.i.posthog.com/i/v0/e/')
+    expect(url).toBe('https://us.i.posthog.com/i/v0/e/')
     expect(init).toMatchObject({
       method: 'POST',
       headers: { 'content-type': 'application/json' }

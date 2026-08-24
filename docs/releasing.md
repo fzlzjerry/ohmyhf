@@ -42,7 +42,10 @@ publishing disabled.
 Non-publishable packaged smoke runs verify the intentionally disabled telemetry path because they
 do not receive the release ingestion key. Publishable runs receive only a non-sensitive boolean
 expectation in the test process; the existing build gate separately verifies, without logging it,
-that the exact configured key and HTTPS collector marker are present in the compiled main bundle.
+that the exact configured key, explicit region-matching HTTPS ingestion origin, and collector
+marker are present in the compiled main bundle. Both `POSTHOG_PROJECT_KEY` and `POSTHOG_HOST` are
+required for publishable builds. The project key comes from an Actions secret; this repository's
+US Cloud ingestion origin is pinned visibly in the workflow to `https://us.i.posthog.com`.
 
 ## Dry-run
 

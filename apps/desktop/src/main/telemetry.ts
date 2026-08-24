@@ -1,6 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import type { AppDatabase } from './db'
 
+/**
+ * Default cloud ingestion origin for this repository's PostHog project.
+ *
+ * The project is hosted in PostHog US Cloud. Project tokens are region-bound:
+ * sending this project's token to the EU collector can return an accepted HTTP
+ * response while the event never appears in the US project. Release workflows
+ * still require POSTHOG_HOST explicitly; this default protects local/package
+ * builds and keeps every compiled fallback aligned with the configured region.
+ */
+export const DEFAULT_POSTHOG_HOST = 'https://us.i.posthog.com'
+
 export const TELEMETRY_EVENTS = [
   'telemetry_enabled',
   'app_launched',

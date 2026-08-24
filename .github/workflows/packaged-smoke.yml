@@ -24,11 +24,15 @@ on:
         required: false
       POSTHOG_PROJECT_KEY:
         required: false
-      POSTHOG_HOST:
-        required: false
 
 permissions:
   contents: read
+
+# The release project is hosted in PostHog US Cloud. The ingestion origin is
+# public configuration, not a credential, so keep it reviewable and identical
+# across every platform instead of hiding it in a mutable repository secret.
+env:
+  POSTHOG_HOST: https://us.i.posthog.com
 
 jobs:
   package:
@@ -70,20 +74,26 @@ jobs:
         shell: bash
         env:
           POSTHOG_PROJECT_KEY: ${{ secrets.POSTHOG_PROJECT_KEY }}
-          POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
         run: |
           set -euo pipefail
           if [[ -z "${POSTHOG_PROJECT_KEY:-}" || "$POSTHOG_PROJECT_KEY" =~ ^[[:space:]]*$ ]]; then
             echo "::error::POSTHOG_PROJECT_KEY is required for publishable builds."
             exit 1
           fi
+          if [[ -z "${POSTHOG_HOST:-}" || "$POSTHOG_HOST" =~ ^[[:space:]]*$ ]]; then
+            echo "::error::POSTHOG_HOST is required for publishable builds."
+            exit 1
+          fi
           node -e '
-            const value = process.env.POSTHOG_HOST || "https://eu.i.posthog.com"
+            const value = process.env.POSTHOG_HOST
             let url
             try { url = new URL(value) } catch { process.exit(1) }
-            if (url.protocol !== "https:" || url.username || url.password) process.exit(1)
+            if (
+              url.protocol !== "https:" || url.username || url.password ||
+              (url.pathname !== "/" && url.pathname !== "") || url.search || url.hash
+            ) process.exit(1)
           ' || {
-            echo "::error::POSTHOG_HOST must be a valid HTTPS URL without credentials."
+            echo "::error::POSTHOG_HOST must be a credential-free HTTPS ingestion origin without a path, query, or fragment."
             exit 1
           }
           echo "Publishable telemetry configuration is present."
@@ -123,7 +133,6 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           POSTHOG_PROJECT_KEY: ${{ secrets.POSTHOG_PROJECT_KEY }}
-          POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
         run: |
           set -euo pipefail
           set -o pipefail
@@ -139,11 +148,11 @@ jobs:
                 const { readFileSync } = require("node:fs")
                 const bundle = readFileSync("apps/desktop/out/main/index.mjs", "utf8")
                 const key = process.env.POSTHOG_PROJECT_KEY
-                const host = process.env.POSTHOG_HOST || "https://eu.i.posthog.com"
+                const host = process.env.POSTHOG_HOST
                 if (!key || !bundle.includes(key)) {
                   throw new Error("Packaged main bundle is missing its telemetry project key")
                 }
-                if (!bundle.includes(host)) {
+                if (!host || !bundle.includes(host)) {
                   throw new Error("Packaged main bundle is missing its telemetry host")
                 }
                 if (!bundle.includes("/i/v0/e/")) {

@@ -36,7 +36,7 @@ import { applyAppProxy } from './proxy'
 import { SettingsStore } from './settings'
 import { SecurityGate } from './security-gate'
 import { StarReminderService } from './star-reminder'
-import { TelemetryService } from './telemetry'
+import { DEFAULT_POSTHOG_HOST, TelemetryService } from './telemetry'
 import { TrayManager } from './tray'
 import { resolveUpdateClient, UpdateManager } from './updater'
 
@@ -46,7 +46,7 @@ declare const __OMH_POSTHOG_HOST__: string
 const bundledPostHogProjectKey =
   typeof __OMH_POSTHOG_PROJECT_KEY__ === 'string' ? __OMH_POSTHOG_PROJECT_KEY__ : ''
 const bundledPostHogHost =
-  typeof __OMH_POSTHOG_HOST__ === 'string' ? __OMH_POSTHOG_HOST__ : 'https://eu.i.posthog.com'
+  typeof __OMH_POSTHOG_HOST__ === 'string' ? __OMH_POSTHOG_HOST__ : DEFAULT_POSTHOG_HOST
 
 // One identity everywhere: dev and packaged share the same safeStorage keychain
 // entry and userData, so the ~/.oh_my_hf credentials decrypt in every session.
