@@ -1,6 +1,6 @@
 {
   "name": "oh-my-huggingface-desktop",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "private": true,
   "description": "Oh My HuggingFace — unofficial desktop client for the Hugging Face Hub",
   "license": "Apache-2.0",
