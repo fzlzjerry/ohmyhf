@@ -4,11 +4,15 @@ import { lstat, readdir, realpath, rm } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { app } from 'electron'
-import { computeSpeedShare } from '@oh-my-huggingface/shared'
+import { computeSpeedShare, downloadPostActionSchema } from '@oh-my-huggingface/shared'
 import type {
   DownloadAutoExport,
   DownloadFileState,
+  DownloadPostAction,
+  DownloadPostActionStatus,
   DownloadRequest,
+  SecurityAcknowledgement,
+  SecurityPreflightRequest,
   DownloadStatus,
   DownloadTask,
   ExportStartRequest
@@ -28,6 +32,9 @@ interface WorkerMessage {
   commit?: string
   message?: string
   verified?: boolean
+  etag?: string
+  isLfs?: boolean
+  localSha256?: string
 }
 
 const PROGRESS_BROADCAST_MS = 400
@@ -78,6 +85,11 @@ interface DownloadEnvironment {
   version: number
 }
 
+export type DownloadHub = Pick<HubClient, 'getRepoDetail' | 'getFileTree'> &
+  Partial<Pick<HubClient, 'getRepoRefs'>> & {
+    readonly baseUrl: string
+  }
+
 interface ManagedDownloadTask extends DownloadTask {
   resolvedCommit?: string
   errorCode?: DownloadErrorCode
@@ -86,6 +98,10 @@ interface ManagedDownloadTask extends DownloadTask {
   environment?: DownloadEnvironment
   revisionSequence?: number
   autoExport?: DownloadAutoExport
+  postActionRequest?: DownloadPostAction
+  postActionStatus?: DownloadPostActionStatus
+  postActionError?: string
+  securityAcknowledgement?: SecurityAcknowledgement
 }
 
 interface DownloadRow {
@@ -104,6 +120,8 @@ interface DownloadRow {
   files_json: string
   error: string | null
   error_code: string | null
+  post_action_json: string | null
+  security_ack_json: string | null
   created_at: string
   completed_at: string | null
 }
@@ -151,6 +169,56 @@ function normalizeErrorCode(value: string | null): DownloadErrorCode | undefined
   }
 }
 
+function parseJson<T>(value: string | null): T | undefined {
+  if (!value) return undefined
+  try {
+    return JSON.parse(value) as T
+  } catch {
+    return undefined
+  }
+}
+
+interface StoredPostAction {
+  version: 1
+  request: DownloadPostAction
+  status: DownloadPostActionStatus
+  error?: string
+}
+
+function parseStoredPostAction(value: string | null): StoredPostAction | undefined {
+  const decoded = parseJson<unknown>(value)
+  if (!decoded || typeof decoded !== 'object') return undefined
+  const object = decoded as Record<string, unknown>
+  if (object.version === 1) {
+    const request = downloadPostActionSchema.safeParse(object.request)
+    const status = object.status
+    if (
+      !request.success ||
+      ![
+        'pending',
+        'running',
+        'waiting-confirmation',
+        'waiting-runtime',
+        'error',
+        'completed'
+      ].includes(String(status))
+    ) {
+      return undefined
+    }
+    return {
+      version: 1,
+      request: request.data,
+      // A process cannot still own a running post-action after restart.
+      status: status === 'running' ? 'pending' : (status as DownloadPostActionStatus),
+      error: typeof object.error === 'string' ? object.error.slice(0, 500) : undefined
+    }
+  }
+  // v0.0.12 development builds persisted the request directly. Validate it
+  // before considering it executable, then migrate on the next database write.
+  const legacy = downloadPostActionSchema.safeParse(decoded)
+  return legacy.success ? { version: 1, request: legacy.data, status: 'pending' } : undefined
+}
+
 function classifyDownloadError(message: string | undefined): DownloadErrorCode {
   if (message === 'commit-mismatch') return 'commit-mismatch'
   if (
@@ -185,7 +253,14 @@ export class DownloadManager {
     private readonly notifications: NotificationService,
     private readonly getAuthToken: () => string | undefined,
     private readonly broadcast: (tasks: DownloadTask[]) => void,
-    private readonly onAutoExport?: (request: ExportStartRequest) => void
+    private readonly onAutoExport?: (request: ExportStartRequest) => void,
+    private readonly onPostAction?: (
+      request: DownloadPostAction & {
+        repoId: string
+        revision: string
+        resolvedCommit: string
+      }
+    ) => Promise<void>
   ) {
     this.loadPersisted()
   }
@@ -195,6 +270,7 @@ export class DownloadManager {
       .prepare('SELECT * FROM downloads ORDER BY created_at')
       .all() as DownloadRow[]
     for (const row of rows) {
+      const storedPostAction = parseStoredPostAction(row.post_action_json)
       let files: DownloadFileState[] = []
       try {
         files = JSON.parse(row.files_json) as DownloadFileState[]
@@ -252,7 +328,11 @@ export class DownloadManager {
             }
           : undefined,
         revisionSequence:
-          hasEnvironment && !isResolvedCommit(row.revision) ? ++this.revisionSequence : undefined
+          hasEnvironment && !isResolvedCommit(row.revision) ? ++this.revisionSequence : undefined,
+        postActionRequest: storedPostAction?.request,
+        postActionStatus: storedPostAction?.status,
+        postActionError: storedPostAction?.error,
+        securityAcknowledgement: parseJson<SecurityAcknowledgement>(row.security_ack_json)
       }
       task.resumable = this.canResume(task)
       this.tasks.set(row.id, task)
@@ -263,8 +343,8 @@ export class DownloadManager {
   private persistRow(task: ManagedDownloadTask): void {
     this.db
       .prepare(
-        `INSERT INTO downloads (id, repo_id, kind, revision, resolved_commit, endpoint, proxy_url, cache_dir, environment_version, status, total_bytes, received_bytes, files_json, error, error_code, created_at, completed_at)
-         VALUES (@id, @repoId, @kind, @revision, @resolvedCommit, @endpoint, @proxyUrl, @cacheDir, @environmentVersion, @status, @totalBytes, @receivedBytes, @filesJson, @error, @errorCode, @createdAt, @completedAt)
+        `INSERT INTO downloads (id, repo_id, kind, revision, resolved_commit, endpoint, proxy_url, cache_dir, environment_version, status, total_bytes, received_bytes, files_json, error, error_code, post_action_json, security_ack_json, created_at, completed_at)
+         VALUES (@id, @repoId, @kind, @revision, @resolvedCommit, @endpoint, @proxyUrl, @cacheDir, @environmentVersion, @status, @totalBytes, @receivedBytes, @filesJson, @error, @errorCode, @postActionJson, @securityAckJson, @createdAt, @completedAt)
          ON CONFLICT(id) DO UPDATE SET
            resolved_commit = excluded.resolved_commit,
            endpoint = excluded.endpoint,
@@ -277,6 +357,8 @@ export class DownloadManager {
            files_json = excluded.files_json,
            error = excluded.error,
            error_code = excluded.error_code,
+           post_action_json = excluded.post_action_json,
+           security_ack_json = excluded.security_ack_json,
            completed_at = excluded.completed_at`
       )
       .run({
@@ -295,6 +377,17 @@ export class DownloadManager {
         filesJson: JSON.stringify(task.files),
         error: task.error ?? null,
         errorCode: task.errorCode ?? null,
+        postActionJson: task.postActionRequest
+          ? JSON.stringify({
+              version: 1,
+              request: task.postActionRequest,
+              status: task.postActionStatus ?? 'pending',
+              error: task.postActionError
+            } satisfies StoredPostAction)
+          : null,
+        securityAckJson: task.securityAcknowledgement
+          ? JSON.stringify(task.securityAcknowledgement)
+          : null,
         createdAt: task.createdAt,
         completedAt: task.completedAt ?? null
       })
@@ -329,9 +422,25 @@ export class DownloadManager {
         const {
           environment: _environment,
           revisionSequence: _revisionSequence,
+          autoExport: _autoExport,
+          postActionRequest: _postActionRequest,
+          postActionStatus: _postActionStatus,
+          postActionError: _postActionError,
+          securityAcknowledgement: _securityAcknowledgement,
           ...publicTask
         } = task
-        return publicTask
+        return {
+          ...publicTask,
+          postAction: task.postActionRequest
+            ? {
+                kind: task.postActionRequest.kind,
+                runtime: task.postActionRequest.runtime,
+                filePath: task.postActionRequest.filePath,
+                status: task.postActionStatus ?? 'pending',
+                error: task.postActionError
+              }
+            : undefined
+        }
       })
   }
 
@@ -378,10 +487,6 @@ export class DownloadManager {
       throw new Error('Download cache target escapes the frozen cache root')
     }
     return realRepoDir
-  }
-
-  private currentEndpoint(): string {
-    return this.hub.baseUrl.replace(/\/+$/, '')
   }
 
   private canResume(task: ManagedDownloadTask): boolean {
@@ -436,15 +541,31 @@ export class DownloadManager {
   }
 
   async start(request: DownloadRequest): Promise<DownloadTask[]> {
-    const revision = request.revision ?? 'main'
-    const revisionSequence = isResolvedCommit(revision) ? undefined : ++this.revisionSequence
+    return this.startWithHub(request, this.hub)
+  }
+
+  /**
+   * Internal lock-restore entry point. It freezes an explicitly confirmed
+   * endpoint/client into the task without mutating the app's global Hub
+   * settings. This method is never exposed over IPC.
+   */
+  async startWithHub(request: DownloadRequest, sourceHub: DownloadHub): Promise<DownloadTask[]> {
     // Property access on createHubProxy returns a method bound to the current
     // concrete client. Capture both methods before the first await so a Settings
     // endpoint rebuild cannot split detail resolution and tree enumeration.
-    const getRepoDetail = this.hub.getRepoDetail.bind(this.hub)
-    const getFileTree = this.hub.getFileTree.bind(this.hub)
+    const getRepoRefs = sourceHub.getRepoRefs?.bind(sourceHub)
+    const getRepoDetail = sourceHub.getRepoDetail.bind(sourceHub)
+    const getFileTree = sourceHub.getFileTree.bind(sourceHub)
+    let revision = request.revision ?? request.resolvedCommit
+    if (!revision) {
+      if (!getRepoRefs) throw new Error('revision.defaultUnavailable')
+      const refs = await getRepoRefs(request.kind, request.repoId)
+      revision = refs.defaultBranch
+      if (!revision) throw new Error('revision.defaultUnavailable')
+    }
+    const revisionSequence = isResolvedCommit(revision) ? undefined : ++this.revisionSequence
     const settings = this.settings.get()
-    const endpoint = this.currentEndpoint()
+    const endpoint = sourceHub.baseUrl.replace(/\/+$/, '')
     const environment: DownloadEnvironment = {
       endpoint,
       // Worker threads use Node/undici and cannot see Electron's system proxy.
@@ -454,10 +575,19 @@ export class DownloadManager {
       cacheDir: resolve(settings.hfCacheDir ?? defaultCacheDir()),
       version: DOWNLOAD_ENVIRONMENT_VERSION
     }
-    const detail = await getRepoDetail(request.kind, request.repoId, revision)
+    // A pre-resolved request (IPC security gate / lock restore) is queried by
+    // immutable commit. Symbolic refs are retained only for display/history.
+    const detail = await getRepoDetail(
+      request.kind,
+      request.repoId,
+      request.resolvedCommit ?? revision
+    )
     const resolvedCommit = detail.sha?.toLowerCase()
     if (!isResolvedCommit(resolvedCommit)) {
       throw new Error('Hub did not resolve the requested revision to a 40-character commit')
+    }
+    if (request.resolvedCommit && resolvedCommit !== request.resolvedCommit.toLowerCase()) {
+      throw new Error('commit-mismatch')
     }
     const tree = await getFileTree(request.kind, request.repoId, resolvedCommit, '', {
       recursive: true
@@ -474,7 +604,8 @@ export class DownloadManager {
         size: e.size,
         receivedBytes: 0,
         status: 'queued' as const,
-        sha256: e.lfs?.oid
+        sha256: e.lfs?.oid,
+        gitBlobOid: e.lfs ? undefined : e.oid
       }))
     if (files.length === 0) throw new Error('No matching files to download')
 
@@ -504,6 +635,25 @@ export class DownloadManager {
           if (existing.status !== 'queued' && existing.status !== 'running') continue
           if (existing.files.some((file) => file.path === request.autoExport?.filePath)) {
             existing.autoExport = request.autoExport
+            existing.securityAcknowledgement = request.securityAcknowledgement
+            this.persist(existing)
+            break
+          }
+        }
+      }
+      if (request.postAction) {
+        for (const existing of this.tasks.values()) {
+          if (existing.repoId !== request.repoId || existing.kind !== request.kind) continue
+          if (existing.resolvedCommit !== resolvedCommit) continue
+          if (existing.environment?.endpoint !== environment.endpoint) continue
+          if (existing.environment.cacheDir !== environment.cacheDir) continue
+          if (existing.status !== 'queued' && existing.status !== 'running') continue
+          if (existing.files.some((file) => file.path === request.postAction?.filePath)) {
+            existing.postActionRequest = request.postAction
+            existing.postActionStatus = 'pending'
+            existing.postActionError = undefined
+            existing.securityAcknowledgement = request.postAction.securityAcknowledgement
+            this.persist(existing)
             break
           }
         }
@@ -526,6 +676,10 @@ export class DownloadManager {
       environment,
       revisionSequence,
       autoExport: request.autoExport,
+      postActionRequest: request.postAction,
+      postActionStatus: request.postAction ? 'pending' : undefined,
+      securityAcknowledgement:
+        request.securityAcknowledgement ?? request.postAction?.securityAcknowledgement,
       createdAt: new Date().toISOString()
     }
     this.tasks.set(task.id, task)
@@ -600,6 +754,8 @@ export class DownloadManager {
     worker.on('message', (msg: WorkerMessage) => {
       if (this.tasks.get(task.id) !== task) return
       if (msg.type === 'meta') {
+        if (msg.etag && msg.isLfs === true) file.sha256 = msg.etag
+        if (msg.etag && msg.isLfs === false) file.gitBlobOid = msg.etag
         if (msg.size !== undefined && msg.size !== file.size) {
           task.totalBytes += msg.size - file.size
           file.size = msg.size
@@ -618,6 +774,7 @@ export class DownloadManager {
         file.status = 'completed'
         file.receivedBytes = file.size
         file.verified = msg.verified
+        file.localSha256 = msg.localSha256
         this.finishWorker(key, task)
       } else if (msg.type === 'error') {
         if (msg.message === 'aborted') {
@@ -726,6 +883,120 @@ export class DownloadManager {
     }
   }
 
+  private postActionFailureStatus(message: string): DownloadPostActionStatus {
+    if (
+      /security\.(?:evidenceChanged|confirmationRequired|grant|challenge)|runtime\.fitConfirmationRequired/i.test(
+        message
+      )
+    ) {
+      return 'waiting-confirmation'
+    }
+    if (
+      /runtime\.(?:unavailable|binaryMissing|probeFailed|chatUnsupported)|ECONNREFUSED|fetch failed/i.test(
+        message
+      )
+    ) {
+      return 'waiting-runtime'
+    }
+    return 'error'
+  }
+
+  private triggerPostAction(task: ManagedDownloadTask): void {
+    if (
+      task.status !== 'completed' ||
+      !task.postActionRequest ||
+      !this.onPostAction ||
+      !isResolvedCommit(task.resolvedCommit) ||
+      task.postActionStatus === 'running'
+    ) {
+      return
+    }
+    task.postActionStatus = 'running'
+    task.postActionError = undefined
+    this.persist(task)
+    this.scheduleBroadcast()
+    const request = task.postActionRequest
+    void this.onPostAction({
+      ...request,
+      repoId: task.repoId,
+      revision: task.revision,
+      resolvedCommit: task.resolvedCommit
+    })
+      .then(() => {
+        if (this.tasks.get(task.id) !== task || task.postActionRequest !== request) return
+        task.postActionRequest = undefined
+        task.postActionStatus = undefined
+        task.postActionError = undefined
+        this.persist(task)
+        this.scheduleBroadcast()
+      })
+      .catch((error: unknown) => {
+        if (this.tasks.get(task.id) !== task || task.postActionRequest !== request) return
+        const message = error instanceof Error ? error.message : String(error)
+        task.postActionStatus = this.postActionFailureStatus(message)
+        task.postActionError = message.slice(0, 500)
+        this.persist(task)
+        this.scheduleBroadcast()
+      })
+  }
+
+  /** Resume only never-attempted post-actions after startup; warning/error states need user action. */
+  resumePendingPostActions(): void {
+    for (const task of this.tasks.values()) {
+      if (task.postActionStatus === 'pending') this.triggerPostAction(task)
+    }
+  }
+
+  retryPostAction(id: string): DownloadTask[] {
+    const task = this.tasks.get(id)
+    if (
+      task?.postActionRequest &&
+      task.status === 'completed' &&
+      task.postActionStatus !== 'running' &&
+      task.postActionStatus !== 'waiting-confirmation'
+    ) {
+      this.triggerPostAction(task)
+    }
+    return this.list()
+  }
+
+  postActionSecurityRequest(id: string): SecurityPreflightRequest {
+    const task = this.tasks.get(id)
+    if (!task?.postActionRequest || !isResolvedCommit(task.resolvedCommit)) {
+      throw new Error('download.postActionMissing')
+    }
+    return {
+      action: 'local-run',
+      kind: 'model',
+      repoId: task.repoId,
+      revision: task.revision,
+      resolvedCommit: task.resolvedCommit,
+      files: [task.postActionRequest.filePath]
+    }
+  }
+
+  reauthorizePostAction(
+    id: string,
+    acknowledgement: SecurityAcknowledgement,
+    allowTightFit?: boolean
+  ): DownloadTask[] {
+    const task = this.tasks.get(id)
+    if (!task?.postActionRequest || task.status !== 'completed') {
+      throw new Error('download.postActionMissing')
+    }
+    task.postActionRequest = {
+      ...task.postActionRequest,
+      allowTightFit: allowTightFit ?? task.postActionRequest.allowTightFit,
+      securityAcknowledgement: acknowledgement
+    }
+    task.securityAcknowledgement = acknowledgement
+    task.postActionStatus = 'pending'
+    task.postActionError = undefined
+    this.persist(task)
+    this.triggerPostAction(task)
+    return this.list()
+  }
+
   /** Re-derive task status after a file finished, errored, or was paused. */
   private settleTask(task: ManagedDownloadTask): void {
     if (this.tasks.get(task.id) !== task) return
@@ -770,7 +1041,10 @@ export class DownloadManager {
           tool: pendingExport.tool,
           kind: task.kind,
           repoId: task.repoId,
-          filePath: pendingExport.filePath
+          filePath: pendingExport.filePath,
+          revision: task.revision,
+          resolvedCommit: task.resolvedCommit,
+          securityAcknowledgement: task.securityAcknowledgement
         })
       }
       this.notifications.show(
@@ -797,6 +1071,7 @@ export class DownloadManager {
       task.resumable = this.canResume(task)
     }
     this.persist(task)
+    if (allCompleted && task.postActionRequest) this.triggerPostAction(task)
     if (task.status !== 'running' && task.status !== 'queued') this.speedWindow.delete(task.id)
     this.pump()
   }
@@ -1007,7 +1282,7 @@ export class DownloadManager {
   /** Drop every completed task from the list (memory + DB). */
   clearCompleted(): DownloadTask[] {
     for (const task of [...this.tasks.values()]) {
-      if (task.status === 'completed') this.remove(task.id)
+      if (task.status === 'completed' && !task.postActionRequest) this.remove(task.id)
     }
     return this.list()
   }

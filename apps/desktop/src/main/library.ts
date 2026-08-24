@@ -59,23 +59,39 @@ export class Library {
       kind: string
       viewed_at: string
       summary_json: string
+      revision: string | null
+      resolved_commit: string | null
     }>
     return rows.map((r) => ({
       repoId: r.repo_id,
       kind: r.kind as RepoKind,
       viewedAt: r.viewed_at,
-      summary: JSON.parse(r.summary_json) as RepoSummary
+      summary: JSON.parse(r.summary_json) as RepoSummary,
+      revision: r.revision ?? undefined,
+      resolvedCommit: r.resolved_commit ?? undefined
     }))
   }
 
-  recordHistory(summary: RepoSummary): void {
+  recordHistory(summary: RepoSummary, revision?: string, resolvedCommit?: string): void {
     this.db
       .prepare(
-        `INSERT INTO history (repo_id, kind, viewed_at, summary_json) VALUES (?, ?, ?, ?)
+        `INSERT INTO history
+           (repo_id, kind, viewed_at, summary_json, revision, resolved_commit)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(repo_id, kind) DO UPDATE SET
-           viewed_at = excluded.viewed_at, summary_json = excluded.summary_json`
+           viewed_at = excluded.viewed_at,
+           summary_json = excluded.summary_json,
+           revision = excluded.revision,
+           resolved_commit = excluded.resolved_commit`
       )
-      .run(summary.id, summary.kind, new Date().toISOString(), JSON.stringify(summary))
+      .run(
+        summary.id,
+        summary.kind,
+        new Date().toISOString(),
+        JSON.stringify(summary),
+        revision ?? null,
+        resolvedCommit ?? null
+      )
     this.pruneHistory(this.getHistoryLimit())
   }
 

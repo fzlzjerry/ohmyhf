@@ -4,6 +4,8 @@ export type Broadcast = <C extends IpcEventChannel>(channel: C, payload: IpcEven
 
 export interface ExportDeps {
   cacheDir: string
+  /** Immutable snapshot selected by the user; exports never guess a ref. */
+  resolvedCommit?: string
   signal: AbortSignal
   onProgress: (progress: { phase: 'preparing' | 'copying' | 'running'; progress?: number }) => void
   /** Optional runtime seams keep tests inside temporary directories. */

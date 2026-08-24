@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Pencil, Save, X } from 'lucide-react'
-import type { RepoKind } from '@oh-my-huggingface/shared'
+import type { RepoKind, RepoRevisionSelection } from '@oh-my-huggingface/shared'
 import { describeError } from '@/lib/errors'
 import { invoke, openExternal } from '@/lib/ipc'
 import { Button } from '@/components/ui/button'
@@ -29,6 +29,7 @@ export function RepoFileEditor({
   repoId,
   path,
   initial,
+  revision,
   onClose,
   onSaved
 }: {
@@ -36,6 +37,7 @@ export function RepoFileEditor({
   repoId: string
   path: string
   initial: string
+  revision: RepoRevisionSelection
   onClose: () => void
   onSaved: (content: string) => void
 }): React.JSX.Element {
@@ -55,6 +57,8 @@ export function RepoFileEditor({
         repoId,
         files: [{ path, content }],
         title: title.trim() || t('detail:edit.defaultTitle', { file: path }),
+        branch: revision.type === 'branch' ? revision.requested : undefined,
+        startingPoint: revision.resolvedCommit,
         createPr
       }),
     onSuccess: (result) => {
@@ -121,7 +125,7 @@ export function RepoFileEditor({
           variant="cta"
           size="sm"
           loading={commit.isPending}
-          disabled={!canWrite || content === initial}
+          disabled={!canWrite || content === initial || revision.readOnly}
           onClick={() => commit.mutate()}
         >
           <Save className="size-3.5" aria-hidden />

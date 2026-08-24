@@ -29,11 +29,184 @@ const revision = z
   .min(1)
   .max(256)
   .regex(/^[\w./-]+$/, 'invalid revision')
+  .refine(
+    (value) => value.split('/').every((segment) => segment && segment !== '.' && segment !== '..'),
+    'invalid revision'
+  )
+
+const gitRefName = revision.refine(
+  (value) =>
+    value !== '@' &&
+    !value.startsWith('.') &&
+    !value.endsWith('.') &&
+    !value.endsWith('/') &&
+    !value.includes('..') &&
+    !value.includes('//') &&
+    !value.includes('@{') &&
+    value.split('/').every((segment) => !segment.startsWith('.') && !segment.endsWith('.lock')),
+  'invalid Git ref name'
+)
+
+const commitSha = z.string().regex(/^[0-9a-f]{40}$/, 'invalid commit')
+const uuid = z.uuid()
 
 const relPath = z
   .string()
+  .min(1)
   .max(1024)
-  .regex(/^(?!\/)(?!.*\.\.)[^\0]*$/, 'invalid path')
+  .regex(/^(?!\/)(?![A-Za-z]:[\\/])(?!.*\\)[^\0]+$/, 'invalid path')
+  .refine(
+    (value) => value.split('/').every((segment) => segment && segment !== '.' && segment !== '..'),
+    'invalid path'
+  )
+
+const securityAction = z.enum(['download', 'export', 'local-run', 'lock-restore'])
+const localRuntimeKind = z.enum(['ollama', 'llama.cpp'])
+const securityReason = z.enum([
+  'confirmed-malicious',
+  'repository-malicious',
+  'scan-pending',
+  'scan-error',
+  'scan-unknown',
+  'pickle-format',
+  'executable-file',
+  'custom-code',
+  'trust-remote-code',
+  'unscanned-file',
+  'other-file-malicious'
+])
+
+const lockFileEntry = z
+  .object({
+    path: relPath,
+    size: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    lfsSha256: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
+    gitBlobOid: z
+      .string()
+      .regex(/^[0-9a-f]{40}$/)
+      .optional(),
+    localSha256: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional()
+  })
+  .strict()
+  .refine((value) => Boolean(value.lfsSha256 || value.gitBlobOid), {
+    message: 'lock file requires an immutable Hub object id'
+  })
+
+const lockRuntime = z
+  .object({
+    runtime: localRuntimeKind,
+    filePath: relPath,
+    contextLength: z.number().int().min(128).max(1_048_576),
+    maxTokens: z.number().int().min(1).max(32_768),
+    temperature: z.number().min(0).max(2),
+    gpuLayers: z.union([z.literal('auto'), z.number().int().min(0).max(1000)]).optional()
+  })
+  .strict()
+
+export const downloadPostActionSchema = z
+  .object({
+    kind: z.literal('local-run'),
+    runtime: localRuntimeKind,
+    filePath: relPath,
+    contextLength: z.number().int().min(128).max(1_048_576),
+    maxTokens: z.number().int().min(1).max(32_768),
+    temperature: z.number().min(0).max(2),
+    gpuLayers: z.union([z.literal('auto'), z.number().int().min(0).max(1000)]).optional(),
+    allowTightFit: z.boolean().optional(),
+    securityAcknowledgement: z
+      .object({
+        fingerprint: z.string().min(1).max(256),
+        binding: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+        acceptedAt: z.iso.datetime()
+      })
+      .strict()
+      .optional()
+  })
+  .strict()
+
+const lockResource = z
+  .object({
+    kind: repoKind,
+    repoId,
+    requestedRevision: revision,
+    resolvedCommit: commitSha,
+    files: z.array(lockFileEntry).max(10_000).optional(),
+    runtime: lockRuntime.optional(),
+    security: z
+      .object({
+        decision: z.enum(['allow', 'confirm', 'block']),
+        reasons: z.array(securityReason).max(32),
+        fingerprint: z.string().min(1).max(256),
+        checkedAt: z.iso.datetime()
+      })
+      .strict()
+      .optional()
+  })
+  .strict()
+
+export const ohmyhfLockV1Schema = z
+  .object({
+    format: z.literal('ohmyhf-lock/v1'),
+    version: z.literal(1),
+    createdAt: z.iso.datetime(),
+    hubEndpoint: z.url({ protocol: /^https?$/ }),
+    resources: z.array(lockResource).min(1).max(100)
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const seen = new Set<string>()
+    for (const [index, resource] of value.resources.entries()) {
+      const key = `${resource.kind}\0${resource.repoId}\0${resource.resolvedCommit}`
+      if (seen.has(key)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'duplicate lock resource',
+          path: ['resources', index]
+        })
+      }
+      seen.add(key)
+      const paths = new Set<string>()
+      for (const [fileIndex, file] of (resource.files ?? []).entries()) {
+        if (paths.has(file.path)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'duplicate lock file',
+            path: ['resources', index, 'files', fileIndex]
+          })
+        }
+        paths.add(file.path)
+      }
+      if (resource.runtime) {
+        if (resource.kind !== 'model') {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'runtime configuration requires a model resource',
+            path: ['resources', index, 'runtime']
+          })
+        }
+        if (!resource.runtime.filePath.toLowerCase().endsWith('.gguf')) {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'runtime configuration requires a GGUF file',
+            path: ['resources', index, 'runtime', 'filePath']
+          })
+        }
+        if (resource.files && !paths.has(resource.runtime.filePath)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'runtime file is absent from the locked file subset',
+            path: ['resources', index, 'runtime', 'filePath']
+          })
+        }
+      }
+    }
+  })
 
 const searchQuery = z.object({
   kind: repoKind,
@@ -96,7 +269,8 @@ const settingsPatch = z
     browsePageSize: z.union([z.literal(20), z.literal(30), z.literal(50)]),
     repoOpenTarget: z.enum(['app', 'browser']),
     historyLimit: z.union([z.literal(50), z.literal(100), z.literal(200), z.literal(500)]),
-    telemetryEnabled: z.boolean()
+    telemetryEnabled: z.boolean(),
+    ollamaPort: z.number().int().min(1).max(65535)
   })
   .partial()
   .strict()
@@ -203,14 +377,27 @@ export const ipcRequestSchemas: Partial<Record<IpcInvokeChannel, z.ZodTypeAny>> 
   'hub:search': z.object({ query: searchQuery }),
   'hub:papers': z.object({ cursor: z.string().max(4096).optional() }).optional(),
   'hub:paper': z.object({ paperId: z.string().min(1).max(128) }),
-  'hub:repoDetail': z.object({ kind: repoKind, repoId }),
-  'hub:readme': z.object({ kind: repoKind, repoId, revision: revision.optional() }),
-  'hub:fileTree': z.object({
-    kind: repoKind,
-    repoId,
-    revision: revision.optional(),
-    path: relPath.optional()
-  }),
+  'hub:repoDetail': z.object({ kind: repoKind, repoId, revision: revision.optional() }).strict(),
+  'hub:repoRefs': z.object({ kind: repoKind, repoId }).strict(),
+  'hub:repoCommits': z
+    .object({
+      kind: repoKind,
+      repoId,
+      revision: revision.optional(),
+      cursor: z.string().max(4096).optional(),
+      limit: z.number().int().min(1).max(100).optional()
+    })
+    .strict(),
+  'hub:resolveRevision': z.object({ kind: repoKind, repoId, revision }).strict(),
+  'hub:readme': z.object({ kind: repoKind, repoId, revision }).strict(),
+  'hub:fileTree': z
+    .object({
+      kind: repoKind,
+      repoId,
+      revision,
+      path: relPath.optional()
+    })
+    .strict(),
   'hub:discussions': z.object({
     kind: repoKind,
     repoId,
@@ -265,27 +452,30 @@ export const ipcRequestSchemas: Partial<Record<IpcInvokeChannel, z.ZodTypeAny>> 
     description: z.string().min(1).max(65536),
     pullRequest: z.boolean().optional()
   }),
-  'hub:fileText': z.object({
-    kind: repoKind,
-    repoId,
-    path: relPath,
-    revision: revision.optional(),
-    maxBytes: z
-      .number()
-      .int()
-      .min(1)
-      .max(8 * 1024 * 1024)
-      .optional()
-  }),
+  'hub:fileText': z
+    .object({
+      kind: repoKind,
+      repoId,
+      path: relPath,
+      revision,
+      maxBytes: z
+        .number()
+        .int()
+        .min(1)
+        .max(8 * 1024 * 1024)
+        .optional()
+    })
+    .strict(),
   'hub:fileRange': z
     .object({
       kind: repoKind,
       repoId,
       path: relPath,
-      revision: revision.optional(),
+      revision,
       start: z.number().int().min(0),
       end: z.number().int().min(0)
     })
+    .strict()
     // Bound the window so a compromised renderer can't request a multi-GB slice
     // and OOM the main process. 64 MiB covers a parquet footer plus any single
     // column chunk a preview needs; larger asks fail clearly instead.
@@ -293,12 +483,14 @@ export const ipcRequestSchemas: Partial<Record<IpcInvokeChannel, z.ZodTypeAny>> 
       (r) => r.end >= r.start && r.end - r.start < 64 * 1024 * 1024,
       'range window too large'
     ),
-  'hub:safetensorsHeader': z.object({
-    kind: repoKind,
-    repoId,
-    path: relPath,
-    revision: revision.optional()
-  }),
+  'hub:safetensorsHeader': z
+    .object({
+      kind: repoKind,
+      repoId,
+      path: relPath,
+      revision
+    })
+    .strict(),
   'hub:notifications': z
     .object({ page: z.number().int().min(0).max(10_000).optional() })
     .optional(),
@@ -332,6 +524,20 @@ export const ipcRequestSchemas: Partial<Record<IpcInvokeChannel, z.ZodTypeAny>> 
   'hub:searchPapers': z.object({ query: z.string().min(1).max(64) }),
   'hub:searchCollections': z.object({ query: z.string().min(1).max(64) }),
   'hub:inferenceAvailable': z.object({ repoId }),
+  'hub:modelEvalResults': z
+    .object({
+      repoId,
+      revision,
+      resolvedCommit: commitSha
+    })
+    .strict(),
+  'hub:datasetLeaderboard': z
+    .object({
+      repoId,
+      cursor: z.string().max(4096).optional(),
+      limit: z.number().int().min(1).max(100).optional()
+    })
+    .strict(),
   'hub:collections': z.object({ owner: username }),
   'hub:collection': z.object({ slug: collectionSlug }),
   'hub:collectionCreate': z.object({
@@ -389,10 +595,10 @@ export const ipcRequestSchemas: Partial<Record<IpcInvokeChannel, z.ZodTypeAny>> 
   'hub:branchCreate': z.object({
     kind: repoKind,
     repoId,
-    branch: revision,
+    branch: gitRefName,
     startingPoint: revision.optional()
   }),
-  'hub:branchDelete': z.object({ kind: repoKind, repoId, branch: revision }),
+  'hub:branchDelete': z.object({ kind: repoKind, repoId, branch: gitRefName }),
   'hub:tagCreate': z.object({
     kind: repoKind,
     repoId,
@@ -580,79 +786,156 @@ export const ipcRequestSchemas: Partial<Record<IpcInvokeChannel, z.ZodTypeAny>> 
   }),
   'favorites:add': z.object({ summary: repoSummary }),
   'favorites:remove': z.object({ kind: repoKind, repoId }),
-  'history:record': z.object({ summary: repoSummary }),
-  'downloads:start': z.object({
-    request: z.object({
-      repoId,
-      kind: repoKind,
-      revision: revision.optional(),
-      files: z.array(relPath).max(10000).optional(),
-      autoExport: z
-        .object({
-          tool: z.enum(['ollama', 'lmstudio', 'comfyui']),
-          filePath: relPath
-        })
-        .optional()
-    })
+  'history:record': z.object({
+    summary: repoSummary,
+    revision: revision.optional(),
+    resolvedCommit: commitSha.optional()
   }),
+  'downloads:start': z
+    .object({
+      request: z
+        .object({
+          repoId,
+          kind: repoKind,
+          revision: revision.optional(),
+          resolvedCommit: commitSha.optional(),
+          files: z.array(relPath).max(10000).optional(),
+          autoExport: z
+            .object({
+              tool: z.enum(['ollama', 'lmstudio', 'comfyui']),
+              filePath: relPath
+            })
+            .strict()
+            .optional(),
+          postAction: downloadPostActionSchema.optional(),
+          securityGrantId: uuid.optional()
+        })
+        .strict()
+        .superRefine((request, ctx) => {
+          if (request.autoExport && request.postAction) {
+            ctx.addIssue({ code: 'custom', message: 'conflicting post actions' })
+          }
+          if (request.postAction && request.kind !== 'model') {
+            ctx.addIssue({ code: 'custom', message: 'local run requires a model repository' })
+          }
+          for (const action of [request.autoExport, request.postAction]) {
+            if (action && request.files && !request.files.includes(action.filePath)) {
+              ctx.addIssue({
+                code: 'custom',
+                message: 'post-action file must be included in the download'
+              })
+            }
+          }
+        })
+    })
+    .strict(),
   'downloads:pause': z.object({ id: z.uuid() }),
   'downloads:resume': z.object({ id: z.uuid() }),
+  'downloads:retryPostAction': z
+    .object({
+      id: z.uuid(),
+      securityGrantId: uuid.optional(),
+      allowTightFit: z.boolean().optional()
+    })
+    .strict(),
   'downloads:cancel': z.object({ id: z.uuid() }),
   'downloads:remove': z.object({ id: z.uuid() }),
   'downloads:reveal': z.object({ id: z.uuid() }),
-  'hub:commitFiles': z.object({
-    kind: repoKind,
-    repoId,
-    files: z
-      .array(
-        z.object({
-          path: relPath,
-          content: z.string().max(256 * 1024)
+  'hub:commitFiles': z
+    .object({
+      kind: repoKind,
+      repoId,
+      files: z
+        .array(
+          z
+            .object({
+              path: relPath,
+              content: z.string().max(256 * 1024)
+            })
+            .strict()
+        )
+        .min(1)
+        .max(5),
+      title: z.string().min(1).max(200),
+      description: z.string().max(4000).optional(),
+      branch: gitRefName.optional(),
+      startingPoint: commitSha,
+      createPr: z.boolean().optional()
+    })
+    .strict()
+    .superRefine((request, ctx) => {
+      if (request.createPr !== true && !request.branch) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'direct commit requires a branch',
+          path: ['branch']
         })
-      )
-      .min(1)
-      .max(5),
-    title: z.string().min(1).max(200),
-    description: z.string().max(4000).optional(),
-    branch: revision.optional(),
-    createPr: z.boolean().optional()
-  }),
-  'cache:snapshot': z.object({ kind: repoKind, repoId }),
-  'cache:readText': z.object({
-    kind: repoKind,
-    repoId,
-    path: relPath,
-    maxBytes: z
-      .number()
-      .int()
-      .min(1)
-      .max(1024 * 1024)
-      .optional()
-  }),
-  'cache:deleteRevisions': z.object({
-    kind: repoKind,
-    repoId,
-    commitHashes: z
-      .array(z.string().regex(/^[0-9a-f]{40}$/))
-      .min(1)
-      .max(100)
-  }),
-  'cache:cleanPartials': z.object({ kind: repoKind, repoId }),
-  'cache:revealRepo': z.object({ kind: repoKind, repoId }),
+      }
+    }),
+  'cache:snapshot': z.object({ kind: repoKind, repoId, commit: commitSha }).strict(),
+  'cache:resolveFile': z
+    .object({ kind: repoKind, repoId, commit: commitSha, path: relPath })
+    .strict(),
+  'cache:listPins': z
+    .object({ kind: repoKind.optional(), repoId: repoId.optional() })
+    .strict()
+    .optional(),
+  'cache:pin': z
+    .object({
+      kind: repoKind,
+      repoId,
+      commit: commitSha,
+      label: z.string().max(256).optional()
+    })
+    .strict(),
+  'cache:unpin': z.object({ kind: repoKind, repoId, commit: commitSha }).strict(),
+  'cache:readText': z
+    .object({
+      kind: repoKind,
+      repoId,
+      path: relPath,
+      commit: commitSha,
+      maxBytes: z
+        .number()
+        .int()
+        .min(1)
+        .max(1024 * 1024)
+        .optional()
+    })
+    .strict(),
+  'cache:deleteRevisions': z
+    .object({
+      kind: repoKind,
+      repoId,
+      commitHashes: z
+        .array(z.string().regex(/^[0-9a-f]{40}$/))
+        .min(1)
+        .max(100)
+    })
+    .strict(),
+  'cache:cleanPartials': z.object({ kind: repoKind, repoId }).strict(),
+  'cache:revealRepo': z.object({ kind: repoKind, repoId }).strict(),
   'follows:add': z.object({
     type: z.enum(['user', 'org', 'repo', 'papers']),
     target: z.string().max(300)
   }),
   'follows:remove': z.object({ id: z.uuid() }),
   'inbox:markRead': z.object({ ids: z.array(z.string()).min(1).max(1000) }),
-  'export:start': z.object({
-    request: z.object({
-      tool: z.enum(['ollama', 'lmstudio', 'comfyui']),
-      kind: repoKind,
-      repoId,
-      filePath: relPath
+  'export:start': z
+    .object({
+      request: z
+        .object({
+          tool: z.enum(['ollama', 'lmstudio', 'comfyui']),
+          kind: repoKind,
+          repoId,
+          filePath: relPath,
+          revision: revision.optional(),
+          resolvedCommit: commitSha.optional(),
+          securityGrantId: uuid.optional()
+        })
+        .strict()
     })
-  }),
+    .strict(),
   'export:cancel': z.object({ id: z.uuid() }),
   'upload:start': z.object({
     request: z.object({
@@ -672,5 +955,100 @@ export const ipcRequestSchemas: Partial<Record<IpcInvokeChannel, z.ZodTypeAny>> 
     id: z.uuid(),
     request: z.object({ model: repoId, input: z.string().max(65536) })
   }),
-  'inference:cancel': z.object({ id: z.uuid() })
+  'inference:cancel': z.object({ id: z.uuid() }),
+  'security:preflight': z
+    .object({
+      request: z
+        .object({
+          action: securityAction,
+          kind: repoKind,
+          repoId,
+          revision,
+          resolvedCommit: commitSha,
+          files: z.array(relPath).max(10_000).optional()
+        })
+        .strict()
+    })
+    .strict(),
+  'security:confirm': z.object({ challengeId: uuid }).strict(),
+  'localRuntime:selectBinary': z.object({ kind: localRuntimeKind }).strict(),
+  'localRuntime:assess': z
+    .object({
+      runtime: localRuntimeKind,
+      fileSize: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+      contextLength: z.number().int().min(128).max(1_048_576),
+      layerCount: z.number().int().min(1).max(10_000).optional(),
+      embeddingLength: z.number().int().min(1).max(1_000_000).optional(),
+      kvHeadCount: z.number().int().min(1).max(100_000).optional(),
+      cached: z.boolean().optional(),
+      importedAlready: z.boolean().optional()
+    })
+    .strict(),
+  'localRuntime:inspectCachedGguf': z
+    .object({
+      repoId,
+      resolvedCommit: commitSha,
+      filePath: relPath
+    })
+    .strict(),
+  'localRuntime:presets': z.object({ repoId, resolvedCommit: commitSha }).strict(),
+  'localRuntime:start': z
+    .object({
+      request: z
+        .object({
+          runtime: localRuntimeKind,
+          repoId,
+          revision,
+          resolvedCommit: commitSha,
+          filePath: relPath,
+          contextLength: z.number().int().min(128).max(1_048_576).optional(),
+          maxTokens: z.number().int().min(1).max(32_768).optional(),
+          temperature: z.number().min(0).max(2).optional(),
+          gpuLayers: z.union([z.literal('auto'), z.number().int().min(0).max(1000)]).optional(),
+          securityGrantId: uuid.optional(),
+          allowTightFit: z.boolean().optional()
+        })
+        .strict()
+    })
+    .strict(),
+  'localRuntime:chatStream': z
+    .object({
+      id: uuid,
+      request: z
+        .object({
+          messages: z
+            .array(
+              z
+                .object({
+                  role: z.enum(['system', 'user', 'assistant']),
+                  content: z.string().max(65_536)
+                })
+                .strict()
+            )
+            .min(1)
+            .max(256),
+          maxTokens: z.number().int().min(1).max(32_768).optional(),
+          temperature: z.number().min(0).max(2).optional()
+        })
+        .strict()
+    })
+    .strict(),
+  'localRuntime:cancel': z.object({ id: uuid }).strict(),
+  'localRuntime:removeImportedModel': z.object({ modelName: z.string().min(1).max(256) }).strict(),
+  'lockfile:export': z.object({ lock: ohmyhfLockV1Schema }).strict(),
+  'lockfile:confirmEndpoint': z.object({ inspectionId: uuid }).strict(),
+  'lockfile:confirmSecurity': z
+    .object({
+      inspectionId: uuid,
+      resourceIndex: z.number().int().min(0).max(99),
+      challengeId: uuid
+    })
+    .strict(),
+  'lockfile:restore': z
+    .object({
+      inspectionId: uuid,
+      confirmEndpoint: z.boolean().optional(),
+      securityGrantIds: z.array(uuid).max(100).optional()
+    })
+    .strict()
 }

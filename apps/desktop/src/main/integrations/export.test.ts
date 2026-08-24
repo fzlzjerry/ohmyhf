@@ -42,6 +42,7 @@ describe('runExport file delivery', () => {
 
     const result = await runExport('lmstudio', 'model', 'org/repo', 'model.gguf', {
       cacheDir,
+      resolvedCommit: COMMIT,
       homeDir,
       signal: new AbortController().signal,
       onProgress: (event) => progress.push(event)
@@ -67,6 +68,7 @@ describe('runExport file delivery', () => {
 
     const result = await runExport('lmstudio', 'model', 'org/repo', 'nested/model..gguf', {
       cacheDir,
+      resolvedCommit: COMMIT,
       homeDir,
       signal: new AbortController().signal,
       linkFile,
@@ -99,6 +101,7 @@ describe('runExport file delivery', () => {
 
     const operation = runExport('lmstudio', 'model', 'org/repo', 'model.gguf', {
       cacheDir,
+      resolvedCommit: COMMIT,
       homeDir,
       signal: controller.signal,
       linkFile: async () => {
@@ -120,6 +123,7 @@ describe('runExport file delivery', () => {
     const workspace = await tempRoot()
     const deps = {
       cacheDir: join(workspace, 'cache'),
+      resolvedCommit: COMMIT,
       homeDir: join(workspace, 'home'),
       signal: new AbortController().signal,
       onProgress: vi.fn()
@@ -150,6 +154,7 @@ describe('runExport file delivery', () => {
 
     const operation = runExport('ollama', 'model', 'org/repo', 'model.gguf', {
       cacheDir,
+      resolvedCommit: COMMIT,
       homeDir,
       tempDir: workspace,
       signal: controller.signal,

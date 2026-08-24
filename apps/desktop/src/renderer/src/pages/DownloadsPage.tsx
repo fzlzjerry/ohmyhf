@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Pause,
   Play,
+  RotateCcw,
   Trash2,
   X
 } from 'lucide-react'
@@ -22,6 +23,7 @@ import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useToasts } from '@/components/ui/toaster'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useSecurityGate } from '@/hooks/use-security-gate'
 
 const STATUS_DOT: Record<DownloadStatus, string> = {
   queued: 'bg-ink-faint',
@@ -40,6 +42,7 @@ function TaskCard({ task }: { task: DownloadTask }): React.JSX.Element {
   const { t } = useTranslation(['downloads', 'common', 'errors'])
   const queryClient = useQueryClient()
   const push = useToasts((s) => s.push)
+  const security = useSecurityGate()
   const [confirmRemove, setConfirmRemove] = useState(false)
 
   const act = useMutation({
@@ -48,6 +51,27 @@ function TaskCard({ task }: { task: DownloadTask }): React.JSX.Element {
       queryClient.setQueryData(['downloads'], tasks)
       if (action === 'downloads:remove') push(t('downloads:removed'), 'success')
     }
+  })
+
+  const retryPostAction = useMutation({
+    mutationFn: async () => {
+      if (!task.postAction || !task.resolvedCommit) throw new Error('Exact revision unavailable')
+      const securityGrantId = await security.authorize({
+        action: 'local-run',
+        kind: 'model',
+        repoId: task.repoId,
+        revision: task.revision,
+        resolvedCommit: task.resolvedCommit,
+        files: [task.postAction.filePath]
+      })
+      return invoke('downloads:retryPostAction', {
+        id: task.id,
+        securityGrantId,
+        allowTightFit: task.postAction.error?.startsWith('runtime.fitConfirmationRequired')
+      })
+    },
+    onSuccess: (tasks) => queryClient.setQueryData(['downloads'], tasks),
+    onError: (error) => push(error.message, 'error')
   })
 
   const done = task.files.filter((f) => f.status === 'completed').length
@@ -95,12 +119,27 @@ function TaskCard({ task }: { task: DownloadTask }): React.JSX.Element {
           )}
           <span className="nums">{t('downloads:files', { done, total: task.files.length })}</span>
           <span className="text-ink-faint">
-            {t('downloads:revision', { revision: task.revision })}
+            {t('common:repro.downloads.requested')}{' '}
+            <span className="font-mono">{task.revision}</span>
+          </span>
+          <span className="text-ink-faint">
+            {t('common:repro.downloads.commit')}{' '}
+            <span className="font-mono">
+              {task.resolvedCommit
+                ? task.resolvedCommit.slice(0, 12)
+                : t('common:repro.downloads.legacyUnresolved')}
+            </span>
           </span>
           {verified && (
             <span className="flex items-center gap-1 text-success">
               <CircleCheck className="size-3.5" aria-hidden />
               {t('downloads:checksumsVerified')}
+            </span>
+          )}
+          {task.status === 'completed' && !verified && (
+            <span className="flex items-center gap-1 text-warning">
+              <CircleX className="size-3.5" aria-hidden />
+              {t('common:repro.downloads.integrityIncomplete')}
             </span>
           )}
           {task.error && (
@@ -185,7 +224,63 @@ function TaskCard({ task }: { task: DownloadTask }): React.JSX.Element {
             </Tooltip>
           </span>
         </div>
+        {task.files.some((file) => file.localSha256) && (
+          <details className="rounded-md border border-border-card bg-panel px-2.5 py-1.5 text-[11px]">
+            <summary className="cursor-pointer text-ink-muted">
+              {t('common:repro.downloads.integrityDetails')}
+            </summary>
+            <ul className="mt-2 flex max-h-36 flex-col gap-1 overflow-y-auto font-mono text-ink-faint">
+              {task.files.map((file) => (
+                <li key={file.path} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                  <span className="truncate" title={file.path}>
+                    {file.path}
+                  </span>
+                  <span
+                    className={file.verified ? 'text-success' : 'text-warning'}
+                    title={file.localSha256}
+                  >
+                    {file.verified
+                      ? t('common:repro.downloads.verified')
+                      : t('common:repro.downloads.unverified')}
+                    {file.localSha256 ? ` · sha256:${file.localSha256.slice(0, 12)}` : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+        {task.postAction && (
+          <div
+            className="flex flex-wrap items-center gap-2 rounded-md border border-warning/30 bg-warning/10 px-2.5 py-2 text-[11.5px] text-ink-muted"
+            role={task.postAction.status === 'error' ? 'alert' : 'status'}
+          >
+            <span className="font-medium text-ink-strong">
+              {t('common:repro.downloads.localRun')}
+            </span>
+            <span className="font-mono">{task.postAction.runtime}</span>
+            <span>· {task.postAction.status}</span>
+            {task.postAction.error && (
+              <span className="min-w-0 flex-1 truncate text-error" title={task.postAction.error}>
+                {task.postAction.error}
+              </span>
+            )}
+            {task.postAction.status !== 'running' && (
+              <Button
+                className="ml-auto"
+                variant="secondary"
+                size="sm"
+                loading={retryPostAction.isPending}
+                onClick={() => retryPostAction.mutate()}
+              >
+                <RotateCcw className="size-3.5" aria-hidden />
+                {t('common:repro.downloads.recheckRun')}
+              </Button>
+            )}
+          </div>
+        )}
       </div>
+
+      {security.dialog}
 
       {/* Removing a live download cancels the transfer — confirm first. */}
       <Dialog open={confirmRemove} onOpenChange={setConfirmRemove}>

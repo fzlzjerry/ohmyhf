@@ -32,7 +32,12 @@ export function clearLocalAppData(
     if (should('downloads')) db.prepare('DELETE FROM downloads').run()
     if (should('follows')) db.prepare('DELETE FROM follows').run()
     if (should('inbox')) db.prepare('DELETE FROM inbox').run()
-    if (should('otherKv')) db.prepare(`DELETE FROM kv WHERE key != 'settings'`).run()
+    if (should('otherKv')) {
+      db.prepare(`DELETE FROM kv WHERE key != 'settings'`).run()
+      db.prepare('DELETE FROM cache_pins').run()
+      db.prepare('DELETE FROM local_models').run()
+      db.prepare('DELETE FROM local_run_presets').run()
+    }
     if (signOut) {
       db.prepare('DELETE FROM auth WHERE id = 1').run()
     }

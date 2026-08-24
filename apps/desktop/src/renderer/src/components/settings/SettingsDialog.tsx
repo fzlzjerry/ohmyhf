@@ -853,12 +853,26 @@ function AppearanceSection(): React.JSX.Element {
 }
 
 function DownloadsSection(): React.JSX.Element {
-  const { t } = useTranslation(['settings'])
+  const { t } = useTranslation(['settings', 'common'])
   const settings = useAppStore((s) => s.settings)
   const appInfo = useAppStore((s) => s.appInfo)
   const setSettings = useAppStore((s) => s.setSettings)
   const updateSettings = useAppStore((s) => s.updateSettings)
   const push = useToasts((s) => s.push)
+  const [ollamaPort, setOllamaPort] = useState(String(settings.ollamaPort))
+
+  const saveOllamaPort = (): void => {
+    const value = Number(ollamaPort)
+    if (!Number.isInteger(value) || value < 1 || value > 65535) {
+      setOllamaPort(String(settings.ollamaPort))
+      push('Ollama port must be an integer from 1 to 65535.', 'error')
+      return
+    }
+    void updateSettings({ ollamaPort: value }).catch((error: Error) => {
+      setOllamaPort(String(settings.ollamaPort))
+      push(error.message, 'error')
+    })
+  }
 
   const pickCacheDir = useMutation({
     mutationFn: () => invoke('settings:selectCacheDir', undefined),
@@ -936,6 +950,24 @@ function DownloadsSection(): React.JSX.Element {
             </Button>
           )}
         </div>
+      </Row>
+      <Row
+        label={t('common:repro.settings.ollamaPort')}
+        description={t('common:repro.settings.ollamaPortDescription')}
+      >
+        <Input
+          className="w-28 font-mono"
+          type="number"
+          min={1}
+          max={65535}
+          inputMode="numeric"
+          value={ollamaPort}
+          onChange={(event) => setOllamaPort(event.target.value)}
+          onBlur={saveOllamaPort}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur()
+          }}
+        />
       </Row>
     </SectionShell>
   )

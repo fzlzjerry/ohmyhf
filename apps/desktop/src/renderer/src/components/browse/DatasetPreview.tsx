@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, Database, ExternalLink } from 'lucide-react'
-import type { DatasetRows } from '@oh-my-huggingface/shared'
+import type { DatasetRows, RepoRevisionSelection } from '@oh-my-huggingface/shared'
 import { invoke, openExternal } from '@/lib/ipc'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -131,7 +131,7 @@ function SampleFallback({ repoId }: { repoId: string }): React.JSX.Element {
   )
 }
 
-export function DatasetPreview({ repoId }: { repoId: string }): React.JSX.Element {
+function DefaultDatasetPreview({ repoId }: { repoId: string }): React.JSX.Element {
   const { t } = useTranslation(['detail', 'common'])
   const endpoint = useAppStore((s) => s.settings.hubEndpoint)
   const endpointKey = normalizeHubEndpoint(endpoint)
@@ -296,4 +296,36 @@ export function DatasetPreview({ repoId }: { repoId: string }): React.JSX.Elemen
       )}
     </div>
   )
+}
+
+export function DatasetPreview({
+  repoId,
+  revision,
+  defaultRevision,
+  onSelectRevision
+}: {
+  repoId: string
+  revision: RepoRevisionSelection
+  defaultRevision?: string
+  onSelectRevision: (revision: string) => void
+}): React.JSX.Element {
+  const { t } = useTranslation('common')
+  if (!revision.isDefault) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+        <Database className="size-8 text-warning" aria-hidden />
+        <p className="max-w-lg text-[12.5px] text-ink-muted">
+          {t('repro.dataset.revisionUnavailable', {
+            commit: revision.resolvedCommit.slice(0, 8)
+          })}
+        </p>
+        {defaultRevision && (
+          <Button variant="secondary" size="sm" onClick={() => onSelectRevision(defaultRevision)}>
+            {t('repro.dataset.switchDefaultRevision', { revision: defaultRevision })}
+          </Button>
+        )}
+      </div>
+    )
+  }
+  return <DefaultDatasetPreview key={revision.resolvedCommit} repoId={repoId} />
 }

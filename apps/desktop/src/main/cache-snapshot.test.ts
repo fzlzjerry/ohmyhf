@@ -25,12 +25,12 @@ async function seed(): Promise<string> {
 }
 
 describe('local cache snapshot reads', () => {
-  it('lists the latest snapshot and reads README text', async () => {
+  it('lists an exact snapshot and reads README text', async () => {
     const cacheDir = await seed()
-    const snapshot = await readCacheSnapshot(cacheDir, 'model', 'org/repo')
+    const snapshot = await readCacheSnapshot(cacheDir, 'model', 'org/repo', COMMIT)
     expect(snapshot?.commit).toBe(COMMIT)
     expect(snapshot?.files.some((file) => file.path === 'README.md')).toBe(true)
-    const text = await readCachedText(cacheDir, 'model', 'org/repo', 'README.md', 1024)
+    const text = await readCachedText(cacheDir, 'model', 'org/repo', 'README.md', 1024, COMMIT)
     expect(text?.content).toContain('hello cache')
     expect(text?.truncated).toBe(false)
   })
@@ -40,7 +40,7 @@ describe('local cache snapshot reads', () => {
     const paths = repoCachePaths(cacheDir, 'model', 'org/repo')
     const file = join(paths.snapshotsDir, COMMIT, 'big.txt')
     await writeFile(file, 'x'.repeat(2000))
-    const text = await readCachedText(cacheDir, 'model', 'org/repo', 'big.txt', 10)
+    const text = await readCachedText(cacheDir, 'model', 'org/repo', 'big.txt', 10, COMMIT)
     expect(text?.content).toBe('x'.repeat(10))
     expect(text?.truncated).toBe(true)
     expect(text?.size).toBe(2000)
@@ -49,7 +49,9 @@ describe('local cache snapshot reads', () => {
   it('returns null for a repo that is not cached', async () => {
     const cacheDir = await mkdtemp(join(tmpdir(), 'omhf-cache-empty-'))
     roots.push(cacheDir)
-    expect(await readCacheSnapshot(cacheDir, 'model', 'org/missing')).toBeNull()
-    expect(await readCachedText(cacheDir, 'model', 'org/missing', 'README.md', 1024)).toBeNull()
+    expect(await readCacheSnapshot(cacheDir, 'model', 'org/missing', COMMIT)).toBeNull()
+    expect(
+      await readCachedText(cacheDir, 'model', 'org/missing', 'README.md', 1024, COMMIT)
+    ).toBeNull()
   })
 })

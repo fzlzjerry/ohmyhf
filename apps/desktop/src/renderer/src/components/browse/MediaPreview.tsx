@@ -6,6 +6,7 @@ import { repoFileUrl } from '@/components/browse/MarkdownView'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Button } from '@/components/ui/button'
 import { useAppStore } from '@/stores/app'
+import { useResolvedRepoCommit } from '@/components/browse/revision-context'
 
 interface MediaPreviewProps {
   kind: RepoKind
@@ -26,7 +27,8 @@ export function MediaPreview({
 }: MediaPreviewProps): React.JSX.Element {
   const { t } = useTranslation('detail')
   const endpoint = useAppStore((s) => s.settings.hubEndpoint)
-  const src = repoFileUrl(kind, repoId, path, 'main', endpoint)
+  const revision = useResolvedRepoCommit()
+  const src = repoFileUrl(kind, repoId, path, revision, endpoint)
   const [failedSrc, setFailedSrc] = useState<string>()
   const failed = failedSrc === src
 

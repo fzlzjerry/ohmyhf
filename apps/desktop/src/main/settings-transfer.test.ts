@@ -7,11 +7,15 @@ describe('settings transfer privacy boundaries', () => {
     const exported = portableSettingsForExport({
       ...DEFAULT_SETTINGS,
       hfCacheDir: '/private/cache',
+      ollamaBinaryPath: '/private/bin/ollama',
+      llamaServerBinaryPath: '/private/bin/llama-server',
       telemetryEnabled: true,
       theme: 'dark'
     })
 
     expect(exported).not.toHaveProperty('hfCacheDir')
+    expect(exported).not.toHaveProperty('ollamaBinaryPath')
+    expect(exported).not.toHaveProperty('llamaServerBinaryPath')
     expect(exported).not.toHaveProperty('telemetryEnabled')
     expect(exported.theme).toBe('dark')
   })
@@ -22,16 +26,22 @@ describe('settings transfer privacy boundaries', () => {
       const current = {
         ...DEFAULT_SETTINGS,
         hfCacheDir: '/local/cache',
+        ollamaBinaryPath: '/local/bin/ollama',
+        llamaServerBinaryPath: '/local/bin/llama-server',
         telemetryEnabled: !importedConsent
       }
 
       const result = settingsFromImport(current, {
         theme: 'dark',
         hfCacheDir: '/other-machine/cache',
+        ollamaBinaryPath: '/other-machine/bin/ollama',
+        llamaServerBinaryPath: '/other-machine/bin/llama-server',
         telemetryEnabled: importedConsent
       })
 
       expect(result.hfCacheDir).toBe('/local/cache')
+      expect(result.ollamaBinaryPath).toBe('/local/bin/ollama')
+      expect(result.llamaServerBinaryPath).toBe('/local/bin/llama-server')
       expect(result.telemetryEnabled).toBe(!importedConsent)
       expect(result.theme).toBe('dark')
     }

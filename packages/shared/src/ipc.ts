@@ -12,11 +12,16 @@ import type {
   BillingUsage,
   TokenSignInResult,
   CacheReport,
+  CachePin,
   CacheSnapshot,
   CollectionDetail,
   CollectionSummary,
   DatasetRows,
   DatasetSplit,
+  LeaderboardPage,
+  LockfileInspection,
+  LockfileRestoreEvent,
+  LockfileRestoreResult,
   DiscussionDetail,
   DiscussionStatusFilter,
   DiscussionSummary,
@@ -37,11 +42,21 @@ import type {
   Follow,
   FollowTargetType,
   HistoryItem,
+  GgufMetadataSummary,
   IntegrationTask,
   InboxItem,
   InferenceRequest,
   InferenceResult,
   InferenceStreamEvent,
+  LocalChatRequest,
+  LocalInferenceStreamEvent,
+  LocalRunRequest,
+  LocalRunPreset,
+  LocalRuntimeKind,
+  LocalRuntimeState,
+  MachineProfile,
+  ModelEvalResult,
+  ModelFitAssessment,
   MyRepoEntry,
   NotificationsPage,
   Page,
@@ -51,7 +66,10 @@ import type {
   RepoCommitFile,
   RepoCommitResult,
   RepoDetail,
+  RepoCommitSummary,
   RepoKind,
+  RepoRefs,
+  RepoRevisionSelection,
   RepoSummary,
   SafetensorsHeader,
   SearchQuery,
@@ -62,6 +80,12 @@ import type {
   WatchedEntry,
   AppUpdateState,
   SettingsPatch,
+  SecurityGrant,
+  SecurityPreflightRequest,
+  SecurityPreflightResult,
+  ResolvedCacheFile,
+  RuntimeDiscovery,
+  OhmyhfLockV1,
   UserOverview,
   UserSearchResult,
   OrgSearchResult,
@@ -170,10 +194,22 @@ export interface IpcInvokeContract {
   'hub:papers': { req: { cursor?: string }; res: Page<PaperSummary> }
   /** Single paper lookup for deep links outside the daily feed. */
   'hub:paper': { req: { paperId: string }; res: PaperSummary }
-  'hub:repoDetail': { req: { kind: RepoKind; repoId: string }; res: RepoDetail }
-  'hub:readme': { req: { kind: RepoKind; repoId: string; revision?: string }; res: string }
+  'hub:repoDetail': {
+    req: { kind: RepoKind; repoId: string; revision?: string }
+    res: RepoDetail
+  }
+  'hub:repoRefs': { req: { kind: RepoKind; repoId: string }; res: RepoRefs }
+  'hub:repoCommits': {
+    req: { kind: RepoKind; repoId: string; revision?: string; cursor?: string; limit?: number }
+    res: Page<RepoCommitSummary>
+  }
+  'hub:resolveRevision': {
+    req: { kind: RepoKind; repoId: string; revision: string }
+    res: RepoRevisionSelection
+  }
+  'hub:readme': { req: { kind: RepoKind; repoId: string; revision: string }; res: string }
   'hub:fileTree': {
-    req: { kind: RepoKind; repoId: string; revision?: string; path?: string }
+    req: { kind: RepoKind; repoId: string; revision: string; path?: string }
     res: FileTreeEntry[]
   }
   /**
@@ -188,6 +224,7 @@ export interface IpcInvokeContract {
       title: string
       description?: string
       branch?: string
+      startingPoint: string
       createPr?: boolean
     }
     res: RepoCommitResult
@@ -264,7 +301,7 @@ export interface IpcInvokeContract {
     res: { applied: boolean; watched: WatchedEntry[] }
   }
   'hub:fileText': {
-    req: { kind: RepoKind; repoId: string; path: string; revision?: string; maxBytes?: number }
+    req: { kind: RepoKind; repoId: string; path: string; revision: string; maxBytes?: number }
     res: FileTextResult
   }
   'hub:fileRange': {
@@ -273,14 +310,14 @@ export interface IpcInvokeContract {
       kind: RepoKind
       repoId: string
       path: string
-      revision?: string
+      revision: string
       start: number
       end: number
     }
     res: Uint8Array
   }
   'hub:safetensorsHeader': {
-    req: { kind: RepoKind; repoId: string; path: string; revision?: string }
+    req: { kind: RepoKind; repoId: string; path: string; revision: string }
     res: SafetensorsHeader
   }
   'hub:datasetSplits': { req: { repoId: string }; res: DatasetSplit[] }
@@ -290,6 +327,14 @@ export interface IpcInvokeContract {
   'hub:searchCollections': { req: { query: string }; res: CollectionSearchResult[] }
   /** Whether at least one inference provider serves this model. */
   'hub:inferenceAvailable': { req: { repoId: string }; res: boolean }
+  'hub:modelEvalResults': {
+    req: { repoId: string; revision: string; resolvedCommit: string }
+    res: ModelEvalResult[]
+  }
+  'hub:datasetLeaderboard': {
+    req: { repoId: string; cursor?: string; limit?: number }
+    res: LeaderboardPage
+  }
   'hub:datasetRows': {
     req: { repoId: string; config: string; split: string; offset?: number; length?: number }
     res: DatasetRows
@@ -520,13 +565,20 @@ export interface IpcInvokeContract {
   'favorites:remove': { req: { kind: RepoKind; repoId: string }; res: FavoriteItem[] }
 
   'history:list': { req: void; res: HistoryItem[] }
-  'history:record': { req: { summary: RepoSummary }; res: void }
+  'history:record': {
+    req: { summary: RepoSummary; revision?: string; resolvedCommit?: string }
+    res: void
+  }
   'history:clear': { req: void; res: void }
 
   'downloads:list': { req: void; res: DownloadTask[] }
   'downloads:start': { req: { request: DownloadRequest }; res: DownloadTask[] }
   'downloads:pause': { req: { id: string }; res: DownloadTask[] }
   'downloads:resume': { req: { id: string }; res: DownloadTask[] }
+  'downloads:retryPostAction': {
+    req: { id: string; securityGrantId?: string; allowTightFit?: boolean }
+    res: DownloadTask[]
+  }
   'downloads:cancel': { req: { id: string }; res: DownloadTask[] }
   'downloads:remove': { req: { id: string }; res: DownloadTask[] }
   'downloads:pauseAll': { req: void; res: DownloadTask[] }
@@ -535,10 +587,29 @@ export interface IpcInvokeContract {
   'downloads:reveal': { req: { id: string }; res: void }
 
   'cache:scan': { req: void; res: CacheReport }
-  /** Latest cached snapshot, or null when this repo is not on disk. */
-  'cache:snapshot': { req: { kind: RepoKind; repoId: string }; res: CacheSnapshot | null }
+  /** Exact cached snapshot, or null when this commit is not on disk. */
+  'cache:snapshot': {
+    req: { kind: RepoKind; repoId: string; commit: string }
+    res: CacheSnapshot | null
+  }
+  'cache:resolveFile': {
+    req: { kind: RepoKind; repoId: string; commit: string; path: string }
+    res: ResolvedCacheFile | null
+  }
+  'cache:listPins': {
+    req: { kind?: RepoKind; repoId?: string } | void
+    res: CachePin[]
+  }
+  'cache:pin': {
+    req: { kind: RepoKind; repoId: string; commit: string; label?: string }
+    res: CachePin[]
+  }
+  'cache:unpin': {
+    req: { kind: RepoKind; repoId: string; commit: string }
+    res: CachePin[]
+  }
   'cache:readText': {
-    req: { kind: RepoKind; repoId: string; path: string; maxBytes?: number }
+    req: { kind: RepoKind; repoId: string; path: string; maxBytes?: number; commit: string }
     res: FileTextResult | null
   }
   'cache:deleteRevisions': {
@@ -571,6 +642,70 @@ export interface IpcInvokeContract {
   /** Streams deltas through the `evt:inference` channel, correlated by id. */
   'inference:stream': { req: { id: string; request: InferenceRequest }; res: void }
   'inference:cancel': { req: { id: string }; res: void }
+
+  'security:preflight': {
+    req: { request: SecurityPreflightRequest }
+    res: SecurityPreflightResult
+  }
+  'security:confirm': { req: { challengeId: string }; res: SecurityGrant }
+
+  'localRuntime:profile': { req: void; res: MachineProfile }
+  'localRuntime:discover': { req: void; res: RuntimeDiscovery[] }
+  'localRuntime:selectBinary': {
+    req: { kind: LocalRuntimeKind }
+    res: RuntimeDiscovery | null
+  }
+  'localRuntime:assess': {
+    req: {
+      runtime: LocalRuntimeKind
+      fileSize: number
+      contextLength: number
+      layerCount?: number
+      embeddingLength?: number
+      kvHeadCount?: number
+      cached?: boolean
+      importedAlready?: boolean
+    }
+    res: ModelFitAssessment
+  }
+  'localRuntime:inspectCachedGguf': {
+    req: { repoId: string; resolvedCommit: string; filePath: string }
+    res: GgufMetadataSummary | null
+  }
+  'localRuntime:getState': { req: void; res: LocalRuntimeState }
+  'localRuntime:presets': {
+    req: { repoId: string; resolvedCommit: string }
+    res: LocalRunPreset[]
+  }
+  'localRuntime:start': { req: { request: LocalRunRequest }; res: LocalRuntimeState }
+  'localRuntime:chatStream': {
+    req: { id: string; request: LocalChatRequest }
+    res: void
+  }
+  'localRuntime:cancel': { req: { id: string }; res: void }
+  'localRuntime:stop': { req: void; res: LocalRuntimeState }
+  'localRuntime:removeImportedModel': {
+    req: { modelName: string }
+    res: { removed: boolean }
+  }
+
+  'lockfile:export': {
+    req: { lock: OhmyhfLockV1 }
+    res: { canceled: true } | { canceled: false; path: string }
+  }
+  'lockfile:inspect': { req: void; res: LockfileInspection | null }
+  'lockfile:confirmEndpoint': {
+    req: { inspectionId: string }
+    res: LockfileInspection
+  }
+  'lockfile:confirmSecurity': {
+    req: { inspectionId: string; resourceIndex: number; challengeId: string }
+    res: SecurityGrant
+  }
+  'lockfile:restore': {
+    req: { inspectionId: string; confirmEndpoint?: boolean; securityGrantIds?: string[] }
+    res: LockfileRestoreResult
+  }
 }
 
 export type IpcInvokeChannel = keyof IpcInvokeContract
@@ -586,6 +721,9 @@ export interface IpcEventContract {
   'evt:navigate': string
   'evt:integrationTasks': IntegrationTask[]
   'evt:inference': InferenceStreamEvent
+  'evt:localInference': LocalInferenceStreamEvent
+  'evt:localRuntime': LocalRuntimeState
+  'evt:lockfileRestore': LockfileRestoreEvent
   'evt:updater': AppUpdateState
 }
 
@@ -617,6 +755,9 @@ export const IPC_INVOKE_CHANNELS = [
   'hub:papers',
   'hub:paper',
   'hub:repoDetail',
+  'hub:repoRefs',
+  'hub:repoCommits',
+  'hub:resolveRevision',
   'hub:readme',
   'hub:fileTree',
   'hub:commitFiles',
@@ -650,6 +791,8 @@ export const IPC_INVOKE_CHANNELS = [
   'hub:searchPapers',
   'hub:searchCollections',
   'hub:inferenceAvailable',
+  'hub:modelEvalResults',
+  'hub:datasetLeaderboard',
   'hub:collections',
   'hub:collection',
   'hub:collectionCreate',
@@ -717,6 +860,7 @@ export const IPC_INVOKE_CHANNELS = [
   'downloads:start',
   'downloads:pause',
   'downloads:resume',
+  'downloads:retryPostAction',
   'downloads:cancel',
   'downloads:remove',
   'downloads:pauseAll',
@@ -725,6 +869,10 @@ export const IPC_INVOKE_CHANNELS = [
   'downloads:reveal',
   'cache:scan',
   'cache:snapshot',
+  'cache:resolveFile',
+  'cache:listPins',
+  'cache:pin',
+  'cache:unpin',
   'cache:readText',
   'cache:deleteRevisions',
   'cache:cleanPartials',
@@ -746,7 +894,26 @@ export const IPC_INVOKE_CHANNELS = [
   'integrationTasks:revealOutput',
   'inference:run',
   'inference:stream',
-  'inference:cancel'
+  'inference:cancel',
+  'security:preflight',
+  'security:confirm',
+  'localRuntime:profile',
+  'localRuntime:discover',
+  'localRuntime:selectBinary',
+  'localRuntime:assess',
+  'localRuntime:inspectCachedGguf',
+  'localRuntime:getState',
+  'localRuntime:presets',
+  'localRuntime:start',
+  'localRuntime:chatStream',
+  'localRuntime:cancel',
+  'localRuntime:stop',
+  'localRuntime:removeImportedModel',
+  'lockfile:export',
+  'lockfile:inspect',
+  'lockfile:confirmEndpoint',
+  'lockfile:confirmSecurity',
+  'lockfile:restore'
 ] as const satisfies readonly IpcInvokeChannel[]
 
 // Compile-time drift guard: every channel in the IpcInvokeChannels type map must
@@ -766,6 +933,9 @@ export const IPC_EVENT_CHANNELS: readonly IpcEventChannel[] = [
   'evt:navigate',
   'evt:integrationTasks',
   'evt:inference',
+  'evt:localInference',
+  'evt:localRuntime',
+  'evt:lockfileRestore',
   'evt:updater'
 ] as const
 

@@ -8,6 +8,7 @@ import { formatBytes } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useResolvedRepoCommit } from '@/components/browse/revision-context'
 
 /** Keep under hub:fileRange's 64 MiB inclusive-window cap. */
 const MAX_PDF_BYTES = 32 * 1024 * 1024
@@ -30,6 +31,7 @@ export function PdfPreview({
   downloading
 }: PdfPreviewProps): React.JSX.Element {
   const { t } = useTranslation(['detail', 'common'])
+  const revision = useResolvedRepoCommit()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [page, setPage] = useState(1)
   const [pageCount, setPageCount] = useState(0)
@@ -59,6 +61,7 @@ export function PdfPreview({
           kind,
           repoId,
           path,
+          revision,
           start: 0,
           end: size - 1
         })
@@ -101,7 +104,7 @@ export function PdfPreview({
         pdfjs.GlobalWorkerOptions.workerPort = null
       })
     }
-  }, [kind, repoId, path, size])
+  }, [kind, repoId, path, revision, size])
 
   useEffect(() => {
     const doc = docRef.current

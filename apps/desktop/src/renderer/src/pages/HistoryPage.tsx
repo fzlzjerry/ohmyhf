@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Clock3, History, Search, SearchX, Trash2 } from 'lucide-react'
+import { Clock3, Columns3, History, Search, SearchX, Trash2 } from 'lucide-react'
 import { filterHistoryItems, type KindFilter } from '@/lib/history'
 import { invoke } from '@/lib/ipc'
 import { openRepo } from '@/lib/repo-open'
@@ -114,36 +114,65 @@ export function HistoryPage(): React.JSX.Element {
         {filtered.map((item) => {
           const relativeTime = formatRelativeTime(item.viewedAt, locale)
           return (
-            <button
+            <div
               key={`${item.kind}:${item.repoId}`}
-              type="button"
-              onClick={() =>
-                openRepo(
-                  item.kind,
-                  item.repoId,
-                  settings.repoOpenTarget,
-                  navigate,
-                  settings.hubEndpoint
-                )
-              }
-              className="group flex min-h-[50px] w-full items-center gap-2.5 rounded-lg border border-border-card bg-card-gradient px-3 py-2.5 text-left transition-colors duration-150 outline-none hover:border-border focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
+              className="group flex min-h-[50px] w-full items-center rounded-lg border border-border-card bg-card-gradient transition-colors duration-150 hover:border-border"
             >
-              <Badge variant="outline">{t(`common:kind.${item.kind}`)}</Badge>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-mono text-[13px] font-medium text-ink-strong transition-colors duration-150 group-hover:text-hover-title">
-                  {item.repoId}
-                </span>
-                {item.summary.pipelineTag ? (
-                  <span className="mt-0.5 block truncate text-[11.5px] text-ink-faint">
-                    {item.summary.pipelineTag}
+              <button
+                type="button"
+                onClick={() =>
+                  openRepo(
+                    item.kind,
+                    item.repoId,
+                    settings.repoOpenTarget,
+                    navigate,
+                    settings.hubEndpoint,
+                    item.revision
+                  )
+                }
+                className="flex min-h-[48px] min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 py-2.5 text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
+              >
+                <Badge variant="outline">{t(`common:kind.${item.kind}`)}</Badge>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-mono text-[13px] font-medium text-ink-strong transition-colors duration-150 group-hover:text-hover-title">
+                    {item.repoId}
                   </span>
-                ) : null}
-              </span>
-              <span className="nums flex shrink-0 items-center gap-1 text-[11.5px] text-ink-faint">
-                <Clock3 className="size-3" aria-hidden />
-                {relativeTime}
-              </span>
-            </button>
+                  {item.summary.pipelineTag ? (
+                    <span className="mt-0.5 block truncate text-[11.5px] text-ink-faint">
+                      {item.summary.pipelineTag}
+                    </span>
+                  ) : null}
+                  <span className="mt-0.5 flex items-center gap-1.5 font-mono text-[10.5px] text-ink-faint">
+                    {item.revision && item.resolvedCommit ? (
+                      <>
+                        <span className="truncate">{item.revision}</span>
+                        <span aria-hidden>·</span>
+                        <span>{item.resolvedCommit.slice(0, 10)}</span>
+                      </>
+                    ) : (
+                      <span>{t('common:repro.history.legacy')}</span>
+                    )}
+                  </span>
+                </span>
+                <span className="nums flex shrink-0 items-center gap-1 text-[11.5px] text-ink-faint">
+                  <Clock3 className="size-3" aria-hidden />
+                  {relativeTime}
+                </span>
+              </button>
+              {item.kind === 'model' && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="mr-2"
+                  aria-label={`Add ${item.repoId} to compare`}
+                  onClick={() =>
+                    void navigate(`/compare?models=${encodeURIComponent(item.repoId)}`)
+                  }
+                >
+                  <Columns3 className="size-4" aria-hidden />
+                </Button>
+              )}
+            </div>
           )
         })}
       </div>

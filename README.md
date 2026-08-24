@@ -32,14 +32,28 @@ complete [telemetry contract](docs/telemetry.md).
   never stored in plaintext, never in `localStorage`. Settings shows what the token can do
   versus what still needs a Hub web session (likes, posts, profile).
 - **Download manager** — resumable, parallel, queued downloads with speed limiting, SHA-256
-  verification, and system notifications. Model cards offer a GGUF/quant picker and one-click
-  download + export to a detected Ollama / LM Studio / ComfyUI install. Files land in the
-  **standard HF cache layout**, fully interoperable with `transformers`, `huggingface-cli`,
-  and friends.
+  verification, exact commit identity, and system notifications. Model cards offer a GGUF/quant
+  picker and one-click download + local run or export to a detected Ollama / LM Studio / ComfyUI
+  install. Files land in the **standard HF cache layout**, fully interoperable with
+  `transformers`, `huggingface-cli`, and friends.
+- **Reproducible revisions** — browse branches, tags, commits, and PR refs across Models, Datasets,
+  and Spaces. Every preview, download, cache lookup, safety decision, and evaluation is bound to
+  an immutable 40-character commit; pin exact snapshots or export/import an `ohmyhf.lock.json`
+  without silently falling back to `main`.
+- **Local GGUF playground** — inspect GGUF metadata, estimate memory/VRAM/disk fit for the current
+  machine, and stream text chat through an existing local Ollama or `llama-server`. Oh My
+  HuggingFace never installs a runtime, connects Ollama remotely, enables `trust_remote_code`, or
+  persists chat content.
+- **Security evidence gate** — show Hub malware, pickle, secrets, third-party scanner, commit,
+  signature, LFS, and local-hash evidence. Download, export, local run, and lock restoration are
+  rechecked and enforced in the main process immediately before side effects.
 - **Cache visualizer** — scan your HF cache, see disk usage per repo, and clean stale revisions
-  with one click. Already-cached cards and files stay readable when the Hub is unreachable.
+  with one click. Commit pins, active downloads, local runtimes, and lock restores are protected;
+  already-cached cards and files stay readable when the Hub is unreachable.
 - **Follow & inbox** — follow users/orgs/repos and Daily Papers; get system notifications.
-- **Compare** — 2–4 models side by side (params, license, downloads, likes).
+- **Evaluations and compare** — browse model `evalResults`, open dataset Benchmark Leaderboards,
+  highlight or add models, and compare up to four models only on matching dataset/task/config/
+  split/revision/metric identities.
 - **Upload, export, and edit** — scan and upload local folders safely; export downloaded files
   to Ollama, LM Studio, or ComfyUI with progress and cancellation; edit a README or small
   text file and commit (or open a PR branch) from the card or file preview.

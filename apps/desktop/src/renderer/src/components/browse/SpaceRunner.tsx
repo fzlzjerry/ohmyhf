@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ExternalLink, MonitorOff, RotateCw } from 'lucide-react'
-import type { RepoDetail } from '@oh-my-huggingface/shared'
+import type { RepoDetail, RepoRevisionSelection } from '@oh-my-huggingface/shared'
 import { openExternal } from '@/lib/ipc'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -20,10 +20,16 @@ const ERROR_STAGES = new Set(['BUILD_ERROR', 'CONFIG_ERROR', 'RUNTIME_ERROR'])
  */
 export function SpaceRunner({
   repoId,
-  detail
+  detail,
+  selectedRevision,
+  defaultRevision,
+  onSelectRevision
 }: {
   repoId: string
   detail: RepoDetail | undefined
+  selectedRevision: RepoRevisionSelection
+  defaultRevision?: string
+  onSelectRevision: (revision: string) => void
 }): React.JSX.Element {
   const { t } = useTranslation(['detail', 'common'])
   const endpoint = useAppStore((s) => s.settings.hubEndpoint)
@@ -31,12 +37,29 @@ export function SpaceRunner({
   const [frameKey, setFrameKey] = useState(0)
   const [loaded, setLoaded] = useState(false)
   const hubUrl = hubRepoUrl('space', repoId, endpoint)
+  const versionBanner = !selectedRevision.isDefault ? (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-warning/10 px-3 py-2 text-[12px] text-ink-muted">
+      <span>
+        {t('common:repro.space.liveWarning', {
+          commit: selectedRevision.resolvedCommit.slice(0, 8)
+        })}
+      </span>
+      {defaultRevision && (
+        <Button variant="secondary" size="sm" onClick={() => onSelectRevision(defaultRevision)}>
+          {t('common:repro.space.goDefault')}
+        </Button>
+      )}
+    </div>
+  ) : null
 
   if (!detail) {
     return (
-      <div className="flex h-full flex-col gap-3 p-4">
-        <Skeleton className="h-7 w-full" />
-        <Skeleton className="min-h-0 w-full flex-1" />
+      <div className="flex h-full flex-col">
+        {versionBanner}
+        <div className="flex flex-1 flex-col gap-3 p-4">
+          <Skeleton className="h-7 w-full" />
+          <Skeleton className="min-h-0 w-full flex-1" />
+        </div>
       </div>
     )
   }
@@ -47,30 +70,34 @@ export function SpaceRunner({
   if (stage !== 'RUNNING' || !domain) {
     const stageLabel = stage.toLowerCase().replace(/_/g, ' ')
     return (
-      <div className="flex h-full items-center justify-center overflow-y-auto">
-        <EmptyState
-          icon={MonitorOff}
-          title={t('detail:run.notRunningTitle')}
-          body={t('detail:run.notRunning', { stage: stageLabel })}
-          action={
-            <div className="flex flex-col items-center gap-2.5">
-              <Badge variant={ERROR_STAGES.has(stage) ? 'error' : 'neutral'}>
-                <span className="size-1.5 rounded-full bg-current opacity-60" aria-hidden />
-                {stageLabel}
-              </Badge>
-              <Button variant="secondary" size="sm" onClick={() => openExternal(hubUrl)}>
-                <ExternalLink className="size-3.5" aria-hidden />
-                {t('common:openOnHub')}
-              </Button>
-            </div>
-          }
-        />
+      <div className="flex h-full flex-col overflow-y-auto">
+        {versionBanner}
+        <div className="flex flex-1 items-center justify-center">
+          <EmptyState
+            icon={MonitorOff}
+            title={t('detail:run.notRunningTitle')}
+            body={t('detail:run.notRunning', { stage: stageLabel })}
+            action={
+              <div className="flex flex-col items-center gap-2.5">
+                <Badge variant={ERROR_STAGES.has(stage) ? 'error' : 'neutral'}>
+                  <span className="size-1.5 rounded-full bg-current opacity-60" aria-hidden />
+                  {stageLabel}
+                </Badge>
+                <Button variant="secondary" size="sm" onClick={() => openExternal(hubUrl)}>
+                  <ExternalLink className="size-3.5" aria-hidden />
+                  {t('common:openOnHub')}
+                </Button>
+              </div>
+            }
+          />
+        </div>
       </div>
     )
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {versionBanner}
       <div className="flex shrink-0 items-center gap-2 border-b py-1.5 pr-1.5 pl-3">
         <Badge variant="success" className="shrink-0">
           <span className="size-1.5 rounded-full bg-success" aria-hidden />

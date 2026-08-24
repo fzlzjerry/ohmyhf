@@ -22,6 +22,7 @@ export interface CommitFilesInput {
   title: string
   description?: string
   branch?: string
+  startingPoint: string
   createPr?: boolean
 }
 
@@ -40,15 +41,15 @@ async function resolveDefaultBranch(
   hubUrl: string,
   accessToken: string,
   fetchImpl: typeof fetch
-): Promise<string> {
+): Promise<string | undefined> {
   try {
     const headers = { Authorization: `Bearer ${accessToken}` }
     const apiBase = `${hubUrl}/api/${API_PATH[kind]}/${repoId}`
     const infoRes = await fetchImpl(apiBase, { headers })
-    if (!infoRes.ok) return 'main'
+    if (!infoRes.ok) return undefined
     const info = (await infoRes.json()) as { sha?: string }
     const refsRes = await fetchImpl(`${apiBase}/refs`, { headers })
-    if (!refsRes.ok) return 'main'
+    if (!refsRes.ok) return undefined
     const refs = (await refsRes.json()) as {
       branches?: Array<{ name?: string; targetCommit?: string }>
     }
@@ -57,9 +58,9 @@ async function resolveDefaultBranch(
     const matched = sha
       ? branches.find((branch) => branch.targetCommit?.toLowerCase() === sha && branch.name)
       : undefined
-    return matched?.name ?? branches.find((branch) => branch.name === 'main')?.name ?? 'main'
+    return matched?.name
   } catch {
-    return 'main'
+    return undefined
   }
 }
 
@@ -80,12 +81,14 @@ export async function commitRepoFiles(
     content: new Blob([file.content], { type: 'text/plain;charset=utf-8' })
   }))
 
-  const branch =
-    input.createPr === true
-      ? input.branch && input.branch !== 'main'
-        ? input.branch
-        : `omhf/edit-${Date.now().toString(36)}`
-      : input.branch
+  const branch = input.createPr === true ? `omhf/edit-${Date.now().toString(36)}` : input.branch
+  if (!branch) {
+    return {
+      ok: false,
+      error: 'Direct commits require a branch',
+      messageKey: 'edit.commitFailed'
+    }
+  }
 
   try {
     if (input.createPr === true && branch) {
@@ -93,6 +96,7 @@ export async function commitRepoFiles(
         await createBranch({
           repo,
           branch,
+          revision: input.startingPoint,
           accessToken,
           hubUrl,
           fetch: fetchImpl
@@ -117,15 +121,17 @@ export async function commitRepoFiles(
     } as Parameters<typeof commit>[0])) as { pullRequestUrl?: string }
 
     const defaultBranch =
-      !branch || (input.createPr === true && !committed.pullRequestUrl)
+      input.createPr === true && !committed.pullRequestUrl
         ? await resolveDefaultBranch(input.kind, input.repoId, hubUrl, accessToken, fetchImpl)
         : undefined
     const compareUrl =
       input.createPr === true && branch
         ? (committed.pullRequestUrl ??
-          `${hubUrl}/${repoWebPrefix(input.kind)}${input.repoId}/compare/${encodeURIComponent(defaultBranch ?? 'main')}...${encodeURIComponent(branch)}`)
+          (defaultBranch
+            ? `${hubUrl}/${repoWebPrefix(input.kind)}${input.repoId}/compare/${encodeURIComponent(defaultBranch)}...${encodeURIComponent(branch)}`
+            : undefined))
         : undefined
-    return { ok: true, branch: branch ?? defaultBranch ?? 'main', compareUrl }
+    return { ok: true, branch, compareUrl }
   } catch (err) {
     if (err instanceof HubApiError && err.statusCode === 403) {
       return { ok: false, error: '', messageKey: 'edit.needWrite' }

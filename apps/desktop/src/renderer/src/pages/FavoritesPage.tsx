@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Heart, Star, X } from 'lucide-react'
+import { Columns3, Heart, Star, X } from 'lucide-react'
 import type { FavoriteItem, RepoKind, RepoSummary } from '@oh-my-huggingface/shared'
 import { invoke } from '@/lib/ipc'
 import { openRepo } from '@/lib/repo-open'
@@ -22,6 +22,7 @@ function RepoRow({
   likes,
   meta,
   onOpen,
+  onCompare,
   onRemove
 }: {
   kind: RepoKind
@@ -30,6 +31,7 @@ function RepoRow({
   likes: number
   meta: string
   onOpen: () => void
+  onCompare?: () => void
   onRemove?: () => void
 }): React.JSX.Element {
   const { t } = useTranslation(['common'])
@@ -62,6 +64,16 @@ function RepoRow({
           <span>{meta}</span>
         </span>
       </button>
+      {onCompare && (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`Add ${repoId} to compare`}
+          onClick={onCompare}
+        >
+          <Columns3 className="size-4" aria-hidden />
+        </Button>
+      )}
       {onRemove && (
         <Button
           variant="ghost"
@@ -163,6 +175,11 @@ export function FavoritesPage(): React.JSX.Element {
             likes={fav.summary.likes}
             meta={formatRelativeTime(fav.addedAt, locale)}
             onOpen={() => open(fav.kind, fav.repoId)}
+            onCompare={
+              fav.kind === 'model'
+                ? () => void navigate(`/compare?models=${encodeURIComponent(fav.repoId)}`)
+                : undefined
+            }
             onRemove={() => remove.mutate(fav)}
           />
         ))}
@@ -219,6 +236,11 @@ export function FavoritesPage(): React.JSX.Element {
             likes={repo.likes}
             meta={t('detail:favoritesEmpty.likedOnHub')}
             onOpen={() => open(repo.kind, repo.id)}
+            onCompare={
+              repo.kind === 'model'
+                ? () => void navigate(`/compare?models=${encodeURIComponent(repo.id)}`)
+                : undefined
+            }
           />
         ))}
       </div>

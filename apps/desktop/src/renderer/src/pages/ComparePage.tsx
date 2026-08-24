@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQueries } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router'
 import { CircleX, Columns3, Plus, X } from 'lucide-react'
 import { isValidRepoId, normalizeHubEndpoint } from '@oh-my-huggingface/shared'
 import { describeError } from '@/lib/errors'
@@ -14,10 +15,6 @@ import { resolveLocale, useAppStore } from '@/stores/app'
 
 const MAX_MODELS = 4
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
 function formatMetricValue(value: unknown): string | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return Number.isInteger(value) ? String(value) : value.toFixed(2)
@@ -27,42 +24,6 @@ function formatMetricValue(value: unknown): string | undefined {
   return undefined
 }
 
-/**
- * Extracts "<dataset> · <metric>" → formatted value pairs from the untrusted,
- * unknown-shaped `model-index` card metadata.
- */
-function benchmarksOf(cardData: Record<string, unknown> | undefined): Map<string, string> {
-  const out = new Map<string, string>()
-  const index = cardData?.['model-index']
-  if (!Array.isArray(index)) return out
-  for (const entry of index as unknown[]) {
-    if (!isRecord(entry) || !Array.isArray(entry.results)) continue
-    for (const result of entry.results as unknown[]) {
-      if (!isRecord(result)) continue
-      const dataset =
-        isRecord(result.dataset) && typeof result.dataset.name === 'string'
-          ? result.dataset.name
-          : undefined
-      if (!Array.isArray(result.metrics)) continue
-      for (const metric of result.metrics as unknown[]) {
-        if (!isRecord(metric)) continue
-        const metricLabel =
-          typeof metric.name === 'string' && metric.name !== ''
-            ? metric.name
-            : typeof metric.type === 'string' && metric.type !== ''
-              ? metric.type
-              : undefined
-        if (!metricLabel) continue
-        const value = formatMetricValue(metric.value)
-        if (value === undefined) continue
-        const label = dataset ? `${dataset} · ${metricLabel}` : metricLabel
-        if (!out.has(label)) out.set(label, value)
-      }
-    }
-  }
-  return out
-}
-
 /** Phase D: side-by-side model comparison. */
 export function ComparePage(): React.JSX.Element {
   const { t } = useTranslation(['compare', 'common', 'errors'])
@@ -70,16 +31,92 @@ export function ComparePage(): React.JSX.Element {
   const appInfo = useAppStore((s) => s.appInfo)
   const locale = resolveLocale(settings, appInfo)
   const endpointKey = normalizeHubEndpoint(settings.hubEndpoint)
-  const [ids, setIds] = useState<string[]>([])
+  const [searchParams, setSearchParams] = useSearchParams()
+  const ids = (searchParams.get('models') ?? '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter((id, index, all) => isValidRepoId(id) && all.indexOf(id) === index)
+    .slice(0, MAX_MODELS)
   const [draft, setDraft] = useState('')
   const [draftInvalid, setDraftInvalid] = useState(false)
 
-  const results = useQueries({
+  const refs = useQueries({
     queries: ids.map((id) => ({
-      queryKey: ['repo', 'model' as const, id, endpointKey],
-      queryFn: () => invoke('hub:repoDetail', { kind: 'model', repoId: id })
+      queryKey: ['repo-refs', endpointKey, 'model' as const, id],
+      queryFn: async () => {
+        const value = await invoke('hub:repoRefs', { kind: 'model', repoId: id })
+        if (!value.defaultBranch) throw new Error('revision.defaultUnavailable')
+        return value
+      },
+      retry: false
     }))
   })
+  const selections = useQueries({
+    queries: ids.map((id, index) => ({
+      queryKey: [
+        'repo-revision',
+        endpointKey,
+        'model' as const,
+        id,
+        refs[index]?.data?.defaultBranch ?? 'unresolved-default'
+      ],
+      queryFn: () =>
+        invoke('hub:resolveRevision', {
+          kind: 'model',
+          repoId: id,
+          revision: refs[index]!.data!.defaultBranch!
+        }),
+      enabled: Boolean(refs[index]?.data?.defaultBranch),
+      retry: false
+    }))
+  })
+  const results = useQueries({
+    queries: ids.map((id, index) => ({
+      queryKey: [
+        'repo',
+        endpointKey,
+        'model' as const,
+        id,
+        refs[index]?.data?.defaultBranch ?? 'unresolved-default',
+        selections[index]?.data?.resolvedCommit ?? 'unresolved'
+      ],
+      queryFn: () =>
+        invoke('hub:repoDetail', {
+          kind: 'model',
+          repoId: id,
+          revision: selections[index]?.data?.resolvedCommit
+        }),
+      enabled: Boolean(selections[index]?.data?.resolvedCommit)
+    }))
+  })
+  const evalResults = useQueries({
+    queries: ids.map((id, index) => ({
+      queryKey: [
+        'model-eval-results',
+        endpointKey,
+        'model',
+        id,
+        refs[index]?.data?.defaultBranch ?? 'unresolved-default',
+        selections[index]?.data?.resolvedCommit ?? 'unresolved'
+      ],
+      queryFn: () =>
+        invoke('hub:modelEvalResults', {
+          repoId: id,
+          revision: refs[index]!.data!.defaultBranch!,
+          resolvedCommit: selections[index]!.data!.resolvedCommit
+        }),
+      enabled: Boolean(refs[index]?.data?.defaultBranch && selections[index]?.data?.resolvedCommit),
+      retry: false
+    }))
+  })
+
+  const updateIds = (next: string[]): void => {
+    const normalized = [...new Set(next)].filter(isValidRepoId).slice(0, MAX_MODELS)
+    const params = new URLSearchParams(searchParams)
+    if (normalized.length > 0) params.set('models', normalized.join(','))
+    else params.delete('models')
+    setSearchParams(params, { replace: true })
+  }
 
   const add = (): void => {
     const id = draft.trim()
@@ -88,12 +125,20 @@ export function ComparePage(): React.JSX.Element {
       setDraftInvalid(true)
       return
     }
-    setIds([...ids, id])
+    updateIds([...ids, id])
     setDraft('')
   }
 
   // Union of benchmark rows across the compared models, in first-seen order.
-  const benchmarks = results.map((r) => benchmarksOf(r.data?.cardData))
+  const benchmarks = evalResults.map(
+    (result) =>
+      new Map(
+        (result.data ?? []).map((evaluation) => [
+          JSON.stringify(evaluation.identity),
+          formatMetricValue(evaluation.value) ?? '—'
+        ])
+      )
+  )
   const benchmarkLabels: string[] = []
   for (const map of benchmarks) {
     for (const label of map.keys()) {
@@ -204,22 +249,33 @@ export function ComparePage(): React.JSX.Element {
                       >
                         <div className="flex items-start gap-1">
                           <span className="min-w-0 flex-1 font-mono font-medium break-all text-ink-strong">
-                            {results[i]?.isLoading ? <Skeleton className="h-4 w-24" /> : id}
+                            {refs[i]?.isLoading ||
+                            selections[i]?.isLoading ||
+                            results[i]?.isLoading ? (
+                              <Skeleton className="h-4 w-24" />
+                            ) : (
+                              id
+                            )}
                           </span>
                           <Button
                             variant="ghost"
                             size="icon"
                             className="size-6"
                             aria-label={t('compare:remove')}
-                            onClick={() => setIds(ids.filter((x) => x !== id))}
+                            onClick={() => updateIds(ids.filter((x) => x !== id))}
                           >
                             <X className="size-3.5" aria-hidden />
                           </Button>
                         </div>
-                        {results[i]?.isError && (
+                        {(refs[i]?.isError || selections[i]?.isError || results[i]?.isError) && (
                           <div className="mt-1 flex items-start gap-1 text-[11px] font-normal text-error">
                             <CircleX className="mt-px size-3.5 shrink-0" aria-hidden />
-                            <span className="min-w-0">{describeError(t, results[i]?.error)}</span>
+                            <span className="min-w-0">
+                              {describeError(
+                                t,
+                                refs[i]?.error ?? selections[i]?.error ?? results[i]?.error
+                              )}
+                            </span>
                           </div>
                         )}
                       </th>
@@ -232,9 +288,13 @@ export function ComparePage(): React.JSX.Element {
                       <td className="bg-panel/50 p-2.5 font-medium text-ink-muted">{row.label}</td>
                       {ids.map((id, i) => (
                         <td key={id} className="p-2.5 align-top">
-                          {results[i]?.isLoading ? (
+                          {refs[i]?.isLoading ||
+                          selections[i]?.isLoading ||
+                          results[i]?.isLoading ? (
                             <Skeleton className="h-4 w-16" />
-                          ) : results[i]?.isError ? null : ( // failed column: header carries the error
+                          ) : refs[i]?.isError ||
+                            selections[i]?.isError ||
+                            results[i]?.isError ? null : ( // failed column: header carries the error
                             row.render(i)
                           )}
                         </td>
@@ -257,16 +317,39 @@ export function ComparePage(): React.JSX.Element {
                     <tbody>
                       {benchmarkLabels.map((label) => (
                         <tr key={label} className="border-b border-border-card last:border-b-0">
-                          <td className="w-64 bg-panel/50 p-2.5 font-medium text-ink-muted">
-                            <div className="max-w-60 truncate" title={label}>
-                              {label}
+                          <td className="sticky left-0 z-[1] w-64 bg-panel p-2.5 font-medium text-ink-muted">
+                            <div className="max-w-60 truncate font-mono text-[11px]" title={label}>
+                              {(() => {
+                                try {
+                                  const identity = JSON.parse(label) as {
+                                    datasetId: string
+                                    taskId: string
+                                    config?: string
+                                    split?: string
+                                    revision?: string
+                                    metric: string
+                                  }
+                                  return [
+                                    identity.datasetId,
+                                    identity.taskId,
+                                    identity.config,
+                                    identity.split,
+                                    identity.revision,
+                                    identity.metric
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' · ')
+                                } catch {
+                                  return label
+                                }
+                              })()}
                             </div>
                           </td>
                           {ids.map((id, i) => (
                             <td key={id} className="nums min-w-44 p-2.5 align-top font-mono">
-                              {results[i]?.isLoading ? (
+                              {evalResults[i]?.isLoading ? (
                                 <Skeleton className="h-4 w-12" />
-                              ) : results[i]?.isError ? null : (
+                              ) : evalResults[i]?.isError ? null : (
                                 (benchmarks[i]?.get(label) ?? '—')
                               )}
                             </td>

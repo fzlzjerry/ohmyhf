@@ -2,7 +2,10 @@ import type { AppSettings } from '@oh-my-huggingface/shared'
 import { DEFAULT_SETTINGS } from '@oh-my-huggingface/shared'
 
 /** Settings that are portable between installations. Consent is deliberately local. */
-export type PortableAppSettings = Omit<AppSettings, 'hfCacheDir' | 'telemetryEnabled'>
+export type PortableAppSettings = Omit<
+  AppSettings,
+  'hfCacheDir' | 'telemetryEnabled' | 'ollamaBinaryPath' | 'llamaServerBinaryPath'
+>
 
 /**
  * Machine paths and telemetry consent are never exported. In particular, a
@@ -13,6 +16,8 @@ export function portableSettingsForExport(settings: AppSettings): PortableAppSet
   const {
     hfCacheDir: _machineCacheDir,
     telemetryEnabled: _localTelemetryConsent,
+    ollamaBinaryPath: _ollamaBinaryPath,
+    llamaServerBinaryPath: _llamaServerBinaryPath,
     ...portableSettings
   } = settings
   return portableSettings
@@ -29,12 +34,16 @@ export function settingsFromImport(
   const {
     hfCacheDir: _importedCacheDir,
     telemetryEnabled: _importedTelemetryConsent,
+    ollamaBinaryPath: _importedOllamaBinaryPath,
+    llamaServerBinaryPath: _importedLlamaBinaryPath,
     ...portableSettings
   } = imported
   return {
     ...DEFAULT_SETTINGS,
     ...portableSettings,
     hfCacheDir: current.hfCacheDir,
-    telemetryEnabled: current.telemetryEnabled
+    telemetryEnabled: current.telemetryEnabled,
+    ollamaBinaryPath: current.ollamaBinaryPath,
+    llamaServerBinaryPath: current.llamaServerBinaryPath
   }
 }

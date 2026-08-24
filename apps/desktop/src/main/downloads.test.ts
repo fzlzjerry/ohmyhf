@@ -77,6 +77,20 @@ function createSettings(
 function createHub() {
   return {
     baseUrl: 'https://hub.example.test',
+    getRepoRefs: vi.fn().mockResolvedValue({
+      branches: [
+        {
+          name: 'main',
+          ref: 'refs/heads/main',
+          targetCommit: COMMIT_A,
+          type: 'branch',
+          isDefault: true
+        }
+      ],
+      tags: [],
+      pullRequests: [],
+      defaultBranch: 'main'
+    }),
     getRepoDetail: vi.fn().mockResolvedValue({ sha: COMMIT_A }),
     getFileTree: vi
       .fn()
@@ -89,7 +103,8 @@ function createHub() {
 function createManager(
   db: FakeDatabase,
   hub = createHub(),
-  settings = createSettings()
+  settings = createSettings(),
+  onPostAction?: ConstructorParameters<typeof DownloadManager>[7]
 ): DownloadManager {
   return new DownloadManager(
     db as never,
@@ -97,8 +112,65 @@ function createManager(
     hub as never,
     { show: vi.fn() } as never,
     () => 'hf_test',
-    vi.fn()
+    vi.fn(),
+    undefined,
+    onPostAction
   )
+}
+
+function persistedCompletedPostActionRow(
+  status: 'pending' | 'running' | 'waiting-confirmation' | 'waiting-runtime' | 'error' = 'pending'
+): Record<string, unknown> {
+  return {
+    id: 'post-action-task',
+    repo_id: 'org/repo',
+    kind: 'model',
+    revision: 'v1',
+    resolved_commit: COMMIT_A,
+    endpoint: 'https://hub.example.test',
+    proxy_url: null,
+    cache_dir: '/tmp/omh-download-test-cache',
+    environment_version: 1,
+    status: 'completed',
+    total_bytes: 42,
+    received_bytes: 42,
+    files_json: JSON.stringify([
+      {
+        path: 'model.gguf',
+        size: 42,
+        receivedBytes: 42,
+        status: 'completed',
+        verified: true,
+        localSha256: 'c'.repeat(64)
+      }
+    ]),
+    error: null,
+    error_code: null,
+    post_action_json: JSON.stringify({
+      version: 1,
+      status,
+      request: {
+        kind: 'local-run',
+        runtime: 'llama.cpp',
+        filePath: 'model.gguf',
+        contextLength: 4096,
+        maxTokens: 512,
+        temperature: 0.7,
+        securityAcknowledgement: {
+          fingerprint: `sha256:${'d'.repeat(64)}`,
+          binding: `sha256:${'b'.repeat(64)}`,
+          acceptedAt: '2026-08-24T00:00:00.000Z'
+        }
+      }
+    }),
+    security_ack_json: JSON.stringify({
+      fingerprint: `sha256:${'d'.repeat(64)}`,
+      binding: `sha256:${'b'.repeat(64)}`,
+      acceptedAt: '2026-08-24T00:00:00.000Z'
+    }),
+    created_at: '2026-08-24T00:00:00.000Z',
+    completed_at: '2026-08-24T00:01:00.000Z'
+  }
 }
 
 afterEach(() => {
@@ -133,6 +205,32 @@ describe('download environment helpers', () => {
 })
 
 describe('DownloadManager frozen environment', () => {
+  it('discovers the actual default branch when the caller omits a reference', async () => {
+    vi.useFakeTimers()
+    const hub = createHub()
+    hub.getRepoRefs.mockResolvedValueOnce({
+      branches: [
+        {
+          name: 'trunk',
+          ref: 'refs/heads/trunk',
+          targetCommit: COMMIT_A,
+          type: 'branch',
+          isDefault: true
+        }
+      ],
+      tags: [],
+      pullRequests: [],
+      defaultBranch: 'trunk'
+    })
+    const manager = createManager(new FakeDatabase(), hub)
+
+    const tasks = await manager.start({ repoId: 'org/repo', kind: 'model' })
+
+    expect(hub.getRepoDetail).toHaveBeenCalledWith('model', 'org/repo', 'trunk')
+    expect(tasks[0]).toMatchObject({ revision: 'trunk', resolvedCommit: COMMIT_A })
+    manager.shutdown()
+  })
+
   it('resolves the revision first, then enumerates the tree at that commit', async () => {
     vi.useFakeTimers()
     const db = new FakeDatabase()
@@ -588,6 +686,119 @@ describe('DownloadManager frozen environment', () => {
       errorCode: 'legacy-task',
       resumable: false
     })
+    manager.shutdown()
+  })
+
+  it('restores a pending one-click run after restart and removes it only after success', async () => {
+    const db = new FakeDatabase([persistedCompletedPostActionRow()])
+    const onPostAction = vi.fn().mockResolvedValue(undefined)
+    const manager = createManager(db, createHub(), createSettings(), onPostAction)
+
+    expect(manager.list()[0]?.postAction).toMatchObject({
+      runtime: 'llama.cpp',
+      filePath: 'model.gguf',
+      status: 'pending'
+    })
+    manager.resumePendingPostActions()
+    await vi.waitFor(() => expect(onPostAction).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(manager.list()[0]?.postAction).toBeUndefined())
+    expect(onPostAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoId: 'org/repo',
+        revision: 'v1',
+        resolvedCommit: COMMIT_A,
+        filePath: 'model.gguf'
+      })
+    )
+    expect(db.writes.at(-1)?.postActionJson).toBeNull()
+    manager.shutdown()
+  })
+
+  it('converts a persisted running action to pending because no process survives restart', () => {
+    const manager = createManager(
+      new FakeDatabase([persistedCompletedPostActionRow('running')]),
+      createHub(),
+      createSettings(),
+      vi.fn().mockResolvedValue(undefined)
+    )
+    expect(manager.list()[0]?.postAction?.status).toBe('pending')
+    manager.shutdown()
+  })
+
+  it('pauses on changed security evidence until exact reauthorization, then retries once', async () => {
+    const db = new FakeDatabase([persistedCompletedPostActionRow()])
+    const onPostAction = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('security.evidenceChanged'))
+      .mockResolvedValueOnce(undefined)
+    const manager = createManager(db, createHub(), createSettings(), onPostAction)
+
+    manager.resumePendingPostActions()
+    await vi.waitFor(() =>
+      expect(manager.list()[0]?.postAction).toMatchObject({
+        status: 'waiting-confirmation',
+        error: 'security.evidenceChanged'
+      })
+    )
+    manager.retryPostAction('post-action-task')
+    expect(onPostAction).toHaveBeenCalledTimes(1)
+    expect(manager.postActionSecurityRequest('post-action-task')).toEqual({
+      action: 'local-run',
+      kind: 'model',
+      repoId: 'org/repo',
+      revision: 'v1',
+      resolvedCommit: COMMIT_A,
+      files: ['model.gguf']
+    })
+
+    manager.reauthorizePostAction('post-action-task', {
+      fingerprint: `sha256:${'e'.repeat(64)}`,
+      binding: `sha256:${'c'.repeat(64)}`,
+      acceptedAt: '2026-08-24T01:00:00.000Z'
+    })
+    await vi.waitFor(() => expect(onPostAction).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(manager.list()[0]?.postAction).toBeUndefined())
+    manager.shutdown()
+  })
+
+  it('persists explicit fit confirmation before retrying a queued local run', async () => {
+    const db = new FakeDatabase([persistedCompletedPostActionRow()])
+    const onPostAction = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('runtime.fitConfirmationRequired:unknown'))
+      .mockResolvedValueOnce(undefined)
+    const manager = createManager(db, createHub(), createSettings(), onPostAction)
+
+    manager.resumePendingPostActions()
+    await vi.waitFor(() =>
+      expect(manager.list()[0]?.postAction).toMatchObject({
+        status: 'waiting-confirmation',
+        error: 'runtime.fitConfirmationRequired:unknown'
+      })
+    )
+    manager.reauthorizePostAction(
+      'post-action-task',
+      {
+        fingerprint: `sha256:${'e'.repeat(64)}`,
+        binding: `sha256:${'c'.repeat(64)}`,
+        acceptedAt: '2026-08-24T01:00:00.000Z'
+      },
+      true
+    )
+    await vi.waitFor(() => expect(onPostAction).toHaveBeenCalledTimes(2))
+    expect(onPostAction.mock.calls[1]?.[0]).toMatchObject({ allowTightFit: true })
+    manager.shutdown()
+  })
+
+  it('keeps completed tasks with an unresolved post-action during completed cleanup', () => {
+    const manager = createManager(
+      new FakeDatabase([persistedCompletedPostActionRow('waiting-runtime')]),
+      createHub(),
+      createSettings(),
+      vi.fn().mockResolvedValue(undefined)
+    )
+    expect(manager.clearCompleted()).toHaveLength(1)
+    expect(manager.list()[0]?.postAction?.status).toBe('waiting-runtime')
     manager.shutdown()
   })
 })

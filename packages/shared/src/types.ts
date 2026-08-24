@@ -100,12 +100,195 @@ export interface RepoDetail extends RepoSummary {
   downloadsAllTime?: number
 }
 
+/** A user-facing git reference resolved to one immutable Hub commit. */
+export interface RepoRevisionSelection {
+  /** Branch, tag, PR ref, or commit entered/selected by the user. */
+  requested: string
+  /** Immutable, lowercase 40-hex commit returned by the Hub. */
+  resolvedCommit: string
+  type: 'branch' | 'tag' | 'commit' | 'pull-request'
+  isDefault: boolean
+  /** Tags, commits and PR refs cannot be written directly. */
+  readOnly: boolean
+}
+
+export interface RepoRef {
+  name: string
+  /** Full ref, e.g. refs/heads/main, refs/tags/v1.0, refs/pr/12. */
+  ref: string
+  targetCommit: string
+  type: 'branch' | 'tag' | 'pull-request'
+  isDefault?: boolean
+}
+
+export interface RepoRefs {
+  branches: RepoRef[]
+  tags: RepoRef[]
+  pullRequests: RepoRef[]
+  defaultBranch?: string
+}
+
+export interface RepoCommitSummary {
+  id: string
+  authors: string[]
+  createdAt?: string
+  title: string
+  message?: string
+}
+
 export interface FileTreeEntry {
   type: 'file' | 'directory'
   path: string
   size: number
   oid?: string
   lfs?: { oid: string; size: number }
+  /** File-level security evidence returned by expanded tree APIs, when available. */
+  security?: FileSecurityStatus
+}
+
+export type SecurityEvidenceStatus =
+  'safe' | 'warning' | 'malicious' | 'pending' | 'error' | 'unknown'
+
+export interface FileSecurityStatus {
+  status: SecurityEvidenceStatus
+  scanners?: string[]
+  message?: string
+  /** Per-scanner evidence retained when the expanded Hub tree exposes it. */
+  evidence?: Array<{
+    source: string
+    status: SecurityEvidenceStatus
+    message?: string
+    checkedAt?: string
+  }>
+}
+
+export type SecurityReasonCode =
+  | 'confirmed-malicious'
+  | 'repository-malicious'
+  | 'scan-pending'
+  | 'scan-error'
+  | 'scan-unknown'
+  | 'pickle-format'
+  | 'executable-file'
+  | 'custom-code'
+  | 'trust-remote-code'
+  | 'unscanned-file'
+  | 'other-file-malicious'
+
+export interface SecurityEvidence {
+  source: string
+  status: SecurityEvidenceStatus
+  filePath?: string
+  message?: string
+  checkedAt?: string
+}
+
+export type SecurityDecision = 'allow' | 'confirm' | 'block'
+export type SecurityAction = 'download' | 'export' | 'local-run' | 'lock-restore'
+
+export interface SecurityReport {
+  kind: RepoKind
+  repoId: string
+  revision: string
+  resolvedCommit: string
+  overall: SecurityEvidenceStatus
+  evidence: SecurityEvidence[]
+  reasons: SecurityReasonCode[]
+  fingerprint: string
+  checkedAt: string
+  provenance?: {
+    license?: string
+    baseModels?: string[]
+    library?: string
+    customCode?: boolean
+  }
+  commit?: {
+    authors?: string[]
+    createdAt?: string
+    signature?: 'verified' | 'unverified' | 'unknown'
+  }
+}
+
+export interface SecurityPreflightRequest {
+  action: SecurityAction
+  kind: RepoKind
+  repoId: string
+  revision: string
+  resolvedCommit: string
+  files?: string[]
+}
+
+export interface SecurityPreflightResult {
+  decision: SecurityDecision
+  report: SecurityReport
+  reasons: SecurityReasonCode[]
+  /** Opaque, short-lived confirmation challenge; present only for confirm. */
+  challengeId?: string
+}
+
+export interface SecurityGrant {
+  grantId: string
+  expiresAt: string
+}
+
+/**
+ * Persisted proof for one compound or long-running operation. `binding` is
+ * minted by the main process over endpoint, action, repository, immutable
+ * commit, selected files, and the evidence fingerprint. It is not a reusable
+ * authorization credential.
+ */
+export interface SecurityAcknowledgement {
+  fingerprint: string
+  binding: string
+  acceptedAt: string
+}
+
+export interface EvalIdentity {
+  datasetId: string
+  taskId: string
+  config?: string
+  split?: string
+  revision?: string
+  metric: string
+}
+
+export interface ModelEvalResult {
+  identity: EvalIdentity
+  value: number | string
+  source: 'eval-results' | 'model-index'
+  verified?: boolean
+  createdAt?: string
+  notes?: string
+}
+
+export interface LeaderboardEntry {
+  rank?: number
+  modelId: string
+  identity: EvalIdentity
+  /** False when the dataset leaderboard API omitted task/metric metadata. */
+  identityProvided?: boolean
+  value: number | string
+  verified?: boolean
+  source?: string
+  sourceUrl?: string
+  sourceExternal?: boolean
+  author?: {
+    name: string
+    fullname?: string
+    type?: 'user' | 'org'
+  }
+  filename?: string
+  revision?: string
+  notes?: string
+  pullRequest?: string
+  lowerIsBetter?: boolean
+  parameterCount?: number
+}
+
+export interface LeaderboardPage {
+  datasetId: string
+  entries: LeaderboardEntry[]
+  nextCursor?: string
 }
 
 export interface PaperSummary {
@@ -242,6 +425,10 @@ export interface DownloadFileState {
   status: DownloadStatus
   /** sha256 expected for LFS files (from the HF etag). */
   sha256?: string
+  /** SHA-256 calculated while streaming the downloaded content. */
+  localSha256?: string
+  /** Git blob oid for non-LFS files, when the tree API exposes it. */
+  gitBlobOid?: string
   verified?: boolean
   error?: string
 }
@@ -264,6 +451,8 @@ export interface DownloadTask {
   speedBps: number
   files: DownloadFileState[]
   error?: string
+  /** Persisted follow-up state for a one-click local run. No prompt/chat data is included. */
+  postAction?: DownloadPostActionSummary
   createdAt: string
   completedAt?: string
 }
@@ -273,10 +462,38 @@ export interface DownloadAutoExport {
   filePath: string
 }
 
+export interface DownloadPostAction {
+  kind: 'local-run'
+  runtime: LocalRuntimeKind
+  filePath: string
+  contextLength: number
+  maxTokens: number
+  temperature: number
+  /** llama.cpp GPU offload strategy. Ollama safely ignores this hint. */
+  gpuLayers?: 'auto' | number
+  /** User explicitly accepted an unknown/unlikely fit for this exact queued run. */
+  allowTightFit?: boolean
+  /** Action-scoped acknowledgement, never a reusable credential. */
+  securityAcknowledgement?: SecurityAcknowledgement
+}
+
+export type DownloadPostActionStatus =
+  'pending' | 'running' | 'waiting-confirmation' | 'waiting-runtime' | 'error' | 'completed'
+
+export interface DownloadPostActionSummary {
+  kind: 'local-run'
+  runtime: LocalRuntimeKind
+  filePath: string
+  status: DownloadPostActionStatus
+  error?: string
+}
+
 export interface DownloadRequest {
   repoId: string
   kind: RepoKind
   revision?: string
+  /** Main-verified immutable identity. When present, downloads must match it exactly. */
+  resolvedCommit?: string
   /** File paths to fetch; omit to download the whole snapshot. */
   files?: string[]
   /**
@@ -284,6 +501,12 @@ export interface DownloadRequest {
    * local tool. Not persisted across app restarts.
    */
   autoExport?: DownloadAutoExport
+  /** Persisted follow-up used by one-click local run. */
+  postAction?: DownloadPostAction
+  /** One-use grant consumed by main before the task is created. */
+  securityGrantId?: string
+  /** Main-process-only evidence binding for persisted compound actions. */
+  securityAcknowledgement?: SecurityAcknowledgement
 }
 
 export interface CachedRevision {
@@ -357,6 +580,8 @@ export interface HistoryItem {
   kind: RepoKind
   viewedAt: string
   summary: RepoSummary
+  revision?: string
+  resolvedCommit?: string
 }
 
 export type FollowTargetType = 'user' | 'org' | 'repo' | 'papers'
@@ -726,10 +951,18 @@ export interface AppSettings {
   historyLimit: HistoryLimit
   /** Pseudonymous, low-cardinality product telemetry. Disabled until the user opts in. */
   telemetryEnabled: boolean
+  /** Canonical executable selected by main; never renderer-writable. */
+  ollamaBinaryPath: string | null
+  /** Canonical llama-server executable selected by main; never renderer-writable. */
+  llamaServerBinaryPath: string | null
+  /** Loopback-only Ollama API port. */
+  ollamaPort: number
 }
 
-/** Renderer-writable settings. Cache roots are selected and persisted by main. */
-export type SettingsPatch = Partial<Omit<AppSettings, 'hfCacheDir'>>
+/** Renderer-writable settings. Cache roots and executable paths are selected by main. */
+export type SettingsPatch = Partial<
+  Omit<AppSettings, 'hfCacheDir' | 'ollamaBinaryPath' | 'llamaServerBinaryPath'>
+>
 
 export const DEFAULT_SETTINGS: AppSettings = {
   locale: 'system',
@@ -753,7 +986,146 @@ export const DEFAULT_SETTINGS: AppSettings = {
   browsePageSize: 30,
   repoOpenTarget: 'app',
   historyLimit: 200,
-  telemetryEnabled: false
+  telemetryEnabled: false,
+  ollamaBinaryPath: null,
+  llamaServerBinaryPath: null,
+  ollamaPort: 11434
+}
+
+export type LocalRuntimeKind = 'ollama' | 'llama.cpp'
+
+export interface AcceleratorInfo {
+  vendor: 'nvidia' | 'amd' | 'apple' | 'intel' | 'unknown'
+  name: string
+  totalMemoryBytes?: number
+  freeMemoryBytes?: number
+  unifiedMemory?: boolean
+}
+
+export interface MachineProfile {
+  platform: Platform
+  arch: string
+  cpuModel: string
+  cpuCount: number
+  totalMemoryBytes: number
+  freeMemoryBytes: number
+  cacheFreeBytes?: number
+  accelerators: AcceleratorInfo[]
+  probedAt: string
+}
+
+export interface RuntimeCapabilities {
+  chat: boolean
+  streaming: boolean
+  autoFit?: boolean
+  gpuOffload?: boolean
+}
+
+export interface RuntimeDiscovery {
+  kind: LocalRuntimeKind
+  available: boolean
+  binaryPath?: string
+  version?: string
+  endpoint?: string
+  capabilities: RuntimeCapabilities
+  error?: string
+}
+
+export type ModelFitLevel = 'comfortable' | 'tight' | 'unlikely' | 'unknown'
+
+export interface ModelFitAssessment {
+  runtime: LocalRuntimeKind
+  level: ModelFitLevel
+  estimatedWeightBytes: number
+  estimatedKvBytes?: number
+  estimatedRuntimeBytes?: number
+  /** Resident system-memory estimate after conservative discrete-GPU offload. */
+  estimatedSystemMemoryBytes: number
+  /** Estimated allocation in discrete VRAM; unified memory remains in the system estimate. */
+  estimatedGpuBytes: number
+  requiredDiskBytes: number
+  availableMemoryBytes: number
+  availableGpuMemoryBytes?: number
+  reasons: string[]
+}
+
+/** Bounded GGUF header facts used for compatibility and fit estimates. */
+export interface GgufMetadataSummary {
+  version: number
+  architecture?: string
+  hasChatTemplate: boolean
+  modelType?: string
+  quantization?: number
+  contextLength?: number
+  layerCount?: number
+  embeddingLength?: number
+  kvHeadCount?: number
+}
+
+export type LocalRuntimeStatus =
+  'unavailable' | 'idle' | 'preparing' | 'starting' | 'ready' | 'stopping' | 'error'
+
+export interface LocalRuntimeState {
+  status: LocalRuntimeStatus
+  runtime?: LocalRuntimeKind
+  repoId?: string
+  revision?: string
+  resolvedCommit?: string
+  filePath?: string
+  modelName?: string
+  endpoint?: string
+  contextLength?: number
+  loadedBytes?: number
+  loadedVramBytes?: number
+  error?: string
+}
+
+export interface LocalRunPreset {
+  endpoint: string
+  repoId: string
+  revision: string
+  resolvedCommit: string
+  filePath: string
+  runtime: LocalRuntimeKind
+  contextLength: number
+  maxTokens: number
+  temperature: number
+  gpuLayers?: 'auto' | number
+  createdAt: string
+}
+
+export interface LocalChatMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+export interface LocalRunRequest {
+  runtime: LocalRuntimeKind
+  repoId: string
+  revision: string
+  resolvedCommit: string
+  filePath: string
+  contextLength?: number
+  maxTokens?: number
+  temperature?: number
+  gpuLayers?: 'auto' | number
+  securityGrantId?: string
+  allowTightFit?: boolean
+}
+
+export interface LocalChatRequest {
+  messages: LocalChatMessage[]
+  maxTokens?: number
+  temperature?: number
+}
+
+export interface LocalInferenceStreamEvent {
+  id: string
+  delta?: string
+  done?: boolean
+  error?: string
+  promptTokens?: number
+  completionTokens?: number
 }
 
 /** Subset of process.platform values the app runs on (kept Node-types-free for the renderer). */
@@ -803,11 +1175,116 @@ export type ExportTool = 'ollama' | 'lmstudio' | 'comfyui'
 export interface CacheSnapshotFile {
   path: string
   size: number
+  sha256?: string
+  gitBlobOid?: string
 }
 
 export interface CacheSnapshot {
   commit: string
   files: CacheSnapshotFile[]
+}
+
+export interface CachePin {
+  cacheDir: string
+  kind: RepoKind
+  repoId: string
+  commit: string
+  label?: string
+  createdAt: string
+}
+
+export interface ResolvedCacheFile {
+  kind: RepoKind
+  repoId: string
+  commit: string
+  path: string
+  /** Main-process consumers use this; renderer receives it only for reveal-free diagnostics. */
+  size: number
+  sha256?: string
+}
+
+export interface OhmyhfLockFileEntry {
+  path: string
+  size: number
+  lfsSha256?: string
+  gitBlobOid?: string
+  localSha256?: string
+}
+
+export interface OhmyhfLockRuntime {
+  runtime: LocalRuntimeKind
+  filePath: string
+  contextLength: number
+  maxTokens: number
+  temperature: number
+  gpuLayers?: 'auto' | number
+}
+
+export interface OhmyhfLockResource {
+  kind: RepoKind
+  repoId: string
+  requestedRevision: string
+  resolvedCommit: string
+  /** Omitted means restore the complete snapshot. */
+  files?: OhmyhfLockFileEntry[]
+  runtime?: OhmyhfLockRuntime
+  security?: {
+    decision: SecurityDecision
+    reasons: SecurityReasonCode[]
+    fingerprint: string
+    checkedAt: string
+  }
+}
+
+export interface OhmyhfLockV1 {
+  format: 'ohmyhf-lock/v1'
+  version: 1
+  createdAt: string
+  hubEndpoint: string
+  resources: OhmyhfLockResource[]
+}
+
+export interface LockfileInspectionResource {
+  kind: RepoKind
+  repoId: string
+  requestedRevision: string
+  resolvedCommit: string
+  cachedFiles: number
+  missingFiles: number
+  mismatchedFiles: number
+  runtimeAvailable?: boolean
+  currentSecurityDecision?: SecurityDecision
+  securityReasons?: SecurityReasonCode[]
+  /** Main-minted challenge for this exact resource/action/evidence. */
+  securityChallengeId?: string
+  securityChanged?: boolean
+  errors: string[]
+}
+
+export interface LockfileInspection {
+  inspectionId: string
+  expiresAt: string
+  endpointMatches: boolean
+  /** True after an explicit one-restore endpoint confirmation and authenticated refresh. */
+  endpointConfirmed: boolean
+  lock: OhmyhfLockV1
+  resources: LockfileInspectionResource[]
+}
+
+export interface LockfileRestoreResult {
+  queuedDownloadIds: string[]
+  readyResources: Array<{ kind: RepoKind; repoId: string; resolvedCommit: string }>
+  blockedResources: Array<{ kind: RepoKind; repoId: string; reason: string }>
+}
+
+/** Progress for lockfile inspection/restoration; contains no credentials or local paths. */
+export interface LockfileRestoreEvent {
+  inspectionId?: string
+  status: 'inspecting' | 'ready' | 'restoring' | 'completed' | 'error'
+  resourceIndex?: number
+  completedResources?: number
+  totalResources?: number
+  error?: string
 }
 
 export interface RepoCommitFile {
@@ -866,6 +1343,11 @@ export interface ExportStartRequest {
   kind: RepoKind
   repoId: string
   filePath: string
+  revision?: string
+  resolvedCommit?: string
+  securityGrantId?: string
+  /** Main-process-only binding used after a long download completes. */
+  securityAcknowledgement?: SecurityAcknowledgement
 }
 
 export type IntegrationTaskStatus = 'preparing' | 'running' | 'done' | 'error' | 'canceled'

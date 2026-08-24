@@ -11,12 +11,16 @@ import type {
   DatasetRows,
   DiscussionDetail,
   DiscussionSummary,
+  EvalIdentity,
   FileTreeEntry,
   GatedFormField,
   HubNotification,
   HubOrgPlan,
   HubProfileSettings,
   MyRepoEntry,
+  LeaderboardEntry,
+  LeaderboardPage,
+  ModelEvalResult,
   NotificationsPage,
   PaperSummary,
   PostComment,
@@ -24,14 +28,21 @@ import type {
   PostReaction,
   PostSummary,
   RepoDetail,
+  RepoCommitSummary,
   RepoKind,
+  RepoRef,
+  RepoRefs,
   RepoSummary,
+  SecurityEvidence,
+  SecurityEvidenceStatus,
+  SecurityReasonCode,
+  SecurityReport,
   SpaceSecret,
   SpaceVariable,
   UserOverview,
   UserProfile
 } from '@oh-my-huggingface/shared'
-import { hubRelativeUrl } from '@oh-my-huggingface/shared'
+import { hubRelativeUrl, securityEvidenceFingerprint } from '@oh-my-huggingface/shared'
 
 /** Plural URL segment per repo kind (kept local: client.ts imports this module). */
 const REPO_URL_SEGMENT: Record<RepoKind, string> = {
@@ -184,6 +195,8 @@ interface RawTreeEntry {
   size?: number
   oid?: string
   lfs?: { oid: string; size: number }
+  security?: unknown
+  securityFileStatus?: unknown
 }
 
 export function mapFileTree(raw: RawTreeEntry[]): FileTreeEntry[] {
@@ -192,8 +205,607 @@ export function mapFileTree(raw: RawTreeEntry[]): FileTreeEntry[] {
     path: e.path,
     size: e.lfs?.size ?? e.size ?? 0,
     oid: e.oid,
-    lfs: e.lfs
+    lfs: e.lfs,
+    security: mapFileSecurity(e.securityFileStatus ?? e.security)
   }))
+}
+
+function object(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function array(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
+
+function securityStatusFrom(value: unknown, source = ''): SecurityEvidenceStatus {
+  if (typeof value === 'boolean') {
+    if (/infected|malware|malicious|virus|unsafe|danger/i.test(source)) {
+      return value ? 'malicious' : 'safe'
+    }
+    if (/pending/i.test(source)) return value ? 'pending' : 'safe'
+    if (/error|failed/i.test(source)) return value ? 'error' : 'safe'
+    if (/pickle|secret|custom.?code|remote.?code/i.test(source)) {
+      return value ? 'warning' : 'safe'
+    }
+    return value ? 'safe' : 'warning'
+  }
+  const normalized = stringValue(value)?.toLowerCase().replaceAll('_', '-').replaceAll(' ', '-')
+  if (!normalized) return 'unknown'
+  // Pickle import scanners use "dangerous" for risky callable imports. That
+  // is a warning requiring confirmation, not by itself a malware verdict.
+  if (/pickle/i.test(source) && (normalized === 'dangerous' || normalized === 'suspicious')) {
+    return 'warning'
+  }
+  if (
+    normalized.includes('malicious') ||
+    normalized.includes('infected') ||
+    normalized.includes('virus') ||
+    normalized === 'unsafe' ||
+    normalized === 'dangerous'
+  )
+    return 'malicious'
+  if (
+    normalized === 'safe' ||
+    normalized === 'clean' ||
+    normalized === 'passed' ||
+    normalized === 'ok' ||
+    normalized === 'innocuous'
+  )
+    return 'safe'
+  if (normalized.includes('pending') || normalized.includes('scan-in-progress')) return 'pending'
+  if (normalized.includes('error') || normalized.includes('failed')) return 'error'
+  if (
+    normalized.includes('warning') ||
+    normalized.includes('suspicious') ||
+    normalized.includes('dangerous')
+  )
+    return 'warning'
+  return 'unknown'
+}
+
+function aggregateSecurityStatus(evidence: SecurityEvidence[]): SecurityEvidenceStatus {
+  return evidence.some((item) => item.status === 'malicious')
+    ? 'malicious'
+    : evidence.some((item) => item.status === 'warning')
+      ? 'warning'
+      : evidence.some((item) => item.status === 'pending')
+        ? 'pending'
+        : evidence.some((item) => item.status === 'error')
+          ? 'error'
+          : evidence.length > 0 && evidence.every((item) => item.status === 'safe')
+            ? 'safe'
+            : 'unknown'
+}
+
+function mapFileSecurity(value: unknown): FileTreeEntry['security'] {
+  const envelope = object(value)
+  if (!envelope) return undefined
+  // Older expanded tree responses wrapped Hugging Face's result in `hf`;
+  // current responses use `securityFileStatus`. Support both without treating
+  // envelope metadata such as blobId/indexed as scanner conclusions.
+  const raw = object(envelope.hf) ?? envelope
+  const evidence = evidenceFromObject(raw, undefined, 'hub-file-scan')
+  if (evidence.length === 0) return undefined
+  const message = evidence.map((item) => item.message).find(Boolean)
+  return {
+    status: aggregateSecurityStatus(evidence),
+    scanners: [...new Set(evidence.map((item) => item.source))],
+    message,
+    evidence: evidence.map(({ source, status, message: itemMessage, checkedAt }) => ({
+      source,
+      status,
+      message: itemMessage,
+      checkedAt
+    }))
+  }
+}
+
+function rawRefList(value: unknown, type: RepoRef['type']): RepoRef[] {
+  return array(value).flatMap((entry) => {
+    const raw = object(entry)
+    if (!raw) return []
+    const ref = stringValue(raw.ref) ?? stringValue(raw.gitRef)
+    const name =
+      stringValue(raw.name) ??
+      ref?.replace(/^refs\/(?:heads|tags)\//, '') ??
+      (type === 'pull-request' ? ref : undefined)
+    const targetCommit =
+      stringValue(raw.targetCommit) ??
+      stringValue(raw.target_commit) ??
+      stringValue(raw.commit) ??
+      stringValue(raw.sha)
+    if (!name || !targetCommit || !/^[0-9a-f]{40}$/i.test(targetCommit)) return []
+    const fullRef =
+      ref ??
+      (type === 'branch' ? `refs/heads/${name}` : type === 'tag' ? `refs/tags/${name}` : name)
+    return [
+      {
+        name,
+        ref: fullRef,
+        targetCommit: targetCommit.toLowerCase(),
+        type,
+        isDefault: raw.isDefault === true || raw.default === true
+      }
+    ]
+  })
+}
+
+export function mapRepoRefs(value: unknown): RepoRefs {
+  const raw = object(value) ?? {}
+  const branches = rawRefList(raw.branches, 'branch')
+  const tags = rawRefList(raw.tags, 'tag')
+  const pullRequests = rawRefList(
+    raw.pullRequests ?? raw.pull_requests ?? raw.prs ?? raw.converts,
+    'pull-request'
+  )
+  const defaultBranch =
+    stringValue(raw.defaultBranch) ??
+    stringValue(raw.default_branch) ??
+    branches.find((branch) => branch.isDefault)?.name
+  return {
+    branches: branches.map((branch) => ({
+      ...branch,
+      isDefault: branch.isDefault === true || branch.name === defaultBranch
+    })),
+    tags,
+    pullRequests,
+    defaultBranch
+  }
+}
+
+export function mapRepoCommits(value: unknown): RepoCommitSummary[] {
+  const raw = object(value)
+  const items = Array.isArray(value) ? value : array(raw?.commits ?? raw?.items)
+  return items.flatMap((entry) => {
+    const commit = object(entry)
+    if (!commit) return []
+    const id =
+      stringValue(commit.id) ??
+      stringValue(commit.commitId) ??
+      stringValue(commit.commit_id) ??
+      stringValue(commit.sha)
+    if (!id || !/^[0-9a-f]{40}$/i.test(id)) return []
+    const authors = array(commit.authors).flatMap((author) => {
+      if (typeof author === 'string') return author ? [author] : []
+      const authorObject = object(author)
+      const name = stringValue(authorObject?.name) ?? stringValue(authorObject?.username)
+      return name ? [name] : []
+    })
+    return [
+      {
+        id: id.toLowerCase(),
+        authors,
+        createdAt:
+          stringValue(commit.createdAt) ??
+          stringValue(commit.created_at) ??
+          stringValue(commit.date),
+        title: stringValue(commit.title) ?? stringValue(commit.message)?.split('\n')[0] ?? '',
+        message: stringValue(commit.message)
+      }
+    ]
+  })
+}
+
+function evidenceFromObject(
+  raw: Record<string, unknown>,
+  filePath?: string,
+  prefix = ''
+): SecurityEvidence[] {
+  const evidence: SecurityEvidence[] = []
+  const checkedAt =
+    stringValue(raw.checkedAt) ??
+    stringValue(raw.checked_at) ??
+    stringValue(raw.scannedAt) ??
+    stringValue(raw.scanned_at) ??
+    stringValue(raw.updatedAt) ??
+    stringValue(raw.updated_at) ??
+    stringValue(raw.timestamp)
+  const message =
+    stringValue(raw.message) ??
+    stringValue(raw.detail) ??
+    stringValue(raw.reason) ??
+    stringValue(raw.error)
+  const declaredSource =
+    stringValue(raw.scanner) ?? stringValue(raw.source) ?? stringValue(raw.name) ?? prefix
+  const statusCandidates: Array<[string, unknown]> = [
+    ['status', raw.status],
+    ['state', raw.state],
+    ['result', raw.result],
+    ['verdict', raw.verdict],
+    ['conclusion', raw.conclusion],
+    ['virusFound', raw.virusFound],
+    ['highestSafetyLevel', raw.highestSafetyLevel],
+    ['safe', raw.safe]
+  ]
+  const explicit = statusCandidates.find(([, candidate]) => candidate !== undefined)
+  if (explicit) {
+    const [key, candidate] = explicit
+    const source = declaredSource || 'hub'
+    evidence.push({
+      source,
+      status: securityStatusFrom(candidate, `${source}.${key}`),
+      filePath,
+      message,
+      checkedAt
+    })
+  }
+
+  const metadataKeys = new Set([
+    'status',
+    'state',
+    'result',
+    'verdict',
+    'conclusion',
+    'virusFound',
+    'virusNames',
+    'highestSafetyLevel',
+    'safe',
+    'checkedAt',
+    'checked_at',
+    'scannedAt',
+    'scanned_at',
+    'updatedAt',
+    'updated_at',
+    'timestamp',
+    'message',
+    'detail',
+    'reason',
+    'error',
+    'scanner',
+    'source',
+    'name',
+    'blobId',
+    'indexed',
+    'imports'
+  ])
+  for (const [key, value] of Object.entries(raw)) {
+    if (metadataKeys.has(key)) continue
+    const source = prefix ? `${prefix}.${key}` : key
+    if (typeof value === 'boolean' || typeof value === 'string') {
+      const status = securityStatusFrom(value, source)
+      // Ignore descriptive strings that carry no scanner status.
+      if (status !== 'unknown' || /scan|virus|malware|pickle|safe|security/i.test(source)) {
+        evidence.push({ source, status, filePath })
+      }
+      continue
+    }
+    const nested = object(value)
+    if (nested) evidence.push(...evidenceFromObject(nested, filePath, source))
+    if (Array.isArray(value)) {
+      for (const [index, item] of value.entries()) {
+        const nestedItem = object(item)
+        if (nestedItem) {
+          evidence.push(...evidenceFromObject(nestedItem, filePath, `${source}[${index}]`))
+        }
+      }
+    }
+  }
+  return evidence
+}
+
+function securityReasonForStatus(status: SecurityEvidenceStatus): SecurityReasonCode | undefined {
+  if (status === 'malicious') return 'confirmed-malicious'
+  if (status === 'pending') return 'scan-pending'
+  if (status === 'error') return 'scan-error'
+  if (status === 'unknown') return 'scan-unknown'
+  if (status === 'warning') return 'unscanned-file'
+  return undefined
+}
+
+export function mapSecurityReport(
+  value: unknown,
+  tree: FileTreeEntry[],
+  kind: RepoKind,
+  repoId: string,
+  revision: string,
+  resolvedCommit: string
+): SecurityReport {
+  const raw = object(value) ?? {}
+  const repositoryStatus =
+    object(raw.securityRepoStatus) ??
+    object(raw.security_repo_status) ??
+    object(raw.securityStatus) ??
+    object(raw.security)
+  const evidence = repositoryStatus ? evidenceFromObject(repositoryStatus) : []
+  for (const file of tree) {
+    if (!file.security) continue
+    if (file.security.evidence?.length) {
+      for (const item of file.security.evidence) {
+        evidence.push({ ...item, filePath: file.path })
+      }
+      continue
+    }
+    const scanners = file.security.scanners?.length ? file.security.scanners : ['hub-file-scan']
+    for (const source of scanners) {
+      evidence.push({
+        source,
+        status: file.security.status,
+        filePath: file.path,
+        message: file.security.message
+      })
+    }
+  }
+  const tags = array(raw.tags).flatMap((tag) => (typeof tag === 'string' ? [tag] : []))
+  const cardData = object(raw.cardData ?? raw.card_data)
+  const library = stringValue(raw.library_name) ?? stringValue(raw.libraryName)
+  const customCode =
+    tags.some((tag) => /custom.?code|trust_remote_code/i.test(tag)) ||
+    object(cardData?.auto_map) !== undefined ||
+    cardData?.trust_remote_code === true
+  if (customCode) {
+    evidence.push({ source: 'model-metadata.custom-code', status: 'warning' })
+  }
+  if (evidence.length === 0) evidence.push({ source: 'hub', status: 'unknown' })
+  const overall = aggregateSecurityStatus(evidence)
+  const reasons = [
+    ...new Set([
+      ...evidence.map((item) => securityReasonForStatus(item.status)).filter(Boolean),
+      ...(customCode ? (['custom-code', 'trust-remote-code'] as const) : [])
+    ])
+  ] as SecurityReasonCode[]
+  const baseModelRaw = cardData?.base_model ?? cardData?.baseModel
+  const baseModels = Array.isArray(baseModelRaw)
+    ? baseModelRaw.flatMap((item) => (typeof item === 'string' ? [item] : []))
+    : typeof baseModelRaw === 'string'
+      ? [baseModelRaw]
+      : undefined
+  const commitAuthors = [raw.author, ...array(raw.authors)].flatMap((author) => {
+    if (typeof author === 'string') return author ? [author] : []
+    const authorObject = object(author)
+    const name =
+      stringValue(authorObject?.name) ??
+      stringValue(authorObject?.username) ??
+      stringValue(authorObject?.fullname)
+    return name ? [name] : []
+  })
+  const checkedAt = new Date().toISOString()
+  return {
+    kind,
+    repoId,
+    revision,
+    resolvedCommit: resolvedCommit.toLowerCase(),
+    overall,
+    evidence,
+    reasons,
+    fingerprint: securityEvidenceFingerprint({ repoId, resolvedCommit, evidence }),
+    checkedAt,
+    provenance: {
+      license:
+        stringValue(cardData?.license) ??
+        tags.find((tag) => tag.startsWith('license:'))?.slice('license:'.length),
+      baseModels,
+      library,
+      customCode
+    },
+    commit: {
+      authors: commitAuthors.length ? commitAuthors : undefined,
+      createdAt: stringValue(raw.lastModified) ?? stringValue(raw.createdAt),
+      signature:
+        raw.signed === true || raw.signatureVerified === true
+          ? 'verified'
+          : raw.signed === false || raw.signatureVerified === false
+            ? 'unverified'
+            : 'unknown'
+    }
+  }
+}
+
+function identityFromEval(raw: Record<string, unknown>): EvalIdentity | undefined {
+  const dataset = object(raw.dataset)
+  const task = object(raw.task)
+  const metricObject = object(raw.metric)
+  const datasetId =
+    stringValue(raw.dataset_id) ??
+    stringValue(raw.datasetId) ??
+    stringValue(dataset?.id) ??
+    stringValue(dataset?.type) ??
+    stringValue(dataset?.name)
+  const taskId =
+    stringValue(raw.task_id) ??
+    stringValue(raw.taskId) ??
+    stringValue(task?.id) ??
+    stringValue(task?.type) ??
+    stringValue(task?.name)
+  const metric =
+    stringValue(raw.metric_id) ??
+    stringValue(raw.metricId) ??
+    stringValue(raw.metric) ??
+    stringValue(metricObject?.id) ??
+    stringValue(metricObject?.type) ??
+    stringValue(metricObject?.name)
+  if (!datasetId || !taskId || !metric) return undefined
+  return {
+    datasetId,
+    taskId,
+    config:
+      stringValue(raw.config) ??
+      stringValue(raw.dataset_config) ??
+      stringValue(dataset?.config) ??
+      stringValue(dataset?.configName),
+    split: stringValue(raw.split) ?? stringValue(dataset?.split),
+    revision:
+      stringValue(raw.revision) ??
+      stringValue(raw.dataset_revision) ??
+      stringValue(dataset?.revision),
+    metric
+  }
+}
+
+function evalResultRows(value: unknown): Array<Record<string, unknown>> {
+  const raw = object(value)
+  const rows = array(raw?.evalResults ?? raw?.eval_results)
+  return rows.flatMap((entry) => {
+    const result = object(entry)
+    if (!result) return []
+    const metrics = array(result.metrics)
+    if (metrics.length === 0) return [result]
+    return metrics.flatMap((metric) => {
+      const metricRaw = object(metric)
+      return metricRaw
+        ? [{ ...result, ...metricRaw, metric: metricRaw.type ?? metricRaw.name }]
+        : []
+    })
+  })
+}
+
+export function mapModelEvalResults(value: unknown): ModelEvalResult[] {
+  const seen = new Set<string>()
+  const output: ModelEvalResult[] = []
+  for (const raw of evalResultRows(value)) {
+    const identity = identityFromEval(raw)
+    const resultValue = raw.value ?? object(raw.metric)?.value
+    if (!identity || (typeof resultValue !== 'number' && typeof resultValue !== 'string')) continue
+    const key = JSON.stringify(identity)
+    if (seen.has(key)) continue
+    seen.add(key)
+    output.push({
+      identity,
+      value: resultValue,
+      source: 'eval-results',
+      verified: raw.verified === true,
+      createdAt: stringValue(raw.createdAt) ?? stringValue(raw.created_at),
+      notes: stringValue(raw.notes) ?? stringValue(raw.note)
+    })
+  }
+  // Compatibility fallback: only fill identities missing from the canonical
+  // `.eval_results` expansion. Never let legacy model-index overwrite it.
+  const root = object(value)
+  const cardData = object(root?.cardData ?? root?.card_data)
+  const modelIndex = array(cardData?.['model-index'] ?? cardData?.model_index)
+  for (const model of modelIndex) {
+    const modelObject = object(model)
+    for (const result of array(modelObject?.results)) {
+      const resultObject = object(result)
+      if (!resultObject) continue
+      for (const metric of array(resultObject.metrics)) {
+        const metricObject = object(metric)
+        if (!metricObject) continue
+        const row = {
+          ...resultObject,
+          ...metricObject,
+          metric: metricObject.type ?? metricObject.name,
+          value: metricObject.value
+        }
+        const identity = identityFromEval(row)
+        const resultValue = row.value
+        if (!identity || (typeof resultValue !== 'number' && typeof resultValue !== 'string')) {
+          continue
+        }
+        const key = JSON.stringify(identity)
+        if (seen.has(key)) continue
+        seen.add(key)
+        output.push({
+          identity,
+          value: resultValue,
+          source: 'model-index',
+          verified: metricObject.verified === true || resultObject.verified === true,
+          createdAt: stringValue(resultObject.createdAt) ?? stringValue(resultObject.created_at),
+          notes: stringValue(metricObject.notes) ?? stringValue(resultObject.notes)
+        })
+      }
+    }
+  }
+  return output
+}
+
+function leaderboardRows(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value
+  const raw = object(value)
+  return array(raw?.leaderboard ?? raw?.entries ?? raw?.items ?? raw?.results)
+}
+
+export function mapLeaderboardPage(
+  value: unknown,
+  datasetId: string,
+  nextCursor?: string
+): LeaderboardPage {
+  const entries: LeaderboardEntry[] = []
+  for (const [index, item] of leaderboardRows(value).entries()) {
+    const raw = object(item)
+    if (!raw) continue
+    const model = object(raw.model)
+    const modelId =
+      stringValue(raw.model_id) ??
+      stringValue(raw.modelId) ??
+      stringValue(model?.id) ??
+      stringValue(raw.repo_id)
+    // Leaderboard rows also use `revision` for the model commit. EvalIdentity
+    // revision is the *dataset* revision, so never let that field leak across
+    // identities when the API omits dataset_revision.
+    const explicitIdentity = identityFromEval({
+      dataset_id: datasetId,
+      ...raw,
+      revision: raw.dataset_revision ?? raw.datasetRevision
+    })
+    // The official dataset leaderboard response currently contains one raw
+    // benchmark score per row but does not always expose task/metric metadata.
+    // Retain the row under a dataset-scoped sentinel identity rather than
+    // dropping real leaderboard data or guessing a benchmark definition.
+    const identity: EvalIdentity = explicitIdentity ?? {
+      datasetId,
+      taskId: 'dataset-leaderboard',
+      metric: 'raw-score'
+    }
+    const resultValue = raw.value ?? raw.score ?? raw.metric_value
+    if (
+      !modelId ||
+      !identity ||
+      (typeof resultValue !== 'number' && typeof resultValue !== 'string')
+    )
+      continue
+    const sourceObject = object(raw.source)
+    const authorObject = object(raw.author)
+    const authorName =
+      stringValue(authorObject?.name) ??
+      stringValue(authorObject?.username) ??
+      stringValue(authorObject?.fullname) ??
+      stringValue(raw.author)
+    const authorTypeRaw = stringValue(authorObject?.type)
+    const pullRequest = raw.pull_request ?? raw.pullRequest
+    entries.push({
+      rank: typeof raw.rank === 'number' ? raw.rank : index + 1,
+      modelId,
+      identity,
+      identityProvided: explicitIdentity !== undefined,
+      value: resultValue,
+      verified: raw.verified === true,
+      source: stringValue(raw.source) ?? stringValue(sourceObject?.name),
+      sourceUrl: stringValue(sourceObject?.url),
+      sourceExternal:
+        typeof sourceObject?.isExternal === 'boolean' ? sourceObject.isExternal : undefined,
+      author: authorName
+        ? {
+            name: authorName,
+            fullname: stringValue(authorObject?.fullname),
+            type: authorTypeRaw === 'user' || authorTypeRaw === 'org' ? authorTypeRaw : undefined
+          }
+        : undefined,
+      filename: stringValue(raw.filename),
+      revision: stringValue(raw.revision) ?? stringValue(model?.revision),
+      notes: stringValue(raw.notes) ?? stringValue(raw.note),
+      pullRequest: typeof pullRequest === 'number' ? String(pullRequest) : stringValue(pullRequest),
+      lowerIsBetter:
+        typeof raw.lower_is_better === 'boolean'
+          ? raw.lower_is_better
+          : typeof raw.lowerIsBetter === 'boolean'
+            ? raw.lowerIsBetter
+            : undefined,
+      parameterCount:
+        typeof raw.num_parameters === 'number'
+          ? raw.num_parameters
+          : typeof raw.numParameters === 'number'
+            ? raw.numParameters
+            : undefined
+    })
+  }
+  return { datasetId, entries, nextCursor }
 }
 
 interface RawDailyPaper {

@@ -46,43 +46,13 @@ async function findSnapshotFile(
   cacheDir: string,
   kind: RepoKind,
   repoId: string,
+  commit: string,
   filePath: string,
   signal: AbortSignal
 ): Promise<string | null> {
   signal.throwIfAborted()
-  const { repoDir, refsDir, snapshotsDir } = repoCachePaths(cacheDir, kind, repoId)
-  let commit: string | undefined
-  try {
-    commit = (await fs.readFile(join(refsDir, 'main'), 'utf8')).trim()
-  } catch {
-    try {
-      const refs = await fs.readdir(refsDir)
-      const first = refs[0]
-      if (first) commit = (await fs.readFile(join(refsDir, first), 'utf8')).trim()
-    } catch {
-      // Fall through to snapshot scan.
-    }
-  }
-
-  if (!commit || !existsSync(join(snapshotsDir, commit))) {
-    try {
-      const entries = await fs.readdir(snapshotsDir, { withFileTypes: true })
-      let newest: { name: string; mtimeMs: number } | undefined
-      for (const entry of entries) {
-        signal.throwIfAborted()
-        if (!entry.isDirectory() || entry.isSymbolicLink()) continue
-        const current = await fs.stat(join(snapshotsDir, entry.name))
-        if (!newest || current.mtimeMs > newest.mtimeMs) {
-          newest = { name: entry.name, mtimeMs: current.mtimeMs }
-        }
-      }
-      commit = newest?.name
-    } catch {
-      return null
-    }
-  }
-  if (!commit) return null
-  if (basename(commit) !== commit || commit === '.' || commit === '..') return null
+  const { repoDir, snapshotsDir } = repoCachePaths(cacheDir, kind, repoId)
+  if (!/^[0-9a-f]{40}$/.test(commit) || !existsSync(join(snapshotsDir, commit))) return null
 
   const snapshotDir = resolve(snapshotsDir, commit)
   const file = resolve(snapshotDir, filePath)
@@ -295,7 +265,15 @@ export async function runExport(
   }
   deps.signal.throwIfAborted()
   deps.onProgress({ phase: 'preparing', progress: 0 })
-  const snapshotFile = await findSnapshotFile(deps.cacheDir, kind, repoId, filePath, deps.signal)
+  if (!deps.resolvedCommit) return fail('export.revisionRequired')
+  const snapshotFile = await findSnapshotFile(
+    deps.cacheDir,
+    kind,
+    repoId,
+    deps.resolvedCommit,
+    filePath,
+    deps.signal
+  )
   if (!snapshotFile) return fail('export.notInCache', { file: filePath })
 
   try {

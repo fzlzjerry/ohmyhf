@@ -12,6 +12,7 @@ import { CodeBlock } from '@/components/browse/CodeBlock'
 import { Scissors } from 'lucide-react'
 import { formatBytes } from '@/lib/utils'
 import { useHubEndpointKey } from '@/hooks/use-hub-endpoint'
+import { useResolvedRepoCommit } from '@/components/browse/revision-context'
 
 const MAX_TEXT_BYTES = 512 * 1024
 const PAGE_SIZE = 25
@@ -35,11 +36,13 @@ function LoadingBlock(): React.JSX.Element {
 export function CsvPreview({ kind, repoId, path }: CsvPreviewProps): React.JSX.Element {
   const { t } = useTranslation(['detail', 'common'])
   const endpointKey = useHubEndpointKey()
+  const revision = useResolvedRepoCommit()
   const [page, setPage] = useState(0)
 
   const text = useQuery({
-    queryKey: ['fileText', kind, repoId, path, endpointKey],
-    queryFn: () => invoke('hub:fileText', { kind, repoId, path, maxBytes: MAX_TEXT_BYTES }),
+    queryKey: ['fileText', endpointKey, kind, repoId, revision, path],
+    queryFn: () =>
+      invoke('hub:fileText', { kind, repoId, path, revision, maxBytes: MAX_TEXT_BYTES }),
     retry: false
   })
 

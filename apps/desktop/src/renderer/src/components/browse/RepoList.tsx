@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ArrowDownToLine, Heart, Lock, ShieldAlert } from 'lucide-react'
+import { useNavigate } from 'react-router'
+import { ArrowDownToLine, Columns3, Heart, Lock, ShieldAlert } from 'lucide-react'
 import {
   normalizeHubEndpoint,
   type RepoKind,
@@ -39,6 +40,7 @@ interface RepoListProps {
 
 export function RepoList({ kind, selectedId, onSelect }: RepoListProps): React.JSX.Element {
   const { t } = useTranslation(['browse', 'common', 'errors'])
+  const navigate = useNavigate()
   const filters = useAppStore((s) => s.filters[kind])
   const settings = useAppStore((s) => s.settings)
   const appInfo = useAppStore((s) => s.appInfo)
@@ -262,78 +264,93 @@ export function RepoList({ kind, selectedId, onSelect }: RepoListProps): React.J
             const selected = repo.id === selectedId
             const chipLabel = repo.pipelineTag ?? repo.sdk
             return (
-              <button
+              <div
                 key={repo.id}
-                type="button"
-                role="option"
-                aria-selected={selected}
-                onClick={() => onSelect(repo, 'pointer')}
                 className={cn(
-                  'group absolute inset-x-1 flex flex-col justify-center gap-0.5 rounded-lg px-2.5 text-left transition-colors duration-100',
+                  'group absolute inset-x-1 flex items-center rounded-lg transition-colors duration-100',
                   selected ? 'bg-select/10' : 'hover:bg-panel'
                 )}
                 style={{ top: row.start + 2, height: ROW_HEIGHT - 4 }}
               >
-                <div className="flex w-full items-center gap-1.5">
-                  {/* Mono repo id with the HF hover recolor (indigo light / yellow dark). */}
-                  <span
-                    className={cn(
-                      'min-w-0 truncate font-mono text-[12.5px] tracking-tight text-ink-strong transition-colors duration-100 group-hover:text-hover-title',
-                      selected && 'text-select'
-                    )}
-                  >
-                    {repo.author && <span>{repo.author}/</span>}
-                    <span className="font-medium">{repo.name}</span>
-                  </span>
-                  {repo.private && (
-                    <Lock
-                      className="size-3 shrink-0 text-warning"
-                      aria-label={t('common:private')}
-                    />
-                  )}
-                  {repo.gated ? (
-                    <ShieldAlert
-                      className="size-3 shrink-0 text-warning"
-                      aria-label={t('common:gated')}
-                    />
-                  ) : null}
-                </div>
-                <div className="flex w-full items-center gap-1.5 text-[11.5px] text-ink-faint">
-                  {chipLabel && (
-                    <span className="flex min-w-0 items-center gap-1">
-                      <span
-                        className="size-1.5 shrink-0 rounded-full"
-                        style={{ background: TAG_HUE_VAR[taskHue(chipLabel)] }}
-                        aria-hidden
-                      />
-                      <span className="truncate">{chipLabel}</span>
-                    </span>
-                  )}
-                  {repo.paramCount !== undefined && (
-                    <>
-                      {chipLabel && (
-                        <span className="text-decor" aria-hidden>
-                          ·
-                        </span>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  className="flex h-full min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-lg px-2.5 text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
+                  onClick={() => onSelect(repo, 'pointer')}
+                >
+                  <span className="flex w-full items-center gap-1.5">
+                    {/* Mono repo id with the HF hover recolor (indigo light / yellow dark). */}
+                    <span
+                      className={cn(
+                        'min-w-0 truncate font-mono text-[12.5px] tracking-tight text-ink-strong transition-colors duration-100 group-hover:text-hover-title',
+                        selected && 'text-select'
                       )}
-                      <span className="nums font-mono text-[11px]">
-                        {formatParams(repo.paramCount)}
+                    >
+                      {repo.author && <span>{repo.author}/</span>}
+                      <span className="font-medium">{repo.name}</span>
+                    </span>
+                    {repo.private && (
+                      <Lock
+                        className="size-3 shrink-0 text-warning"
+                        aria-label={t('common:private')}
+                      />
+                    )}
+                    {repo.gated ? (
+                      <ShieldAlert
+                        className="size-3 shrink-0 text-warning"
+                        aria-label={t('common:gated')}
+                      />
+                    ) : null}
+                  </span>
+                  <span className="flex w-full items-center gap-1.5 text-[11.5px] text-ink-faint">
+                    {chipLabel && (
+                      <span className="flex min-w-0 items-center gap-1">
+                        <span
+                          className="size-1.5 shrink-0 rounded-full"
+                          style={{ background: TAG_HUE_VAR[taskHue(chipLabel)] }}
+                          aria-hidden
+                        />
+                        <span className="truncate">{chipLabel}</span>
                       </span>
-                    </>
-                  )}
-                  <span className="ml-auto flex items-center gap-0.5" title={t('browse:likes')}>
-                    <Heart className="size-3" aria-hidden />
-                    {formatCount(repo.likes, locale)}
+                    )}
+                    {repo.paramCount !== undefined && (
+                      <>
+                        {chipLabel && (
+                          <span className="text-decor" aria-hidden>
+                            ·
+                          </span>
+                        )}
+                        <span className="nums font-mono text-[11px]">
+                          {formatParams(repo.paramCount)}
+                        </span>
+                      </>
+                    )}
+                    <span className="ml-auto flex items-center gap-0.5" title={t('browse:likes')}>
+                      <Heart className="size-3" aria-hidden />
+                      {formatCount(repo.likes, locale)}
+                    </span>
+                    <span className="text-decor" aria-hidden>
+                      ·
+                    </span>
+                    <span className="flex items-center gap-0.5" title={t('browse:downloads')}>
+                      <ArrowDownToLine className="size-3" aria-hidden />
+                      {formatCount(repo.downloads, locale)}
+                    </span>
                   </span>
-                  <span className="text-decor" aria-hidden>
-                    ·
-                  </span>
-                  <span className="flex items-center gap-0.5" title={t('browse:downloads')}>
-                    <ArrowDownToLine className="size-3" aria-hidden />
-                    {formatCount(repo.downloads, locale)}
-                  </span>
-                </div>
-              </button>
+                </button>
+                {kind === 'model' && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="mr-1 size-7 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                    aria-label={`Add ${repo.id} to compare`}
+                    onClick={() => void navigate(`/compare?models=${encodeURIComponent(repo.id)}`)}
+                  >
+                    <Columns3 className="size-3.5" aria-hidden />
+                  </Button>
+                )}
+              </div>
             )
           })}
         </div>

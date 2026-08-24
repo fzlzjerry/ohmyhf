@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useHubEndpointKey } from '@/hooks/use-hub-endpoint'
+import { useResolvedRepoCommit } from '@/components/browse/revision-context'
 
 const PAGE_SIZE = 25
 /** Prefix window for Arrow IPC / Feather files (under hub:fileRange's 64 MiB cap). */
@@ -65,15 +66,16 @@ export function ArrowPreview({
 }: ArrowPreviewProps): React.JSX.Element {
   const { t } = useTranslation(['detail', 'common'])
   const endpointKey = useHubEndpointKey()
+  const revision = useResolvedRepoCommit()
   const [page, setPage] = useState(0)
 
   const table = useQuery<ArrowTablePreview>({
-    queryKey: ['arrowPreview', kind, repoId, path, size, endpointKey],
+    queryKey: ['arrowPreview', endpointKey, kind, repoId, revision, path, size],
     retry: false,
     queryFn: async () => {
       const end = Math.min(size, MAX_ARROW_BYTES) - 1
       if (end < 0) throw new Error('empty arrow file')
-      const bytes = await invoke('hub:fileRange', { kind, repoId, path, start: 0, end })
+      const bytes = await invoke('hub:fileRange', { kind, repoId, path, revision, start: 0, end })
       const copy = new Uint8Array(bytes.byteLength)
       copy.set(bytes)
       const { tableFromIPC } = await import('apache-arrow')

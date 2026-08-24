@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { commitRepoFiles } from './commit'
 
+const STARTING_POINT = 'c'.repeat(40)
+
 const mocks = vi.hoisted(() => ({
   commit: vi.fn(),
   createBranch: vi.fn(),
@@ -51,7 +53,8 @@ describe('commitRepoFiles', () => {
         kind: 'model',
         repoId: 'me/card',
         files: [{ path: 'README.md', content: '# hi' }],
-        title: 'Update README'
+        title: 'Update README',
+        startingPoint: STARTING_POINT
       },
       undefined
     )
@@ -72,16 +75,18 @@ describe('commitRepoFiles', () => {
         files: [{ path: 'README.md', content: '# hi' }],
         title: 'Update README',
         createPr: true,
-        branch: 'omhf/edit-readme'
+        startingPoint: STARTING_POINT
       },
       'hf_token'
     )
     expect(result.ok).toBe(true)
     if (result.ok) {
-      expect(result.branch).toBe('omhf/edit-readme')
+      expect(result.branch).toMatch(/^omhf\/edit-/)
       expect(result.compareUrl).toBe('https://huggingface.co/me/card/discussions/3')
     }
-    expect(mocks.createBranch).toHaveBeenCalled()
+    expect(mocks.createBranch).toHaveBeenCalledWith(
+      expect.objectContaining({ revision: STARTING_POINT })
+    )
     expect(mocks.commit).toHaveBeenCalled()
     expect(mocks.fetchImpl).not.toHaveBeenCalled()
   })
@@ -97,30 +102,51 @@ describe('commitRepoFiles', () => {
         files: [{ path: 'README.md', content: '# hi' }],
         title: 'Update README',
         createPr: true,
-        branch: 'omhf/edit-readme'
+        startingPoint: STARTING_POINT
       },
       'hf_token'
     )
     expect(result.ok).toBe(true)
     if (result.ok) {
-      expect(result.compareUrl).toContain('compare/master...omhf%2Fedit-readme')
+      expect(result.compareUrl).toContain(`compare/master...${encodeURIComponent(result.branch)}`)
     }
   })
 
-  it('reports the resolved default branch when the client omits one', async () => {
+  it('commits directly to the explicitly selected branch', async () => {
     mocks.commit.mockResolvedValue({ commit: { oid: 'a'.repeat(40) } })
-    mockDefaultBranch('master')
     const result = await commitRepoFiles(
       {
         kind: 'model',
         repoId: 'me/card',
         files: [{ path: 'README.md', content: '# hi' }],
-        title: 'Update README'
+        title: 'Update README',
+        branch: 'master',
+        startingPoint: STARTING_POINT
       },
       'hf_token'
     )
     expect(result).toEqual({ ok: true, branch: 'master', compareUrl: undefined })
-    expect(mocks.commit).toHaveBeenCalledWith(expect.objectContaining({ branch: undefined }))
+    expect(mocks.commit).toHaveBeenCalledWith(expect.objectContaining({ branch: 'master' }))
     expect(mocks.commit.mock.calls[0]?.[0]).not.toHaveProperty('isPullRequest')
+    expect(mocks.fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('fails before writing when a direct commit omits its branch', async () => {
+    const result = await commitRepoFiles(
+      {
+        kind: 'model',
+        repoId: 'me/card',
+        files: [{ path: 'README.md', content: '# hi' }],
+        title: 'Update README',
+        startingPoint: STARTING_POINT
+      },
+      'hf_token'
+    )
+    expect(result).toEqual({
+      ok: false,
+      error: 'Direct commits require a branch',
+      messageKey: 'edit.commitFailed'
+    })
+    expect(mocks.commit).not.toHaveBeenCalled()
   })
 })

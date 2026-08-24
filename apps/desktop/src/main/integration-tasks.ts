@@ -487,6 +487,7 @@ export class IntegrationTaskManager {
         request.filePath,
         {
           cacheDir: this.deps.cacheDir(),
+          resolvedCommit: request.resolvedCommit,
           signal: controller.signal,
           onProgress: ({ phase, progress }) =>
             this.updateTask(task.id, { status: 'running', phase, progress })

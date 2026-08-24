@@ -42,7 +42,12 @@ describe('ipcRequestSchemas', () => {
 
   it('bounds hub:fileRange windows so a renderer cannot request a multi-GB slice', () => {
     const schema = ipcRequestSchemas['hub:fileRange']!
-    const base = { kind: 'dataset', repoId: 'me/ds', path: 'data/train.parquet' }
+    const base = {
+      kind: 'dataset',
+      repoId: 'me/ds',
+      path: 'data/train.parquet',
+      revision: 'a'.repeat(40)
+    }
     // A normal footer/row read passes.
     expect(schema.safeParse({ ...base, start: 0, end: 512 * 1024 }).success).toBe(true)
     // A huge window (the OOM vector) is rejected.
@@ -175,6 +180,7 @@ describe('ipcRequestSchemas', () => {
         repoId: 'me/card',
         files: [{ path: 'README.md', content: '# hi' }],
         title: 'Update README',
+        startingPoint: 'a'.repeat(40),
         createPr: true
       }).success
     ).toBe(true)
@@ -184,6 +190,57 @@ describe('ipcRequestSchemas', () => {
         repoId: 'me/card',
         files: [{ path: 'README.md', content: 'x'.repeat(256 * 1024 + 1) }],
         title: 'too big'
+      }).success
+    ).toBe(false)
+  })
+
+  it('accepts slash branches and rejects names Git cannot represent safely', () => {
+    const create = ipcRequestSchemas['hub:branchCreate']!
+    expect(
+      create.safeParse({
+        kind: 'model',
+        repoId: 'me/card',
+        branch: 'feature/reproduce-v1',
+        startingPoint: 'a'.repeat(40)
+      }).success
+    ).toBe(true)
+    for (const branch of ['.hidden', 'feature/.hidden', 'feature..two', 'name.lock', '@']) {
+      expect(create.safeParse({ kind: 'model', repoId: 'me/card', branch }).success, branch).toBe(
+        false
+      )
+    }
+  })
+
+  it('strictly rejects renderer-injected runtime commands and security fields', () => {
+    const start = ipcRequestSchemas['localRuntime:start']!
+    const request = {
+      request: {
+        runtime: 'llama.cpp',
+        repoId: 'org/model',
+        revision: 'v1',
+        resolvedCommit: 'a'.repeat(40),
+        filePath: 'model.gguf'
+      }
+    }
+    expect(start.safeParse(request).success).toBe(true)
+    expect(
+      start.safeParse({
+        request: { ...request.request, command: '/bin/sh', args: ['-c', 'payload'] }
+      }).success
+    ).toBe(false)
+
+    const preflight = ipcRequestSchemas['security:preflight']!
+    expect(
+      preflight.safeParse({
+        request: {
+          action: 'local-run',
+          kind: 'model',
+          repoId: 'org/model',
+          revision: 'v1',
+          resolvedCommit: 'a'.repeat(40),
+          files: ['model.gguf'],
+          decision: 'allow'
+        }
       }).success
     ).toBe(false)
   })

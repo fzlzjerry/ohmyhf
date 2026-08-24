@@ -7,8 +7,9 @@ const KIND_PATH: Record<RepoKind, string> = {
   space: 'spaces'
 }
 
-export function repoAppPath(kind: RepoKind, repoId: string): string {
-  return `/${KIND_PATH[kind]}/${repoId}`
+export function repoAppPath(kind: RepoKind, repoId: string, revision?: string): string {
+  const base = `/${KIND_PATH[kind]}/${repoId}`
+  return revision ? `${base}?revision=${encodeURIComponent(revision)}` : base
 }
 
 export function repoHubUrl(
@@ -25,11 +26,13 @@ export function openRepo(
   repoId: string,
   target: RepoOpenTarget,
   navigate: (path: string) => void,
-  hubEndpoint: string | null = null
+  hubEndpoint: string | null = null,
+  revision?: string
 ): void {
   if (target === 'browser') {
-    openExternal(repoHubUrl(kind, repoId, hubEndpoint))
+    const base = repoHubUrl(kind, repoId, hubEndpoint)
+    openExternal(revision ? `${base}/tree/${encodeURIComponent(revision)}` : base)
     return
   }
-  void navigate(repoAppPath(kind, repoId))
+  void navigate(repoAppPath(kind, repoId, revision))
 }

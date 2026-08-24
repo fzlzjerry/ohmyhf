@@ -6,7 +6,8 @@ import type {
   ExportIntegrationTask,
   ExportTool,
   FileTreeEntry,
-  RepoKind
+  RepoKind,
+  RepoRevisionSelection
 } from '@oh-my-huggingface/shared'
 import { normalizeHubEndpoint } from '@oh-my-huggingface/shared'
 import { describeError } from '@/lib/errors'
@@ -28,6 +29,7 @@ import { useToasts } from '@/components/ui/toaster'
 import { useCommandActions } from '@/hooks/use-command-actions'
 import { useAppStore } from '@/stores/app'
 import { FilePreview } from '@/components/browse/FilePreview'
+import { useSecurityGate } from '@/hooks/use-security-gate'
 
 const TOOL_LABELS: Record<ExportTool, string> = {
   ollama: 'Ollama',
@@ -86,10 +88,12 @@ export function treeFromSnapshot(
 
 export function FileTreeView({
   kind,
-  repoId
+  repoId,
+  revision
 }: {
   kind: RepoKind
   repoId: string
+  revision: RepoRevisionSelection
 }): React.JSX.Element {
   const { t } = useTranslation(['detail', 'common', 'integrations', 'errors', 'downloads'])
   const [path, setPath] = useState('')
@@ -101,16 +105,34 @@ export function FileTreeView({
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const endpointKey = normalizeHubEndpoint(useAppStore((state) => state.settings.hubEndpoint))
   const push = useToasts((s) => s.push)
+  const security = useSecurityGate()
 
   const tree = useQuery({
-    queryKey: ['tree', kind, repoId, path, endpointKey],
+    queryKey: [
+      'tree',
+      endpointKey,
+      kind,
+      repoId,
+      revision.requested,
+      revision.resolvedCommit,
+      path
+    ],
     queryFn: async () => {
       try {
-        const entries = await invoke('hub:fileTree', { kind, repoId, path: path || undefined })
+        const entries = await invoke('hub:fileTree', {
+          kind,
+          repoId,
+          revision: revision.resolvedCommit,
+          path: path || undefined
+        })
         return { entries, source: 'hub' as const }
       } catch (err) {
         try {
-          const snapshot = await invoke('cache:snapshot', { kind, repoId })
+          const snapshot = await invoke('cache:snapshot', {
+            kind,
+            repoId,
+            commit: revision.resolvedCommit
+          })
           if (snapshot) {
             return { entries: treeFromSnapshot(snapshot.files, path), source: 'cache' as const }
           }
@@ -140,16 +162,51 @@ export function FileTreeView({
   )
 
   const download = useMutation({
-    mutationFn: (files: string[]) =>
-      invoke('downloads:start', { request: { repoId, kind, files } }),
+    mutationFn: async (files: string[]) => {
+      const securityGrantId = await security.authorize({
+        action: 'download',
+        kind,
+        repoId,
+        revision: revision.requested,
+        resolvedCommit: revision.resolvedCommit,
+        files
+      })
+      return invoke('downloads:start', {
+        request: {
+          repoId,
+          kind,
+          revision: revision.requested,
+          resolvedCommit: revision.resolvedCommit,
+          files,
+          securityGrantId
+        }
+      })
+    },
     onSuccess: () => push(t('detail:downloadStarted'), 'success'),
     onError: (err) => push(t('detail:downloadFailed', { error: err.message }), 'error')
   })
   const exportRun = useMutation({
-    mutationFn: (args: { tool: ExportTool; filePath: string }) =>
-      invoke('export:start', {
-        request: { tool: args.tool, kind, repoId, filePath: args.filePath }
-      }),
+    mutationFn: async (args: { tool: ExportTool; filePath: string }) => {
+      const securityGrantId = await security.authorize({
+        action: 'export',
+        kind,
+        repoId,
+        revision: revision.requested,
+        resolvedCommit: revision.resolvedCommit,
+        files: [args.filePath]
+      })
+      return invoke('export:start', {
+        request: {
+          tool: args.tool,
+          kind,
+          repoId,
+          filePath: args.filePath,
+          revision: revision.requested,
+          resolvedCommit: revision.resolvedCommit,
+          securityGrantId
+        }
+      })
+    },
     onSuccess: () => push(t('common:running'), 'info'),
     onError: (err) => push(describeError(t, err), 'error')
   })
@@ -226,6 +283,7 @@ export function FileTreeView({
 
   return (
     <div className="flex h-full min-w-0">
+      {security.dialog}
       <div className="flex w-72 min-w-56 flex-col border-r">
         <div className="flex flex-wrap items-center gap-1 border-b px-3 py-2 text-[12.5px] text-ink-muted">
           <button
@@ -378,6 +436,23 @@ export function FileTreeView({
                         {t('detail:files.lfs')}
                       </Badge>
                     )}
+                    {entry.security && (
+                      <Badge
+                        variant={
+                          entry.security.status === 'safe'
+                            ? 'success'
+                            : entry.security.status === 'malicious'
+                              ? 'error'
+                              : 'warning'
+                        }
+                        className="text-[9.5px]"
+                        title={entry.security.message}
+                      >
+                        {entry.security.status === 'unknown'
+                          ? t('common:repro.general.unknownNoConclusion')
+                          : entry.security.status}
+                      </Badge>
+                    )}
                     <span className="w-16 text-right font-mono text-[11.5px] text-ink-faint">
                       {formatBytes(entry.size)}
                     </span>
@@ -447,6 +522,7 @@ export function FileTreeView({
             key={selected.path}
             kind={kind}
             repoId={repoId}
+            revision={revision}
             entry={selected}
             onDownload={() => download.mutate([selected.path])}
             downloading={download.isPending}

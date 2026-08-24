@@ -7,7 +7,7 @@
  *        { type: 'limit', limitBps }   // live per-worker share of the speed limit
  *   out: { type: 'meta', commit, etag, size, isLfs }
  *        { type: 'progress', received, size }
- *        { type: 'done', received, verified, snapshotPath }
+ *        { type: 'done', received, verified, snapshotPath, localSha256 }
  *        { type: 'error', message }
  */
 import { createHash } from 'node:crypto'
@@ -180,7 +180,7 @@ async function fetchMetadata(): Promise<FileMetadata> {
       size = Number(res.headers.get('content-length') ?? 0)
     }
   }
-  // LFS etags are sha256 (64 hex); git blob etags are 40 hex and cannot be verified.
+  // LFS etags are content SHA-256; 40-hex non-LFS etags are verified as Git blob OIDs.
   const isLfs = Boolean(linkedEtag) && /^[0-9a-f]{64}$/.test(etag)
   return { commit, etag, size, isLfs, downloadUrl }
 }
@@ -434,7 +434,8 @@ async function run(): Promise<void> {
     type: 'done',
     received: meta.size,
     verified,
-    snapshotPath: snapshotFile
+    snapshotPath: snapshotFile,
+    localSha256: await sha256OfFile(blobPath)
   })
 }
 

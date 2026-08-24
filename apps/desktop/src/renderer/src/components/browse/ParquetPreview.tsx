@@ -17,6 +17,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Lightbox } from '@/components/ui/lightbox'
 import { useHubEndpointKey } from '@/hooks/use-hub-endpoint'
+import { useResolvedRepoCommit } from '@/components/browse/revision-context'
 
 const PAGE_SIZE = 25
 
@@ -79,6 +80,7 @@ interface ParquetPreviewProps {
 function makeAsyncBuffer(
   kind: RepoKind,
   repoId: string,
+  revision: string,
   path: string,
   byteLength: number
 ): AsyncBuffer {
@@ -91,7 +93,14 @@ function makeAsyncBuffer(
         end === undefined ? byteLength : end < 0 ? byteLength + end : end
       )
       if (e <= s) return new ArrayBuffer(0)
-      const bytes = await invoke('hub:fileRange', { kind, repoId, path, start: s, end: e - 1 })
+      const bytes = await invoke('hub:fileRange', {
+        kind,
+        repoId,
+        path,
+        revision,
+        start: s,
+        end: e - 1
+      })
       // Copy into a fresh, exact ArrayBuffer (the view may sit inside a larger one).
       const out = new ArrayBuffer(bytes.byteLength)
       new Uint8Array(out).set(bytes)
@@ -128,14 +137,18 @@ export function ParquetPreview({
 }: ParquetPreviewProps): React.JSX.Element {
   const { t } = useTranslation(['detail', 'common'])
   const endpointKey = useHubEndpointKey()
+  const revision = useResolvedRepoCommit()
   const [page, setPage] = useState(0)
   const [lightbox, setLightbox] = useState<string>()
 
-  const file = useMemo(() => makeAsyncBuffer(kind, repoId, path, size), [kind, repoId, path, size])
+  const file = useMemo(
+    () => makeAsyncBuffer(kind, repoId, revision, path, size),
+    [kind, repoId, revision, path, size]
+  )
 
   // Footer read only: schema + row count, no page data decompressed.
   const info = useQuery<ParquetInfo>({
-    queryKey: ['parquetMeta', kind, repoId, path, size, endpointKey],
+    queryKey: ['parquetMeta', endpointKey, kind, repoId, revision, path, size],
     queryFn: async () => {
       const { parquetMetadataAsync, parquetSchema } = await import('hyparquet')
       const metadata = await parquetMetadataAsync(file)
@@ -147,7 +160,7 @@ export function ParquetPreview({
   })
 
   const rows = useQuery<Record<string, unknown>[]>({
-    queryKey: ['parquetRows', kind, repoId, path, size, page, endpointKey],
+    queryKey: ['parquetRows', endpointKey, kind, repoId, revision, path, size, page],
     enabled: info.isSuccess,
     placeholderData: keepPreviousData,
     retry: false,

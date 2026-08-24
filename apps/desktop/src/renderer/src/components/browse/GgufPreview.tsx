@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useHubEndpointKey } from '@/hooks/use-hub-endpoint'
+import { useResolvedRepoCommit } from '@/components/browse/revision-context'
 
 const MAX_GGUF_HEADER_BYTES = 8 * 1024 * 1024
 
@@ -32,14 +33,15 @@ export function GgufPreview({
 }: GgufPreviewProps): React.JSX.Element {
   const { t } = useTranslation(['detail', 'common'])
   const endpointKey = useHubEndpointKey()
+  const revision = useResolvedRepoCommit()
 
   const header = useQuery({
-    queryKey: ['ggufHeader', kind, repoId, path, size, endpointKey],
+    queryKey: ['ggufHeader', endpointKey, kind, repoId, revision, path, size],
     retry: false,
     queryFn: async () => {
       const end = Math.min(size, MAX_GGUF_HEADER_BYTES) - 1
       if (end < 0) throw new Error('empty gguf file')
-      const bytes = await invoke('hub:fileRange', { kind, repoId, path, start: 0, end })
+      const bytes = await invoke('hub:fileRange', { kind, repoId, path, revision, start: 0, end })
       const copy = new Uint8Array(bytes.byteLength)
       copy.set(bytes)
       const { ggufMetadata } = await import('hyllama')

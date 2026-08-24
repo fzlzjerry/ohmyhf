@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useHubEndpointKey } from '@/hooks/use-hub-endpoint'
+import { useResolvedRepoCommit } from '@/components/browse/revision-context'
 
 const MAX_ONNX_BYTES = 8 * 1024 * 1024
 
@@ -32,9 +33,10 @@ export function OnnxPreview({
 }: OnnxPreviewProps): React.JSX.Element {
   const { t } = useTranslation(['detail', 'common'])
   const endpointKey = useHubEndpointKey()
+  const revision = useResolvedRepoCommit()
 
   const model = useQuery({
-    queryKey: ['onnxPreview', kind, repoId, path, size, endpointKey],
+    queryKey: ['onnxPreview', endpointKey, kind, repoId, revision, path, size],
     retry: false,
     queryFn: async () => {
       if (size > MAX_ONNX_BYTES) {
@@ -42,7 +44,7 @@ export function OnnxPreview({
       }
       const end = size - 1
       if (end < 0) throw new Error('empty onnx file')
-      const bytes = await invoke('hub:fileRange', { kind, repoId, path, start: 0, end })
+      const bytes = await invoke('hub:fileRange', { kind, repoId, path, revision, start: 0, end })
       const parsed = await parseOnnxBytes(bytes)
       if (!parsed) throw new Error('failed to decode onnx model')
       return parsed

@@ -18,6 +18,7 @@ import {
   type CacheReport,
   type CacheSnapshot,
   type FileTextResult,
+  type ResolvedCacheFile,
   type RepoKind
 } from '@oh-my-huggingface/shared'
 import type { SettingsStore } from './settings'
@@ -137,18 +138,37 @@ export class CacheManager {
     return this.scan()
   }
 
-  /** Latest snapshot still on disk, or null when this repo has never been cached. */
-  async snapshot(kind: RepoKind, repoId: string): Promise<CacheSnapshot | null> {
-    return readCacheSnapshot(this.cacheDir(), kind, repoId)
+  /** Read one immutable snapshot; symbolic refs and latest-directory fallback are forbidden. */
+  async snapshot(kind: RepoKind, repoId: string, commit: string): Promise<CacheSnapshot | null> {
+    return readCacheSnapshot(this.cacheDir(), kind, repoId, commit)
+  }
+
+  /** Resolve an exact cache file for trusted main-process consumers. */
+  async resolveFilePath(
+    kind: RepoKind,
+    repoId: string,
+    commit: string,
+    path: string
+  ): Promise<{ absolutePath: string; info: ResolvedCacheFile } | null> {
+    const snapshot = await resolveSnapshot(this.cacheDir(), kind, repoId, commit)
+    if (!snapshot || !isSafeRelativeFilePath(path)) return null
+    const absolutePath = await resolveSnapshotFile(snapshot.path, snapshot.blobsDir, path)
+    if (!absolutePath) return null
+    const entry = await stat(absolutePath)
+    return {
+      absolutePath,
+      info: { kind, repoId, commit: snapshot.commit, path, size: entry.size }
+    }
   }
 
   async readText(
     kind: RepoKind,
     repoId: string,
     path: string,
-    maxBytes = 512 * 1024
+    maxBytes: number | undefined,
+    commit: string
   ): Promise<FileTextResult | null> {
-    return readCachedText(this.cacheDir(), kind, repoId, path, maxBytes)
+    return readCachedText(this.cacheDir(), kind, repoId, path, maxBytes ?? 512 * 1024, commit)
   }
 }
 
@@ -509,9 +529,10 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
 export async function readCacheSnapshot(
   cacheDir: string,
   kind: RepoKind,
-  repoId: string
+  repoId: string,
+  commit: string
 ): Promise<CacheSnapshot | null> {
-  const latest = await resolveLatestSnapshot(cacheDir, kind, repoId)
+  const latest = await resolveSnapshot(cacheDir, kind, repoId, commit)
   if (!latest) return null
   const files: Array<{ path: string; size: number }> = []
   await walkSnapshotFiles(latest.path, latest.path, latest.blobsDir, files)
@@ -523,9 +544,10 @@ export async function readCachedText(
   kind: RepoKind,
   repoId: string,
   filePath: string,
-  maxBytes: number
+  maxBytes: number,
+  commit: string
 ): Promise<FileTextResult | null> {
-  const latest = await resolveLatestSnapshot(cacheDir, kind, repoId)
+  const latest = await resolveSnapshot(cacheDir, kind, repoId, commit)
   if (!latest) return null
   if (!isSafeRelativeFilePath(filePath)) return null
   const resolved = await resolveSnapshotFile(latest.path, latest.blobsDir, filePath)
@@ -546,27 +568,19 @@ export async function readCachedText(
   }
 }
 
-async function resolveLatestSnapshot(
+async function resolveSnapshot(
   cacheDir: string,
   kind: RepoKind,
-  repoId: string
+  repoId: string,
+  commit: string
 ): Promise<{ commit: string; path: string; blobsDir: string | null } | null> {
+  const normalized = commit.toLowerCase()
+  if (!COMMIT_HASH.test(normalized)) throw new Error('Invalid commit hash')
   const safeRepo = await resolveSafeRepo(cacheDir, kind, repoId)
   if (!safeRepo?.snapshotsExist) return null
   const snapshots = await inspectSnapshotDirectories(safeRepo)
   if (snapshots.length === 0) return null
-
-  let preferred: string | undefined
-  if (safeRepo.refsExist) {
-    try {
-      preferred = (await readFile(join(safeRepo.refsDir, 'main'), 'utf8')).trim()
-    } catch {
-      const refs = await inspectRefFiles(safeRepo)
-      if (refs[0]) preferred = (await readFile(refs[0], 'utf8')).trim()
-    }
-  }
-  const named = preferred ? snapshots.find((snapshot) => snapshot.name === preferred) : undefined
-  const chosen = named ?? snapshots[0]
+  const chosen = snapshots.find((snapshot) => snapshot.name === normalized)
   if (!chosen) return null
   return {
     commit: chosen.name,

@@ -13,6 +13,7 @@ import { ComparePage } from '@/pages/ComparePage'
 import { DownloadsPage } from '@/pages/DownloadsPage'
 import { FavoritesPage } from '@/pages/FavoritesPage'
 import { HistoryPage } from '@/pages/HistoryPage'
+import { LeaderboardPage } from '@/pages/LeaderboardPage'
 import { HomePage } from '@/pages/HomePage'
 import { InboxPage } from '@/pages/InboxPage'
 import { MyReposPage } from '@/pages/MyReposPage'
@@ -60,6 +61,7 @@ export function App(): React.JSX.Element {
               <Route path="cache" element={<CachePage />} />
               <Route path="inbox" element={<InboxPage />} />
               <Route path="compare" element={<ComparePage />} />
+              <Route path="leaderboards/*" element={<LeaderboardPage />} />
               <Route path="upload" element={<UploadPage />} />
               <Route path="search" element={<SearchPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />

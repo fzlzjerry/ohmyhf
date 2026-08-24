@@ -83,6 +83,13 @@ export function AppShell(): React.JSX.Element {
     )
   )
   useIpcEvent(
+    'evt:lockfileRestore',
+    useCallback(
+      (event) => queryClient.setQueryData(['lockfile-restore-event'], event),
+      [queryClient]
+    )
+  )
+  useIpcEvent(
     'evt:inbox',
     useCallback((items) => queryClient.setQueryData(['inbox'], items), [queryClient])
   )

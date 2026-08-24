@@ -27,18 +27,23 @@ import type { AuthManager } from './auth'
 import { buildHubClient } from './hub'
 import { captureHubSessionCookie } from './hub-session'
 import type { CacheManager } from './cache'
+import type { CachePinStore } from './cache-pins'
 import type { AppDatabase } from './db'
 import type { DownloadManager } from './downloads'
 import type { FollowsPoller } from './follows'
 import type { MainI18n } from './i18n'
 import type { IntegrationTaskManager } from './integration-tasks'
+import type { LocalRuntimeManager } from './local-runtime'
+import type { LockfileManager } from './lockfile'
 import type { Library } from './library'
 import { clearLocalAppData } from './privacy'
 import type { SettingsStore } from './settings'
+import type { SecurityGate } from './security-gate'
 import { portableSettingsForExport, settingsFromImport } from './settings-transfer'
 import type { StarReminderService } from './star-reminder'
 import type { TelemetryService } from './telemetry'
 import type { UpdateManager } from './updater'
+import { resolveActionRevision } from './revision-resolution'
 import {
   cancelInference,
   commitRepoFiles,
@@ -59,6 +64,10 @@ export interface AppContext {
   library: Library
   downloads: DownloadManager
   cache: CacheManager
+  cachePins: CachePinStore
+  security: SecurityGate
+  localRuntime: LocalRuntimeManager
+  lockfile: LockfileManager
   follows: FollowsPoller
   integrationTasks: IntegrationTaskManager
   updater: UpdateManager
@@ -239,6 +248,21 @@ export function registerIpcHandlers(ctx: AppContext): void {
     return applySettingsPatch(ctx, { hfCacheDir: canonical })
   })
   handle('settings:resetCacheDir', () => applySettingsPatch(ctx, { hfCacheDir: null }))
+  handle('localRuntime:selectBinary', async ({ kind }) => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters:
+        process.platform === 'win32'
+          ? [{ name: 'Executable', extensions: ['exe'] }]
+          : [{ name: 'Executable', extensions: ['*'] }]
+    })
+    const selected = result.filePaths[0]
+    if (result.canceled || !selected) return null
+    return ctx.localRuntime.selectBinary(kind, selected)
+  })
+  handle('localRuntime:inspectCachedGguf', ({ repoId, resolvedCommit, filePath }) =>
+    ctx.localRuntime.inspectCachedGguf(repoId, resolvedCommit, filePath)
+  )
 
   // --- community -------------------------------------------------------------
   handle('telemetry:claimConsentPrompt', () => {
@@ -421,12 +445,36 @@ export function registerIpcHandlers(ctx: AppContext): void {
   handle('hub:search', ({ query }) => ctx.hub.searchRepos(query))
   handle('hub:papers', (req) => ctx.hub.getDailyPapers(req?.cursor))
   handle('hub:paper', ({ paperId }) => ctx.hub.getPaper(paperId))
-  handle('hub:repoDetail', ({ kind, repoId }) => ctx.hub.getRepoDetail(kind, repoId))
+  handle('hub:repoDetail', ({ kind, repoId, revision }) =>
+    ctx.hub.getRepoDetail(kind, repoId, revision)
+  )
+  handle('hub:repoRefs', ({ kind, repoId }) => ctx.hub.getRepoRefs(kind, repoId))
+  handle('hub:repoCommits', ({ kind, repoId, revision, cursor, limit }) =>
+    ctx.hub.getRepoCommits(kind, repoId, { revision, cursor, limit })
+  )
+  handle('hub:resolveRevision', ({ kind, repoId, revision }) =>
+    ctx.hub.resolveRevision(kind, repoId, revision)
+  )
   handle('hub:readme', ({ kind, repoId, revision }) => ctx.hub.getReadme(kind, repoId, revision))
   handle('hub:fileTree', ({ kind, repoId, revision, path }) =>
-    ctx.hub.getFileTree(kind, repoId, revision, path)
+    ctx.hub.getFileTree(kind, repoId, revision, path, { expand: true })
   )
-  handle('hub:commitFiles', (req) => commitRepoFiles(req, ctx.auth.accessToken()))
+  handle('hub:commitFiles', async (req) => {
+    const base = await ctx.hub.resolveRevision(req.kind, req.repoId, req.startingPoint)
+    if (base.resolvedCommit !== req.startingPoint.toLowerCase()) {
+      throw new Error('edit.baseCommitMismatch')
+    }
+    if (req.branch) {
+      const selection = await ctx.hub.resolveRevision(req.kind, req.repoId, req.branch)
+      if (selection.type !== 'branch' || selection.readOnly) {
+        throw new Error('edit.readOnlyRevision')
+      }
+      if (selection.resolvedCommit !== req.startingPoint.toLowerCase()) {
+        throw new Error('edit.branchMoved')
+      }
+    }
+    return commitRepoFiles(req, ctx.auth.accessToken())
+  })
   handle('hub:discussions', ({ kind, repoId, type, status, cursor }) =>
     ctx.hub.listDiscussions(kind, repoId, { type, status, cursor })
   )
@@ -468,6 +516,14 @@ export function registerIpcHandlers(ctx: AppContext): void {
   handle('hub:searchPapers', ({ query }) => ctx.hub.searchPapers(query))
   handle('hub:searchCollections', ({ query }) => ctx.hub.searchCollections(query))
   handle('hub:inferenceAvailable', ({ repoId }) => ctx.hub.isInferenceAvailable(repoId))
+  handle('hub:modelEvalResults', async ({ repoId, resolvedCommit }) => {
+    const selection = await ctx.hub.resolveRevision('model', repoId, resolvedCommit)
+    if (selection.resolvedCommit !== resolvedCommit) throw new Error('eval.commitMismatch')
+    return ctx.hub.getModelEvalResults(repoId, resolvedCommit)
+  })
+  handle('hub:datasetLeaderboard', ({ repoId, cursor, limit }) =>
+    ctx.hub.getDatasetLeaderboard(repoId, { cursor, limit })
+  )
   handle('hub:datasetRows', ({ repoId, config, split, offset, length }) =>
     ctx.hub.getDatasetRows(repoId, config, split, offset, length)
   )
@@ -637,14 +693,59 @@ export function registerIpcHandlers(ctx: AppContext): void {
   handle('favorites:add', ({ summary }) => ctx.library.addFavorite(summary))
   handle('favorites:remove', ({ kind, repoId }) => ctx.library.removeFavorite(kind, repoId))
   handle('history:list', () => ctx.library.listHistory())
-  handle('history:record', ({ summary }) => ctx.library.recordHistory(summary))
+  handle('history:record', ({ summary, revision, resolvedCommit }) =>
+    ctx.library.recordHistory(summary, revision, resolvedCommit)
+  )
   handle('history:clear', () => ctx.library.clearHistory())
 
   // --- downloads -------------------------------------------------------------------
   handle('downloads:list', () => ctx.downloads.list())
-  handle('downloads:start', ({ request }) => ctx.downloads.start(request))
+  handle('downloads:start', async ({ request }) => {
+    if (request.autoExport && request.postAction) throw new Error('download.conflictingPostActions')
+    const { requestedRevision, resolvedCommit } = await resolveActionRevision(
+      ctx.hub,
+      request.kind,
+      request.repoId,
+      request.revision,
+      request.resolvedCommit,
+      'download.commitMismatch'
+    )
+    const action = request.postAction ? 'local-run' : request.autoExport ? 'export' : 'download'
+    const securityRequest = {
+      action,
+      kind: request.kind,
+      repoId: request.repoId,
+      revision: requestedRevision,
+      resolvedCommit,
+      files: request.files
+    } as const
+    const report = await ctx.security.authorize(securityRequest, request.securityGrantId)
+    const acknowledgement = ctx.security.acknowledgement(securityRequest, report)
+    return ctx.downloads.start({
+      ...request,
+      revision: requestedRevision,
+      resolvedCommit,
+      securityGrantId: undefined,
+      securityAcknowledgement: acknowledgement,
+      postAction: request.postAction
+        ? {
+            ...request.postAction,
+            securityAcknowledgement: acknowledgement
+          }
+        : undefined
+    })
+  })
   handle('downloads:pause', ({ id }) => ctx.downloads.pause(id))
   handle('downloads:resume', ({ id }) => ctx.downloads.resume(id))
+  handle('downloads:retryPostAction', async ({ id, securityGrantId, allowTightFit }) => {
+    const request = ctx.downloads.postActionSecurityRequest(id)
+    const report = await ctx.security.authorize(request, securityGrantId)
+    return ctx.downloads.reauthorizePostAction(
+      id,
+      ctx.security.acknowledgement(request, report),
+      allowTightFit
+    )
+  })
   handle('downloads:cancel', ({ id }) => ctx.downloads.cancel(id))
   handle('downloads:remove', ({ id }) => ctx.downloads.remove(id))
   handle('downloads:pauseAll', () => ctx.downloads.pauseAll())
@@ -656,9 +757,23 @@ export function registerIpcHandlers(ctx: AppContext): void {
 
   // --- cache -------------------------------------------------------------------------
   handle('cache:scan', () => ctx.cache.scan())
-  handle('cache:snapshot', ({ kind, repoId }) => ctx.cache.snapshot(kind, repoId))
-  handle('cache:readText', ({ kind, repoId, path, maxBytes }) =>
-    ctx.cache.readText(kind, repoId, path, maxBytes)
+  handle('cache:snapshot', ({ kind, repoId, commit }) => ctx.cache.snapshot(kind, repoId, commit))
+  handle(
+    'cache:resolveFile',
+    async ({ kind, repoId, commit, path }) =>
+      (await ctx.cache.resolveFilePath(kind, repoId, commit, path))?.info ?? null
+  )
+  handle('cache:listPins', (filter) => ctx.cachePins.list(filter ?? {}))
+  handle('cache:pin', ({ kind, repoId, commit, label }) => {
+    // Pin only a snapshot that is actually present under this cache root.
+    return ctx.cache.snapshot(kind, repoId, commit).then((snapshot) => {
+      if (!snapshot) throw new Error('cache.snapshotMissing')
+      return ctx.cachePins.pin(kind, repoId, commit, label)
+    })
+  })
+  handle('cache:unpin', ({ kind, repoId, commit }) => ctx.cachePins.unpin(kind, repoId, commit))
+  handle('cache:readText', ({ kind, repoId, path, maxBytes, commit }) =>
+    ctx.cache.readText(kind, repoId, path, maxBytes, commit)
   )
   handle('cache:deleteRevisions', ({ kind, repoId, commitHashes }) =>
     ctx.cache.deleteRevisions(kind, repoId, commitHashes)
@@ -679,7 +794,35 @@ export function registerIpcHandlers(ctx: AppContext): void {
 
   // --- phase E ----------------------------------------------------------------------------
   handle('export:targets', () => detectExportTargets())
-  handle('export:start', ({ request }) => ctx.integrationTasks.startExport(request))
+  handle('export:start', async ({ request }) => {
+    const { requestedRevision, resolvedCommit } = await resolveActionRevision(
+      ctx.hub,
+      request.kind,
+      request.repoId,
+      request.revision,
+      request.resolvedCommit,
+      'export.commitMismatch'
+    )
+    const securityRequest = {
+      action: 'export' as const,
+      kind: request.kind,
+      repoId: request.repoId,
+      revision: requestedRevision,
+      resolvedCommit,
+      files: [request.filePath]
+    }
+    if (request.securityAcknowledgement) {
+      await ctx.security.authorizeAcknowledged(securityRequest, request.securityAcknowledgement)
+    } else {
+      await ctx.security.authorize(securityRequest, request.securityGrantId)
+    }
+    return ctx.integrationTasks.startExport({
+      ...request,
+      revision: requestedRevision,
+      resolvedCommit,
+      securityGrantId: undefined
+    })
+  })
   handle('export:cancel', ({ id }) => ctx.integrationTasks.cancel(id, 'export'))
   handle('upload:selectFolder', (_request, event) =>
     ctx.integrationTasks.selectUploadFolder(event.sender)
@@ -700,4 +843,68 @@ export function registerIpcHandlers(ctx: AppContext): void {
   handle('inference:cancel', ({ id }) => {
     cancelInference(id)
   })
+
+  // --- immutable security, local runtime, and lockfiles -----------------------
+  handle('security:preflight', ({ request }) => ctx.security.preflight(request))
+  handle('security:confirm', ({ challengeId }) => ctx.security.confirm(challengeId))
+
+  handle('localRuntime:profile', () => ctx.localRuntime.profile())
+  handle('localRuntime:discover', () => ctx.localRuntime.discover())
+  handle('localRuntime:assess', (request) => ctx.localRuntime.assess(request))
+  handle('localRuntime:getState', () => ctx.localRuntime.getState())
+  handle('localRuntime:presets', ({ repoId, resolvedCommit }) =>
+    ctx.localRuntime.listPresets(repoId, resolvedCommit)
+  )
+  handle('localRuntime:start', ({ request }) => ctx.localRuntime.start(request))
+  handle('localRuntime:chatStream', ({ id, request }) => {
+    ctx.localRuntime.chatStream(id, request)
+  })
+  handle('localRuntime:cancel', ({ id }) => {
+    ctx.localRuntime.cancel(id)
+  })
+  handle('localRuntime:stop', () => ctx.localRuntime.stop())
+  handle('localRuntime:removeImportedModel', async ({ modelName }) => {
+    const confirmation = await dialog.showMessageBox({
+      type: 'warning',
+      title: 'Remove imported model',
+      message: `Remove ${modelName} from Ollama?`,
+      detail: 'The source GGUF in the Hugging Face cache is not deleted.',
+      buttons: ['Remove', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true
+    })
+    return confirmation.response === 0
+      ? ctx.localRuntime.removeImportedModel(modelName)
+      : { removed: false }
+  })
+
+  handle('lockfile:export', async ({ lock }) => {
+    const prepared = await ctx.lockfile.prepareExport(lock)
+    const result = await dialog.showSaveDialog({
+      defaultPath: 'ohmyhf.lock.json',
+      filters: [{ name: 'OhMyHF lockfile', extensions: ['json'] }]
+    })
+    if (result.canceled || !result.filePath) return { canceled: true as const }
+    await writeFile(result.filePath, `${JSON.stringify(prepared, null, 2)}\n`, 'utf8')
+    return { canceled: false as const, path: result.filePath }
+  })
+  handle('lockfile:inspect', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'OhMyHF lockfile', extensions: ['json'] }]
+    })
+    const path = result.filePaths[0]
+    if (result.canceled || !path) return null
+    return ctx.lockfile.inspectPath(path)
+  })
+  handle('lockfile:confirmEndpoint', ({ inspectionId }) =>
+    ctx.lockfile.confirmEndpoint(inspectionId)
+  )
+  handle('lockfile:confirmSecurity', ({ inspectionId, resourceIndex, challengeId }) =>
+    ctx.lockfile.confirmSecurity(inspectionId, resourceIndex, challengeId)
+  )
+  handle('lockfile:restore', ({ inspectionId, confirmEndpoint, securityGrantIds }) =>
+    ctx.lockfile.restore(inspectionId, { confirmEndpoint, securityGrantIds })
+  )
 }

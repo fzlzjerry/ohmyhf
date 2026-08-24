@@ -42,7 +42,10 @@ describe('clearLocalAppData', () => {
       'DELETE FROM downloads',
       'DELETE FROM follows',
       'DELETE FROM inbox',
-      `DELETE FROM kv WHERE key != 'settings'`
+      `DELETE FROM kv WHERE key != 'settings'`,
+      'DELETE FROM cache_pins',
+      'DELETE FROM local_models',
+      'DELETE FROM local_run_presets'
     ])
     expect(authDeleted()).toBe(false)
   })

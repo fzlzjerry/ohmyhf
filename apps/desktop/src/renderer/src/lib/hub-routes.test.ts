@@ -28,9 +28,9 @@ describe('parseHubResource', () => {
     expect(parseHubResource('https://huggingface.co/clem')).toBe('/users/clem')
   })
 
-  it('strips blob/tree/discussions suffixes from model URLs', () => {
+  it('preserves unambiguous revisions and strips unrelated suffixes from model URLs', () => {
     expect(parseHubResource('https://huggingface.co/google/gemma-2-9b/blob/main/README.md')).toBe(
-      '/models/google/gemma-2-9b'
+      '/models/google/gemma-2-9b?revision=main'
     )
     expect(parseHubResource('https://huggingface.co/google/gemma-2-9b/discussions/12')).toBe(
       '/models/google/gemma-2-9b'

@@ -8,7 +8,7 @@ import {
   Link as LinkIcon,
   Scissors
 } from 'lucide-react'
-import type { FileTreeEntry, RepoKind } from '@oh-my-huggingface/shared'
+import type { FileTreeEntry, RepoKind, RepoRevisionSelection } from '@oh-my-huggingface/shared'
 import { invoke, openExternal } from '@/lib/ipc'
 import { codeLanguageOf, fileKindOf, hubBlobUrl, resolveUrl } from '@/lib/file-kinds'
 import { formatBytes, formatParams } from '@/lib/utils'
@@ -44,6 +44,7 @@ const MAX_NOTEBOOK_BYTES = 4 * 1024 * 1024
 interface FilePreviewProps {
   kind: RepoKind
   repoId: string
+  revision: RepoRevisionSelection
   entry: FileTreeEntry
   onDownload: () => void
   downloading: boolean
@@ -116,6 +117,7 @@ function TruncatedBar(): React.JSX.Element {
 function TextPreview({
   kind,
   repoId,
+  revision,
   path,
   markdown,
   onDownload,
@@ -123,6 +125,7 @@ function TextPreview({
 }: {
   kind: RepoKind
   repoId: string
+  revision: RepoRevisionSelection
   path: string
   markdown: boolean
   onDownload: () => void
@@ -130,16 +133,31 @@ function TextPreview({
 }): React.JSX.Element {
   const endpointKey = useHubEndpointKey()
   const text = useQuery({
-    queryKey: ['fileText', kind, repoId, path, endpointKey],
+    queryKey: [
+      'fileText',
+      endpointKey,
+      kind,
+      repoId,
+      revision.requested,
+      revision.resolvedCommit,
+      path
+    ],
     queryFn: async () => {
       try {
-        return await invoke('hub:fileText', { kind, repoId, path, maxBytes: MAX_TEXT_BYTES })
+        return await invoke('hub:fileText', {
+          kind,
+          repoId,
+          path,
+          revision: revision.resolvedCommit,
+          maxBytes: MAX_TEXT_BYTES
+        })
       } catch (err) {
         try {
           const cached = await invoke('cache:readText', {
             kind,
             repoId,
             path,
+            commit: revision.resolvedCommit,
             maxBytes: MAX_TEXT_BYTES
           })
           if (cached) return cached
@@ -166,7 +184,12 @@ function TextPreview({
       {text.data.truncated && <TruncatedBar />}
       {markdown ? (
         <div className="p-4">
-          <MarkdownView markdown={text.data.content} kind={kind} repoId={repoId} />
+          <MarkdownView
+            markdown={text.data.content}
+            kind={kind}
+            repoId={repoId}
+            revision={revision.resolvedCommit}
+          />
         </div>
       ) : (
         <div className="p-3">
@@ -183,20 +206,38 @@ function TextPreview({
 function NotebookPreview({
   kind,
   repoId,
+  revision,
   path,
   onDownload,
   downloading
 }: {
   kind: RepoKind
   repoId: string
+  revision: RepoRevisionSelection
   path: string
   onDownload: () => void
   downloading: boolean
 }): React.JSX.Element {
   const endpointKey = useHubEndpointKey()
   const file = useQuery({
-    queryKey: ['fileText', kind, repoId, path, MAX_NOTEBOOK_BYTES, endpointKey],
-    queryFn: () => invoke('hub:fileText', { kind, repoId, path, maxBytes: MAX_NOTEBOOK_BYTES }),
+    queryKey: [
+      'fileText',
+      endpointKey,
+      kind,
+      repoId,
+      revision.requested,
+      revision.resolvedCommit,
+      path,
+      MAX_NOTEBOOK_BYTES
+    ],
+    queryFn: () =>
+      invoke('hub:fileText', {
+        kind,
+        repoId,
+        path,
+        revision: revision.resolvedCommit,
+        maxBytes: MAX_NOTEBOOK_BYTES
+      }),
     retry: false
   })
 
@@ -233,17 +274,28 @@ function NotebookPreview({
 function SafetensorsPreview({
   kind,
   repoId,
+  revision,
   path
 }: {
   kind: RepoKind
   repoId: string
+  revision: RepoRevisionSelection
   path: string
 }): React.JSX.Element {
   const { t } = useTranslation('detail')
   const endpointKey = useHubEndpointKey()
   const header = useQuery({
-    queryKey: ['safetensors', kind, repoId, path, endpointKey],
-    queryFn: () => invoke('hub:safetensorsHeader', { kind, repoId, path }),
+    queryKey: [
+      'safetensors',
+      endpointKey,
+      kind,
+      repoId,
+      revision.requested,
+      revision.resolvedCommit,
+      path
+    ],
+    queryFn: () =>
+      invoke('hub:safetensorsHeader', { kind, repoId, path, revision: revision.resolvedCommit }),
     retry: false
   })
 
@@ -328,6 +380,7 @@ function SafetensorsPreview({
 export function FilePreview({
   kind,
   repoId,
+  revision,
   entry,
   onDownload,
   downloading
@@ -338,16 +391,25 @@ export function FilePreview({
   const endpointKey = useHubEndpointKey()
   const fileKind = fileKindOf(entry.path)
   const name = entry.path.split('/').at(-1) ?? entry.path
-  const rawUrl = resolveUrl(kind, repoId, entry.path, 'main', endpoint)
+  const rawUrl = resolveUrl(kind, repoId, entry.path, revision.resolvedCommit, endpoint)
   const [editing, setEditing] = useState(false)
   const textQuery = useQuery({
-    queryKey: ['fileText', kind, repoId, entry.path, endpointKey],
+    queryKey: [
+      'fileText',
+      endpointKey,
+      kind,
+      repoId,
+      revision.requested,
+      revision.resolvedCommit,
+      entry.path
+    ],
     queryFn: async () => {
       try {
         return await invoke('hub:fileText', {
           kind,
           repoId,
           path: entry.path,
+          revision: revision.resolvedCommit,
           maxBytes: MAX_TEXT_BYTES
         })
       } catch (err) {
@@ -356,6 +418,7 @@ export function FilePreview({
             kind,
             repoId,
             path: entry.path,
+            commit: revision.resolvedCommit,
             maxBytes: MAX_TEXT_BYTES
           })
           if (cached) return cached
@@ -369,6 +432,7 @@ export function FilePreview({
     retry: false
   })
   const canEdit =
+    !revision.readOnly &&
     isEditableRepoFile(entry.path) &&
     textQuery.data !== undefined &&
     !textQuery.data.truncated &&
@@ -386,6 +450,7 @@ export function FilePreview({
         <TextPreview
           kind={kind}
           repoId={repoId}
+          revision={revision}
           path={entry.path}
           markdown={fileKind === 'markdown'}
           onDownload={onDownload}
@@ -400,7 +465,7 @@ export function FilePreview({
               the main process's auth; the copy button keeps the shareable
               https resolve URL. */}
           <img
-            src={repoFileUrl(kind, repoId, entry.path, 'main', endpoint)}
+            src={repoFileUrl(kind, repoId, entry.path, revision.resolvedCommit, endpoint)}
             alt={name}
             className="max-h-full max-w-full rounded-md border object-contain"
           />
@@ -408,13 +473,16 @@ export function FilePreview({
       )
       break
     case 'safetensors':
-      body = <SafetensorsPreview kind={kind} repoId={repoId} path={entry.path} />
+      body = (
+        <SafetensorsPreview kind={kind} repoId={repoId} revision={revision} path={entry.path} />
+      )
       break
     case 'notebook':
       body = (
         <NotebookPreview
           kind={kind}
           repoId={repoId}
+          revision={revision}
           path={entry.path}
           onDownload={onDownload}
           downloading={downloading}
@@ -542,7 +610,11 @@ export function FilePreview({
                 variant="ghost"
                 size="icon"
                 aria-label={t('common:openOnHub')}
-                onClick={() => openExternal(hubBlobUrl(kind, repoId, entry.path, 'main', endpoint))}
+                onClick={() =>
+                  openExternal(
+                    hubBlobUrl(kind, repoId, entry.path, revision.resolvedCommit, endpoint)
+                  )
+                }
               >
                 <ExternalLink className="size-4" aria-hidden />
               </Button>
@@ -573,6 +645,7 @@ export function FilePreview({
               repoId={repoId}
               path={entry.path}
               initial={textQuery.data.content}
+              revision={revision}
               onClose={() => setEditing(false)}
               onSaved={() => {
                 setEditing(false)

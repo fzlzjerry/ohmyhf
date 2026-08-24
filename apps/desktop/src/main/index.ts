@@ -12,11 +12,13 @@ import {
 import { AuthManager } from './auth'
 import { mimeForOmhfFile } from './preview-mime'
 import { CacheManager } from './cache'
+import { CachePinStore } from './cache-pins'
 import { openDatabase } from './db'
 import { DownloadManager } from './downloads'
 import { FollowsPoller } from './follows'
 import {
   createFailClosedDynamicProxiedFetch,
+  buildHubClient,
   createHubClient,
   createHubProxy,
   rebuildHubClient,
@@ -26,10 +28,13 @@ import { MainI18n, matchLocale } from './i18n'
 import { IntegrationTaskManager } from './integration-tasks'
 import { registerIpcHandlers } from './ipc'
 import { Library } from './library'
+import { LocalRuntimeManager } from './local-runtime'
+import { LockfileManager } from './lockfile'
 import { buildMenu } from './menu'
 import { NotificationService } from './notifications'
 import { applyAppProxy } from './proxy'
 import { SettingsStore } from './settings'
+import { SecurityGate } from './security-gate'
 import { StarReminderService } from './star-reminder'
 import { TelemetryService } from './telemetry'
 import { TrayManager } from './tray'
@@ -238,6 +243,7 @@ if (!gotLock) {
       )
     }
     const hub = createHubProxy(hubHolder)
+    const security = new SecurityGate(hub)
     auth.attachClient(hubHolder.current)
     await applyAppProxy(initial.proxyUrl)
     app.setLoginItemSettings({ openAtLogin: initial.launchAtLogin })
@@ -254,8 +260,8 @@ if (!gotLock) {
         kindParam === 'model' || kindParam === 'dataset' || kindParam === 'space' ? kindParam : null
       const repoId = params.get('repoId')
       const path = params.get('path')
-      const revision = params.get('revision') ?? 'main'
-      if (!kind || !repoId || !path) {
+      const revision = params.get('revision')
+      if (!kind || !repoId || !path || !revision) {
         return new Response('invalid omhf-file URL', { status: 400 })
       }
       // The token rides this request, so refuse anything that could redirect it
@@ -285,6 +291,7 @@ if (!gotLock) {
     const library = new Library(db, () => settings.get().historyLimit)
     const notifications = new NotificationService(settings, i18n, navigate)
     const integrationTasksRef: { current: IntegrationTaskManager | null } = { current: null }
+    const localRuntimeRef: { current: LocalRuntimeManager | null } = { current: null }
     const downloads = new DownloadManager(
       db,
       settings,
@@ -293,19 +300,66 @@ if (!gotLock) {
       () => auth.accessToken(),
       (tasks) => broadcast('evt:downloads', tasks),
       (request) => {
-        try {
-          integrationTasksRef.current?.startExport(request)
-        } catch (err) {
-          integrationTasksRef.current?.recordExportError(request, err)
-        }
+        void (async () => {
+          try {
+            if (!request.resolvedCommit || !request.revision)
+              throw new Error('export.revisionRequired')
+            if (!request.securityAcknowledgement) {
+              throw new Error('security.confirmationRequired')
+            }
+            await security.authorizeAcknowledged(
+              {
+                action: 'export',
+                kind: request.kind,
+                repoId: request.repoId,
+                revision: request.revision,
+                resolvedCommit: request.resolvedCommit,
+                files: [request.filePath]
+              },
+              request.securityAcknowledgement
+            )
+            integrationTasksRef.current?.startExport(request)
+          } catch (err) {
+            integrationTasksRef.current?.recordExportError(request, err)
+          }
+        })()
+      },
+      async (request) => {
+        const manager = localRuntimeRef.current
+        if (!manager) throw new Error('runtime.unavailable')
+        const state = await manager.startFromPostAction(request)
+        if (state.status === 'error') throw new Error(state.error ?? 'runtime.startFailed')
       }
     )
     // Cache cleanup must spare partials of still-resumable downloads.
+    const cachePinsRef: { current?: CachePinStore } = {}
+    let lockfile: LockfileManager | null = null
     const cache = new CacheManager(
       settings,
       () => downloads.protectedTaskIds(),
-      (kind, repoId) => downloads.protectedCommits(kind, repoId)
+      (kind, repoId) => {
+        const protectedCommits = new Set(downloads.protectedCommits(kind, repoId))
+        for (const commit of cachePinsRef.current?.commits(kind, repoId) ?? []) {
+          protectedCommits.add(commit)
+        }
+        const runtimeState = localRuntimeRef.current?.getState()
+        if (
+          runtimeState?.repoId === repoId &&
+          runtimeState.resolvedCommit &&
+          kind === 'model' &&
+          runtimeState.status !== 'idle' &&
+          runtimeState.status !== 'unavailable'
+        ) {
+          protectedCommits.add(runtimeState.resolvedCommit)
+        }
+        for (const commit of lockfile?.protectedCommits(kind, repoId) ?? []) {
+          protectedCommits.add(commit)
+        }
+        return protectedCommits
+      }
     )
+    const cachePins = new CachePinStore(db, cache)
+    cachePinsRef.current = cachePins
     const integrationTasks = new IntegrationTaskManager({
       accessToken: () => auth.accessToken(),
       username: () => {
@@ -317,6 +371,34 @@ if (!gotLock) {
       notifications
     })
     integrationTasksRef.current = integrationTasks
+    const localRuntime = new LocalRuntimeManager({
+      db,
+      settings,
+      cache,
+      security,
+      broadcastState: (state) => broadcast('evt:localRuntime', state),
+      broadcastInference: (event) => broadcast('evt:localInference', event)
+    })
+    localRuntimeRef.current = localRuntime
+    downloads.resumePendingPostActions()
+    lockfile = new LockfileManager({
+      hub,
+      cache,
+      downloads,
+      security,
+      localRuntime,
+      broadcastRestore: (event) => broadcast('evt:lockfileRestore', event),
+      contextForEndpoint: (endpoint, authenticated) => {
+        const temporaryHub = buildHubClient(
+          authenticated ? () => auth.accessToken() : () => undefined,
+          // Hub web-session cookies are host-bound and never leave the applied
+          // endpoint. Explicit lock restores use Bearer auth only.
+          () => undefined,
+          { endpoint, proxyUrl: settings.get().proxyUrl }
+        )
+        return { hub: temporaryHub, security: new SecurityGate(temporaryHub) }
+      }
+    })
     const follows = new FollowsPoller(
       library,
       hub,
@@ -427,6 +509,10 @@ if (!gotLock) {
       library,
       downloads,
       cache,
+      cachePins,
+      security,
+      localRuntime,
+      lockfile,
       follows,
       integrationTasks,
       updater,
@@ -618,12 +704,21 @@ if (!gotLock) {
       }
     })
 
-    app.on('before-quit', () => {
+    let quitCleanupStarted = false
+    let quitCleanupFinished = false
+    app.on('before-quit', (event) => {
       isQuitting = true
+      if (!quitCleanupFinished) event.preventDefault()
+      if (quitCleanupStarted) return
+      quitCleanupStarted = true
       downloads.shutdown()
       integrationTasks.shutdown()
       follows.stop()
       tray.destroy()
+      void localRuntime.shutdown().finally(() => {
+        quitCleanupFinished = true
+        app.quit()
+      })
     })
   })
 

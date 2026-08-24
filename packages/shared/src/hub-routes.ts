@@ -75,12 +75,36 @@ function decodeSegments(path: string): string[] {
 function repoRoute(
   kind: 'model' | 'dataset' | 'space',
   owner: string,
-  name: string
+  name: string,
+  revision?: string
 ): string | null {
   const repoId = `${owner}/${name}`
   if (!isValidRepoId(repoId)) return null
   const prefix = kind === 'model' ? 'models' : kind === 'dataset' ? 'datasets' : 'spaces'
-  return `/${prefix}/${repoId}`
+  const route = `/${prefix}/${repoId}`
+  return revision ? `${route}?revision=${encodeURIComponent(revision)}` : route
+}
+
+function revisionFromTrailing(segments: string[], trailingIndex: number): string | undefined {
+  const action = segments[trailingIndex]
+  const rest = segments.slice(trailingIndex + 1)
+  if (action === 'commit' && rest[0] && /^[0-9a-f]{40}$/i.test(rest[0])) return rest[0]
+  if (action !== 'tree' && action !== 'blob') return undefined
+  if (rest[0] === 'refs' && rest[1] === 'pr' && /^\d+$/.test(rest[2] ?? '')) {
+    return `refs/pr/${rest[2]}`
+  }
+  // A single-segment branch/tag/commit is unambiguous. A slash-containing ref
+  // cannot be separated from a blob/tree path without querying the Hub, so the
+  // parser intentionally leaves it for the repository revision selector.
+  if (action === 'tree' && rest.length === 1) return rest[0]
+  if (
+    action === 'blob' &&
+    rest.length >= 2 &&
+    (rest[0] === 'main' || rest[0] === 'master' || /^[0-9a-f]{40}$/i.test(rest[0] ?? ''))
+  ) {
+    return rest[0]
+  }
+  return undefined
 }
 
 function fromPathSegments(segments: string[]): string | null {
@@ -88,13 +112,13 @@ function fromPathSegments(segments: string[]): string | null {
 
   const head = segments[0]
   if (head === 'models' && segments[1] && segments[2]) {
-    return repoRoute('model', segments[1], segments[2])
+    return repoRoute('model', segments[1], segments[2], revisionFromTrailing(segments, 3))
   }
   if (head === 'datasets' && segments[1] && segments[2]) {
-    return repoRoute('dataset', segments[1], segments[2])
+    return repoRoute('dataset', segments[1], segments[2], revisionFromTrailing(segments, 3))
   }
   if (head === 'spaces' && segments[1] && segments[2]) {
-    return repoRoute('space', segments[1], segments[2])
+    return repoRoute('space', segments[1], segments[2], revisionFromTrailing(segments, 3))
   }
   if (head === 'papers' && segments[1]) {
     return `/papers/${segments[1]}`
@@ -114,7 +138,12 @@ function fromPathSegments(segments: string[]): string | null {
   if (segments[0] && segments[1] && !REPO_TRAILING.has(segments[1])) {
     const trailing = segments[2]
     if (!trailing || REPO_TRAILING.has(trailing)) {
-      return repoRoute('model', segments[0], segments[1])
+      return repoRoute(
+        'model',
+        segments[0],
+        segments[1],
+        trailing ? revisionFromTrailing(segments, 2) : undefined
+      )
     }
   }
   return null
@@ -186,12 +215,17 @@ function fromAppProtocol(value: string, hubEndpoint?: string | null): string | n
     asAppPath.startsWith('/cache') ||
     asAppPath.startsWith('/inbox') ||
     asAppPath.startsWith('/compare') ||
+    asAppPath.startsWith('/leaderboards/') ||
     asAppPath.startsWith('/upload') ||
     asAppPath.startsWith('/search') ||
     asAppPath.startsWith('/my-repos') ||
     asAppPath === '/'
   ) {
-    return stripTrailingSlash(asAppPath)
+    const base = stripTrailingSlash(asAppPath)
+    const revision = url.searchParams.get('revision')
+    return revision && /^\w[\w./-]{0,255}$/.test(revision)
+      ? `${base}?revision=${encodeURIComponent(revision)}`
+      : base
   }
   return fromPathSegments(segments)
 }

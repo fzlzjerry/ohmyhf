@@ -16,6 +16,8 @@ import type {
   DiscussionType,
   FileTextResult,
   FileTreeEntry,
+  LeaderboardPage,
+  ModelEvalResult,
   MyRepoEntry,
   NotificationsPage,
   Page,
@@ -24,8 +26,12 @@ import type {
   PostSummary,
   RepoAccessGate,
   RepoDetail,
+  RepoCommitSummary,
   RepoKind,
+  RepoRefs,
+  RepoRevisionSelection,
   RepoSummary,
+  SecurityReport,
   SafetensorsHeader,
   SafetensorsTensor,
   SearchQuery,
@@ -54,6 +60,8 @@ import {
   mapDiscussionDetail,
   mapDiscussionSummary,
   mapFileTree,
+  mapLeaderboardPage,
+  mapModelEvalResults,
   mapMyRepos,
   mapNotificationsPage,
   mapPaper,
@@ -61,6 +69,9 @@ import {
   mapPaperDetail,
   mapPost,
   mapRepoDetail,
+  mapRepoCommits,
+  mapRepoRefs,
+  mapSecurityReport,
   mapRepoSummary,
   mapSpaceSecrets,
   mapSpaceVariables,
@@ -73,6 +84,7 @@ import {
   parseProfileSettingsPage,
   type WhoAmIDetailed
 } from './mappers'
+import { classifyRevision } from '@oh-my-huggingface/shared'
 
 export const DEFAULT_ENDPOINT = DEFAULT_HUB_ENDPOINT
 
@@ -700,6 +712,125 @@ export class HubClient {
     return mapRepoDetail(body as never, kind)
   }
 
+  /** Branches, tags and optional pull-request refs for all supported repo kinds. */
+  async getRepoRefs(kind: RepoKind, repoId: string): Promise<RepoRefs> {
+    const url = `${this.endpoint}/api/${API_PATH[kind]}/${repoId}/refs?include_prs=true`
+    const { body } = await this.getJson<unknown>(url)
+    const refs = mapRepoRefs(body as never)
+    if (!refs.defaultBranch) {
+      const detail = await this.getRepoDetail(kind, repoId)
+      const matching = refs.branches.find((branch) => branch.targetCommit === detail.sha)
+      refs.defaultBranch = matching?.name
+      if (refs.defaultBranch) {
+        refs.branches = refs.branches.map((branch) => ({
+          ...branch,
+          isDefault: branch.name === refs.defaultBranch
+        }))
+      }
+    }
+    return refs
+  }
+
+  /** Commit history, newest first. Pagination follows the Hub Link header. */
+  async getRepoCommits(
+    kind: RepoKind,
+    repoId: string,
+    opts: { revision?: string; cursor?: string; limit?: number } = {}
+  ): Promise<Page<RepoCommitSummary>> {
+    let url = opts.cursor
+    const suffix = opts.revision ? `/${encodeURIComponent(opts.revision)}` : ''
+    const commitsUrl = `${this.endpoint}/api/${API_PATH[kind]}/${repoId}/commits${suffix}`
+    if (url) {
+      const candidate = new URL(url, this.endpoint)
+      const expected = new URL(commitsUrl)
+      if (candidate.origin !== expected.origin || candidate.pathname !== expected.pathname) {
+        throw new HubApiError('invalid commits cursor', 400)
+      }
+      url = candidate.toString()
+    } else {
+      const first = new URL(commitsUrl)
+      first.searchParams.set('limit', String(opts.limit ?? 50))
+      url = first.toString()
+    }
+    const { body, nextUrl } = await this.getJson<unknown>(url)
+    return { items: mapRepoCommits(body as never), nextCursor: nextUrl }
+  }
+
+  async resolveRevision(
+    kind: RepoKind,
+    repoId: string,
+    revision: string
+  ): Promise<RepoRevisionSelection> {
+    const [detail, refs] = await Promise.all([
+      this.getRepoDetail(kind, repoId, revision),
+      this.getRepoRefs(kind, repoId).catch(() => undefined)
+    ])
+    if (!detail.sha) throw new HubApiError('revision did not resolve to a commit', 502)
+    return classifyRevision(revision, detail.sha, refs)
+  }
+
+  /** Hub scanner evidence, fetched separately from eval expansion. */
+  async getSecurityReport(
+    kind: RepoKind,
+    repoId: string,
+    revision: string,
+    resolvedCommit: string
+  ): Promise<SecurityReport> {
+    // Security evidence must be read at the immutable commit. `revision` is
+    // retained only as the user-facing label in the normalized report.
+    const revisionSuffix = `/revision/${encodeURIComponent(resolvedCommit)}`
+    const url = new URL(`${this.endpoint}/api/${API_PATH[kind]}/${repoId}${revisionSuffix}`)
+    if (kind === 'model') url.searchParams.set('securityStatus', 'true')
+    const [{ body }, tree] = await Promise.all([
+      this.getJson<unknown>(url.toString()),
+      this.getFileTree(kind, repoId, resolvedCommit, '', {
+        recursive: true,
+        expand: true
+      }).catch(() => [] as FileTreeEntry[])
+    ])
+    return mapSecurityReport(body as never, tree, kind, repoId, revision, resolvedCommit)
+  }
+
+  async getModelEvalResults(repoId: string, revision?: string): Promise<ModelEvalResult[]> {
+    const revisionSuffix = revision ? `/revision/${encodeURIComponent(revision)}` : ''
+    const detailUrl = `${this.endpoint}/api/models/${repoId}${revisionSuffix}`
+    const expandedUrl = new URL(detailUrl)
+    expandedUrl.searchParams.append('expand[]', 'evalResults')
+    const { body } = await this.getJson<unknown>(expandedUrl.toString())
+    const expanded = mapModelEvalResults(body as never)
+
+    // The expand response is intentionally minimal and may omit cardData. Only
+    // when it contains no canonical result do we fetch the same immutable
+    // revision again for the legacy model-index compatibility fallback.
+    if (expanded.some((item) => item.source === 'eval-results')) return expanded
+    if (expanded.length > 0) return expanded
+    const { body: detailBody } = await this.getJson<unknown>(detailUrl)
+    return mapModelEvalResults(detailBody as never)
+  }
+
+  async getDatasetLeaderboard(
+    repoId: string,
+    opts: { cursor?: string; limit?: number } = {}
+  ): Promise<LeaderboardPage> {
+    const leaderboardUrl = `${this.endpoint}/api/datasets/${repoId}/leaderboard`
+    const url = opts.cursor
+      ? (() => {
+          const candidate = new URL(opts.cursor!, this.endpoint)
+          const expected = new URL(leaderboardUrl)
+          if (candidate.origin !== expected.origin || candidate.pathname !== expected.pathname) {
+            throw new HubApiError('invalid leaderboard cursor', 400)
+          }
+          return candidate.toString()
+        })()
+      : (() => {
+          const next = new URL(leaderboardUrl)
+          next.searchParams.set('limit', String(opts.limit ?? 50))
+          return next.toString()
+        })()
+    const { body, nextUrl } = await this.getJson<unknown>(url)
+    return mapLeaderboardPage(body as never, repoId, nextUrl)
+  }
+
   resolveUrl(kind: RepoKind, repoId: string, revision: string, path: string): string {
     const rev = encodeURIComponent(revision)
     const p = path.split('/').map(encodeURIComponent).join('/')
@@ -722,13 +853,14 @@ export class HubClient {
     repoId: string,
     revision = 'main',
     path = '',
-    opts: { recursive?: boolean } = {}
+    opts: { recursive?: boolean; expand?: boolean } = {}
   ): Promise<FileTreeEntry[]> {
     const rev = encodeURIComponent(revision)
     const suffix = path ? `/${path.split('/').map(encodeURIComponent).join('/')}` : ''
-    let url: string | undefined =
-      `${this.endpoint}/api/${API_PATH[kind]}/${repoId}/tree/${rev}${suffix}` +
-      (opts.recursive ? '?recursive=true' : '')
+    const first = new URL(`${this.endpoint}/api/${API_PATH[kind]}/${repoId}/tree/${rev}${suffix}`)
+    if (opts.recursive) first.searchParams.set('recursive', 'true')
+    if (opts.expand) first.searchParams.set('expand', 'true')
+    let url: string | undefined = first.toString()
     const all: FileTreeEntry[] = []
     while (url) {
       const page: { body: never[]; nextUrl?: string } = await this.getJson<never[]>(url)
