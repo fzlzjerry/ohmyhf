@@ -84,15 +84,22 @@ export interface IpcInvokeContract {
   'settings:selectCacheDir': { req: void; res: AppSettings | null }
   'settings:resetCacheDir': { req: void; res: AppSettings }
 
-  /** Atomically reserves the one-time, opt-in telemetry explanation card. */
+  /** Atomically reserves an unresolved, opt-in telemetry explanation card. */
   'telemetry:claimConsentPrompt': {
     req: void
     res: { show: false } | { show: true; claimId: string }
   }
-  /** Confirms that the reserved consent card reached a visible renderer. */
+  /** Confirms that the reserved consent card reached a visible renderer; this is not a decision. */
   'telemetry:acknowledgeConsentPrompt': {
     req: { claimId: string }
     res: { accepted: false; newlyAccepted: false } | { accepted: true; newlyAccepted: boolean }
+  }
+  /** Resolves a displayed consent card only after an explicit decline. */
+  'telemetry:resolveConsentPrompt': {
+    req: { claimId: string; decision: 'decline' }
+    res:
+      | { accepted: false; newlyResolved: false }
+      | { accepted: true; newlyResolved: boolean; decision: 'decline' }
   }
 
   /** Claims a rate-limited GitHub Star reminder after meaningful local use. */
@@ -598,6 +605,7 @@ export const IPC_INVOKE_CHANNELS = [
   'settings:resetCacheDir',
   'telemetry:claimConsentPrompt',
   'telemetry:acknowledgeConsentPrompt',
+  'telemetry:resolveConsentPrompt',
   'starReminder:claim',
   'starReminder:acknowledgeShown',
   'starReminder:respond',

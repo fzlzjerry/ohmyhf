@@ -560,6 +560,7 @@ export function MarkdownEditor({
           {mention !== null && (
             <div
               role="listbox"
+              data-community-blocking-overlay
               aria-label={t('editor.mentionHint')}
               className="animate-fade-rise absolute inset-x-2 bottom-full z-30 mb-1 max-h-56 overflow-y-auto rounded-md border bg-bg p-1 shadow-overlay"
             >

@@ -97,7 +97,7 @@ function makeService(overrides: Partial<ConstructorParameters<typeof TelemetrySe
 }
 
 describe('TelemetryService', () => {
-  it('persists and reuses one consent reservation until the renderer acknowledges it', () => {
+  it('persists and reuses one consent reservation across service instances', () => {
     const backing = createKvDb()
     const createFirstClaimId = vi.fn(() => CONSENT_CLAIM_ID_1)
     const first = makeService({
@@ -124,15 +124,17 @@ describe('TelemetryService', () => {
     expect(reloaded.fetchImpl).not.toHaveBeenCalled()
     expect(backing.values.has(INSTALLATION_ID_KEY)).toBe(false)
     expect(JSON.parse(backing.values.get(CONSENT_PROMPT_KEY)!)).toEqual({
-      version: 1,
+      version: 2,
       claimId: CONSENT_CLAIM_ID_1,
-      shown: false
+      status: 'reserved',
+      resolution: null
     })
     expect(backing.immediateCalls()).toBe(3)
   })
 
-  it('acknowledges the matching consent claim idempotently and marks shown only once', () => {
-    const { service, fetchImpl, values, immediateCalls } = makeService({ enabled: () => false })
+  it('acknowledges display idempotently without resolving or consuming the claim', () => {
+    const backing = createKvDb()
+    const { service, fetchImpl } = makeService({ db: backing.db, enabled: () => false })
     const claim = service.claimConsentPrompt()
     expect(claim).toEqual({ claimId: CONSENT_CLAIM_ID_1 })
     if (claim === false) throw new Error('expected a consent claim')
@@ -153,23 +155,210 @@ describe('TelemetryService', () => {
       accepted: true,
       newlyAccepted: false
     })
+    expect(service.claimConsentPrompt()).toEqual({ claimId: CONSENT_CLAIM_ID_1 })
+    const reloaded = makeService({
+      db: backing.db,
+      enabled: () => false,
+      createConsentClaimId: () => CONSENT_CLAIM_ID_2
+    })
+    expect(reloaded.service.claimConsentPrompt()).toEqual({ claimId: CONSENT_CLAIM_ID_1 })
+
+    expect(JSON.parse(backing.values.get(CONSENT_PROMPT_KEY)!)).toEqual({
+      version: 2,
+      claimId: CONSENT_CLAIM_ID_1,
+      status: 'displayed',
+      resolution: null
+    })
+    expect(backing.values.has(INSTALLATION_ID_KEY)).toBe(false)
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(reloaded.fetchImpl).not.toHaveBeenCalled()
+    // claim + wrong-token ack + first ack + idempotent ack + two later claims.
+    // The syntactically invalid UUID is rejected before touching SQLite.
+    expect(backing.immediateCalls()).toBe(6)
+  })
+
+  it('resolves only an explicit decline from a displayed claim and is idempotent', () => {
+    const { service, fetchImpl, values, immediateCalls } = makeService({ enabled: () => false })
+    const claim = service.claimConsentPrompt()
+    if (claim === false) throw new Error('expected a consent claim')
+
+    expect(service.resolveConsentPrompt(claim.claimId, 'decline')).toEqual({
+      accepted: false,
+      newlyResolved: false
+    })
+    expect(service.acknowledgeConsentPrompt(claim.claimId)).toEqual({
+      accepted: true,
+      newlyAccepted: true
+    })
+    expect(service.resolveConsentPrompt(CONSENT_CLAIM_ID_2, 'decline')).toEqual({
+      accepted: false,
+      newlyResolved: false
+    })
+    expect(service.resolveConsentPrompt('not-a-uuid', 'decline')).toEqual({
+      accepted: false,
+      newlyResolved: false
+    })
+    expect(service.resolveConsentPrompt(claim.claimId, 'decline')).toEqual({
+      accepted: true,
+      newlyResolved: true,
+      decision: 'decline'
+    })
+    expect(service.resolveConsentPrompt(claim.claimId, 'decline')).toEqual({
+      accepted: true,
+      newlyResolved: false,
+      decision: 'decline'
+    })
+    expect(service.acknowledgeConsentPrompt(claim.claimId)).toEqual({
+      accepted: false,
+      newlyAccepted: false
+    })
     expect(service.claimConsentPrompt()).toBe(false)
 
     expect(JSON.parse(values.get(CONSENT_PROMPT_KEY)!)).toEqual({
-      version: 1,
+      version: 2,
       claimId: CONSENT_CLAIM_ID_1,
-      shown: true
+      status: 'resolved',
+      resolution: 'declined'
     })
     expect(values.has(INSTALLATION_ID_KEY)).toBe(false)
     expect(fetchImpl).not.toHaveBeenCalled()
-    // claim + wrong-token ack + first ack + idempotent ack + final claim.
-    // The syntactically invalid UUID is rejected before touching SQLite.
-    expect(immediateCalls()).toBe(5)
+    // Invalid UUIDs are rejected before SQLite; every other operation is an
+    // IMMEDIATE transaction so competing renderers cannot resolve twice.
+    expect(immediateCalls()).toBe(8)
   })
 
-  it('does not offer consent when telemetry is already enabled or the build is unconfigured', () => {
+  it('records explicit acceptance locally and recovers a corrupt consent row', () => {
+    const corrupt = '{not-json'
+    const backing = createKvDb({ [CONSENT_PROMPT_KEY]: corrupt })
+    const createConsentClaimId = vi.fn(() => CONSENT_CLAIM_ID_2)
+    const { service, fetchImpl } = makeService({
+      db: backing.db,
+      enabled: () => false,
+      createConsentClaimId
+    })
+
+    expect(service.recordExplicitConsentAcceptance()).toBe(true)
+    expect(service.recordExplicitConsentAcceptance()).toBe(true)
+    expect(service.claimConsentPrompt()).toBe(false)
+    expect(service.resolveConsentPrompt(CONSENT_CLAIM_ID_2, 'decline')).toEqual({
+      accepted: false,
+      newlyResolved: false
+    })
+    expect(JSON.parse(backing.values.get(CONSENT_PROMPT_KEY)!)).toEqual({
+      version: 2,
+      claimId: CONSENT_CLAIM_ID_2,
+      status: 'resolved',
+      resolution: 'accepted'
+    })
+    expect(createConsentClaimId).toHaveBeenCalledOnce()
+    expect(backing.values.has(INSTALLATION_ID_KEY)).toBe(false)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('preserves the current claim when settings explicitly accept after display or decline', () => {
+    const { service, values } = makeService({ enabled: () => false })
+    const claim = service.claimConsentPrompt()
+    if (claim === false) throw new Error('expected a consent claim')
+    service.acknowledgeConsentPrompt(claim.claimId)
+    service.resolveConsentPrompt(claim.claimId, 'decline')
+
+    expect(service.recordExplicitConsentAcceptance()).toBe(true)
+    expect(JSON.parse(values.get(CONSENT_PROMPT_KEY)!)).toEqual({
+      version: 2,
+      claimId: claim.claimId,
+      status: 'resolved',
+      resolution: 'accepted'
+    })
+  })
+
+  it('records a direct settings opt-out as decline without re-prompting a legacy state', () => {
+    const backing = createKvDb({
+      [CONSENT_PROMPT_KEY]: JSON.stringify({
+        version: 1,
+        claimId: CONSENT_CLAIM_ID_1,
+        shown: true
+      })
+    })
+    const { service, fetchImpl } = makeService({ db: backing.db, enabled: () => false })
+
+    expect(service.recordExplicitConsentDecline()).toBe(true)
+    expect(service.recordExplicitConsentDecline()).toBe(true)
+    expect(service.claimConsentPrompt()).toBe(false)
+    expect(JSON.parse(backing.values.get(CONSENT_PROMPT_KEY)!)).toEqual({
+      version: 2,
+      claimId: CONSENT_CLAIM_ID_1,
+      status: 'resolved',
+      resolution: 'declined'
+    })
+    expect(backing.values.has(INSTALLATION_ID_KEY)).toBe(false)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('migrates both v0.0.11 shown states without losing their claim token', () => {
+    for (const shown of [false, true]) {
+      const backing = createKvDb({
+        [CONSENT_PROMPT_KEY]: JSON.stringify({
+          version: 1,
+          claimId: CONSENT_CLAIM_ID_1,
+          shown
+        })
+      })
+      const { service, fetchImpl } = makeService({
+        db: backing.db,
+        enabled: () => false,
+        createConsentClaimId: () => CONSENT_CLAIM_ID_2
+      })
+
+      expect(service.claimConsentPrompt()).toEqual({ claimId: CONSENT_CLAIM_ID_1 })
+      expect(JSON.parse(backing.values.get(CONSENT_PROMPT_KEY)!)).toEqual({
+        version: 2,
+        claimId: CONSENT_CLAIM_ID_1,
+        status: shown ? 'displayed' : 'reserved',
+        resolution: null
+      })
+      expect(backing.values.has(INSTALLATION_ID_KEY)).toBe(false)
+      expect(fetchImpl).not.toHaveBeenCalled()
+    }
+  })
+
+  it('maps an enabled v0.0.11 state to explicit acceptance without re-prompting', () => {
+    const backing = createKvDb({
+      [CONSENT_PROMPT_KEY]: JSON.stringify({
+        version: 1,
+        claimId: CONSENT_CLAIM_ID_1,
+        shown: true
+      })
+    })
+    const { service, fetchImpl } = makeService({ db: backing.db })
+
+    expect(service.claimConsentPrompt()).toBe(false)
+    expect(JSON.parse(backing.values.get(CONSENT_PROMPT_KEY)!)).toEqual({
+      version: 2,
+      claimId: CONSENT_CLAIM_ID_1,
+      status: 'resolved',
+      resolution: 'accepted'
+    })
+    expect(backing.values.has(INSTALLATION_ID_KEY)).toBe(false)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('does not offer consent when enabled and records that prior acceptance locally', () => {
+    const { service, values, fetchImpl, immediateCalls } = makeService()
+
+    expect(service.claimConsentPrompt()).toBe(false)
+    expect(JSON.parse(values.get(CONSENT_PROMPT_KEY)!)).toEqual({
+      version: 2,
+      claimId: CONSENT_CLAIM_ID_1,
+      status: 'resolved',
+      resolution: 'accepted'
+    })
+    expect(values.has(INSTALLATION_ID_KEY)).toBe(false)
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(immediateCalls()).toBe(1)
+  })
+
+  it('does not create consent state when the build is unconfigured', () => {
     for (const { service, values, immediateCalls } of [
-      makeService(),
       makeService({ apiKey: '', enabled: () => false }),
       makeService({ fetchImpl: null, enabled: () => false }),
       makeService({ endpoint: 'http://posthog.test', enabled: () => false })
@@ -203,6 +392,18 @@ describe('TelemetryService', () => {
     'legacy-shown-at-2026-08-24T00:00:00.000Z',
     '{not-json',
     JSON.stringify({ version: 2, claimId: CONSENT_CLAIM_ID_1, shown: false }),
+    JSON.stringify({
+      version: 2,
+      claimId: CONSENT_CLAIM_ID_1,
+      status: 'reserved',
+      resolution: 'declined'
+    }),
+    JSON.stringify({
+      version: 2,
+      claimId: CONSENT_CLAIM_ID_1,
+      status: 'resolved',
+      resolution: null
+    }),
     JSON.stringify({ version: 1, claimId: 'not-a-uuid', shown: false }),
     JSON.stringify({ version: 1, claimId: CONSENT_CLAIM_ID_1, shown: 'no' })
   ])('fails closed for unknown or corrupt consent state without re-prompting: %s', (state) => {
@@ -218,6 +419,10 @@ describe('TelemetryService', () => {
     expect(service.acknowledgeConsentPrompt(CONSENT_CLAIM_ID_1)).toEqual({
       accepted: false,
       newlyAccepted: false
+    })
+    expect(service.resolveConsentPrompt(CONSENT_CLAIM_ID_1, 'decline')).toEqual({
+      accepted: false,
+      newlyResolved: false
     })
     expect(backing.values.get(CONSENT_PROMPT_KEY)).toBe(state)
     expect(backing.values.has(INSTALLATION_ID_KEY)).toBe(false)

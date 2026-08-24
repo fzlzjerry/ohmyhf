@@ -158,6 +158,10 @@ jobs:
 
       - name: Run packaged smoke test
         shell: bash
+        env:
+          # The test process receives no ingestion key. This boolean only says
+          # whether the already-built package is expected to contain release telemetry.
+          OMH_EXPECT_PUBLISHABLE: ${{ inputs.publishable }}
         run: |
           set -euo pipefail
           set -o pipefail

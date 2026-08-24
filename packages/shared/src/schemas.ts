@@ -173,6 +173,12 @@ export const ipcRequestSchemas: Partial<Record<IpcInvokeChannel, z.ZodTypeAny>> 
       claimId: communityPromptClaimId
     })
     .strict(),
+  'telemetry:resolveConsentPrompt': z
+    .object({
+      claimId: communityPromptClaimId,
+      decision: z.literal('decline')
+    })
+    .strict(),
   'starReminder:acknowledgeShown': z
     .object({
       claimId: communityPromptClaimId

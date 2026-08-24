@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   setSettings: vi.fn(),
   state: {
+    settings: { telemetryEnabled: false },
     settingsOpen: false,
     paletteOpen: false,
     shortcutsOpen: false,
@@ -77,6 +78,7 @@ describe('CommunityPrompt', () => {
     mocks.setSettings.mockReset()
     mocks.state.setSettings = mocks.setSettings
     mocks.state.settingsOpen = false
+    mocks.state.settings.telemetryEnabled = false
     mocks.state.paletteOpen = false
     mocks.state.shortcutsOpen = false
     useToasts.setState({ toasts: [] })
@@ -106,6 +108,25 @@ describe('CommunityPrompt', () => {
     })
   }
 
+  it('starts the first quiet prompt check after ten foreground seconds', async () => {
+    mocks.invoke.mockResolvedValue({ show: false })
+    render(<CommunityPrompt />)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9_999)
+    })
+    expect(mocks.invoke).not.toHaveBeenCalled()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+      await Promise.resolve()
+    })
+    expect(mocks.invoke.mock.calls.map(([channel]) => channel)).toEqual([
+      'telemetry:claimConsentPrompt',
+      'starReminder:claim'
+    ])
+  })
+
   it('keeps an empty live region mounted and waits for a visible, focused window', async () => {
     focused = false
     mocks.invoke.mockResolvedValue({ show: false })
@@ -123,6 +144,80 @@ describe('CommunityPrompt', () => {
       'telemetry:claimConsentPrompt',
       'starReminder:claim'
     ])
+  })
+
+  it('retries quiet claims and shows Star after meaningful activity begins in the same session', async () => {
+    let meaningful = false
+    mocks.invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'telemetry:claimConsentPrompt') return { show: false }
+      if (channel === 'starReminder:claim') {
+        return meaningful ? { show: true, claimId: CLAIM_ID } : { show: false }
+      }
+      if (channel === 'starReminder:acknowledgeShown') {
+        return { accepted: true, promptNumber: 1, newlyAccepted: true }
+      }
+      if (channel === 'starReminder:respond') {
+        return { accepted: true, outcome: 'snoozed', promptNumber: 1 }
+      }
+      throw new Error(`Unexpected channel: ${channel}`)
+    })
+    render(<CommunityPrompt />)
+
+    await passDelay()
+    expect(screen.queryByRole('region')).toBeNull()
+    expect(
+      mocks.invoke.mock.calls.filter(([channel]) => channel === 'starReminder:claim')
+    ).toHaveLength(1)
+
+    meaningful = true
+    await passDelay()
+    const region = screen.getByRole('region', { name: 'settings:community.star.title' })
+    expect(region.getAttribute('data-community-prompt')).toBe('star')
+    expect(
+      screen
+        .getByRole('button', { name: 'settings:community.star.later' })
+        .getAttribute('data-community-action')
+    ).toBe('star-later')
+    expect(
+      mocks.invoke.mock.calls.filter(([channel]) => channel === 'starReminder:claim')
+    ).toHaveLength(2)
+
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'settings:community.star.later' }))
+    )
+    await passDelay()
+    await passDelay()
+    expect(
+      mocks.invoke.mock.calls.filter(([channel]) => channel === 'starReminder:claim')
+    ).toHaveLength(2)
+  })
+
+  it('retries after a transient claim IPC failure', async () => {
+    let telemetryAttempts = 0
+    mocks.invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'telemetry:claimConsentPrompt') {
+        telemetryAttempts += 1
+        if (telemetryAttempts === 1) throw new Error('temporary IPC failure')
+        return { show: false }
+      }
+      if (channel === 'starReminder:claim') return { show: true, claimId: CLAIM_ID }
+      if (channel === 'starReminder:acknowledgeShown') {
+        return { accepted: true, promptNumber: 1, newlyAccepted: true }
+      }
+      throw new Error(`Unexpected channel: ${channel}`)
+    })
+    render(<CommunityPrompt />)
+
+    await passDelay()
+    expect(screen.queryByRole('region')).toBeNull()
+    await passDelay()
+
+    expect(telemetryAttempts).toBe(2)
+    expect(
+      screen
+        .getByRole('region', { name: 'settings:community.star.title' })
+        .getAttribute('data-community-prompt')
+    ).toBe('star')
   })
 
   it('does not claim while any page-local modal is open', async () => {
@@ -156,6 +251,22 @@ describe('CommunityPrompt', () => {
     expect(mocks.invoke).toHaveBeenCalledWith('telemetry:claimConsentPrompt', undefined)
   })
 
+  it('does not claim underneath an app-marked mention listbox without Radix state', async () => {
+    const mention = transientOverlay('listbox')
+    mention.removeAttribute('data-state')
+    mention.setAttribute('data-community-blocking-overlay', '')
+    mocks.invoke.mockResolvedValue({ show: false })
+    render(<CommunityPrompt />)
+
+    await passDelay()
+    expect(mocks.invoke).not.toHaveBeenCalled()
+
+    mention.remove()
+    await flushEffects()
+    await passDelay()
+    expect(mocks.invoke).toHaveBeenCalledWith('telemetry:claimConsentPrompt', undefined)
+  })
+
   it('acknowledges a rendered Star card before enabling actions and labels prompt two as final', async () => {
     mocks.invoke.mockImplementation(async (channel: string) => {
       if (channel === 'telemetry:claimConsentPrompt') return { show: false }
@@ -172,7 +283,11 @@ describe('CommunityPrompt', () => {
 
     await passDelay()
 
-    expect(screen.getByRole('region', { name: 'settings:community.star.title' })).not.toBeNull()
+    expect(
+      screen
+        .getByRole('region', { name: 'settings:community.star.title' })
+        .getAttribute('data-community-prompt')
+    ).toBe('star')
     expect(screen.getAllByRole('status')).toHaveLength(1)
     expect(screen.getByRole('status').textContent).toBe('settings:community.star.title')
     expect(mocks.invoke).toHaveBeenCalledWith('starReminder:acknowledgeShown', {
@@ -262,12 +377,42 @@ describe('CommunityPrompt', () => {
 
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(
-      screen.getByRole('region', { name: 'settings:community.telemetry.title' })
-    ).not.toBeNull()
+      screen
+        .getByRole('region', { name: 'settings:community.telemetry.title' })
+        .getAttribute('data-community-prompt')
+    ).toBe('telemetry')
 
     await act(async () => acknowledgement.resolve({ accepted: true, newlyAccepted: true }))
     expect((accept as HTMLButtonElement).disabled).toBe(false)
     expect(screen.getByRole('status').textContent).toBe('settings:community.telemetry.title')
+  })
+
+  it('removes a consent card resolved by the Settings telemetry switch', async () => {
+    mocks.invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'telemetry:claimConsentPrompt') {
+        return { show: true, claimId: CONSENT_CLAIM_ID }
+      }
+      if (channel === 'telemetry:acknowledgeConsentPrompt') {
+        return { accepted: true, newlyAccepted: true }
+      }
+      throw new Error(`Unexpected channel: ${channel}`)
+    })
+    const view = render(<CommunityPrompt />)
+
+    await passDelay()
+    expect(
+      screen.getByRole('region', { name: 'settings:community.telemetry.title' })
+    ).not.toBeNull()
+
+    mocks.state.settings.telemetryEnabled = true
+    view.rerender(<CommunityPrompt />)
+    await flushEffects()
+
+    expect(screen.queryByRole('region')).toBeNull()
+    expect(mocks.invoke).not.toHaveBeenCalledWith(
+      'telemetry:resolveConsentPrompt',
+      expect.anything()
+    )
   })
 
   it('preserves an in-flight Star acknowledgement across foreground suppression', async () => {
@@ -314,6 +459,61 @@ describe('CommunityPrompt', () => {
     ).toHaveLength(1)
   })
 
+  it('does not acknowledge Star when a blur races the claim response', async () => {
+    const claim = deferred<{ show: true; claimId: string }>()
+    mocks.invoke.mockImplementation((channel: string) => {
+      if (channel === 'telemetry:claimConsentPrompt') return Promise.resolve({ show: false })
+      if (channel === 'starReminder:claim') return claim.promise
+      if (channel === 'starReminder:acknowledgeShown') {
+        return Promise.resolve({ accepted: true, promptNumber: 1, newlyAccepted: true })
+      }
+      throw new Error(`Unexpected channel: ${channel}`)
+    })
+    render(<CommunityPrompt />)
+    await passDelay()
+
+    focused = false
+    await act(async () => claim.resolve({ show: true, claimId: CLAIM_ID }))
+    expect(mocks.invoke).not.toHaveBeenCalledWith(
+      'starReminder:acknowledgeShown',
+      expect.anything()
+    )
+
+    await act(async () => window.dispatchEvent(new Event('blur')))
+    focused = true
+    await act(async () => window.dispatchEvent(new Event('focus')))
+    await flushEffects()
+    expect(mocks.invoke).toHaveBeenCalledWith('starReminder:acknowledgeShown', {
+      claimId: CLAIM_ID
+    })
+  })
+
+  it('does not acknowledge telemetry when a dialog races the claim response', async () => {
+    const claim = deferred<{ show: true; claimId: string }>()
+    mocks.invoke.mockImplementation((channel: string) => {
+      if (channel === 'telemetry:claimConsentPrompt') return claim.promise
+      if (channel === 'telemetry:acknowledgeConsentPrompt') {
+        return Promise.resolve({ accepted: true, newlyAccepted: true })
+      }
+      throw new Error(`Unexpected channel: ${channel}`)
+    })
+    render(<CommunityPrompt />)
+    await passDelay()
+
+    const dialog = blockingDialog()
+    await act(async () => claim.resolve({ show: true, claimId: CONSENT_CLAIM_ID }))
+    expect(mocks.invoke).not.toHaveBeenCalledWith(
+      'telemetry:acknowledgeConsentPrompt',
+      expect.anything()
+    )
+
+    dialog.remove()
+    await flushEffects()
+    expect(mocks.invoke).toHaveBeenCalledWith('telemetry:acknowledgeConsentPrompt', {
+      claimId: CONSENT_CLAIM_ID
+    })
+  })
+
   it('does not let Escape act on a reminder underneath an open dialog', async () => {
     mocks.invoke.mockImplementation(async (channel: string) => {
       if (channel === 'telemetry:claimConsentPrompt') return { show: false }
@@ -338,13 +538,82 @@ describe('CommunityPrompt', () => {
     dialog.remove()
   })
 
-  it('discloses telemetry details and lets Escape decline without enabling it', async () => {
+  it('keeps telemetry visible until an explicit decline is accepted', async () => {
+    let resolveAttempts = 0
     mocks.invoke.mockImplementation(async (channel: string) => {
       if (channel === 'telemetry:claimConsentPrompt') {
         return { show: true, claimId: CONSENT_CLAIM_ID }
       }
       if (channel === 'telemetry:acknowledgeConsentPrompt') {
         return { accepted: true, newlyAccepted: true }
+      }
+      if (channel === 'telemetry:resolveConsentPrompt') {
+        resolveAttempts += 1
+        return resolveAttempts === 1
+          ? { accepted: false, newlyResolved: false }
+          : {
+              accepted: true,
+              newlyResolved: true,
+              decision: 'decline'
+            }
+      }
+      throw new Error(`Unexpected channel: ${channel}`)
+    })
+    render(<CommunityPrompt />)
+    await passDelay()
+
+    const decline = screen.getByRole('button', { name: 'settings:community.telemetry.decline' })
+    expect(decline.getAttribute('data-community-action')).toBe('telemetry-decline')
+    await act(async () => fireEvent.click(decline))
+    expect(
+      screen.getByRole('region', { name: 'settings:community.telemetry.title' })
+    ).not.toBeNull()
+
+    await act(async () => fireEvent.click(decline))
+    expect(resolveAttempts).toBe(2)
+    expect(screen.queryByRole('region')).toBeNull()
+  })
+
+  it('finishes telemetry acceptance through the persisted settings write', async () => {
+    const settings = { telemetryEnabled: true }
+    mocks.invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'telemetry:claimConsentPrompt') {
+        return { show: true, claimId: CONSENT_CLAIM_ID }
+      }
+      if (channel === 'telemetry:acknowledgeConsentPrompt') {
+        return { accepted: true, newlyAccepted: true }
+      }
+      if (channel === 'settings:set') return settings
+      throw new Error(`Unexpected channel: ${channel}`)
+    })
+    render(<CommunityPrompt />)
+    await passDelay()
+
+    const accept = screen.getByRole('button', { name: 'settings:community.telemetry.accept' })
+    expect(accept.getAttribute('data-community-action')).toBe('telemetry-accept')
+    await act(async () => fireEvent.click(accept))
+
+    expect(mocks.invoke).toHaveBeenCalledWith('settings:set', {
+      patch: { telemetryEnabled: true }
+    })
+    expect(mocks.setSettings).toHaveBeenCalledWith(settings)
+    expect(mocks.invoke).not.toHaveBeenCalledWith(
+      'telemetry:resolveConsentPrompt',
+      expect.anything()
+    )
+    expect(screen.queryByRole('region')).toBeNull()
+  })
+
+  it('discloses telemetry details and lets Escape explicitly decline without enabling it', async () => {
+    mocks.invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'telemetry:claimConsentPrompt') {
+        return { show: true, claimId: CONSENT_CLAIM_ID }
+      }
+      if (channel === 'telemetry:acknowledgeConsentPrompt') {
+        return { accepted: true, newlyAccepted: true }
+      }
+      if (channel === 'telemetry:resolveConsentPrompt') {
+        return { accepted: true, newlyResolved: true, decision: 'decline' }
       }
       if (channel === 'system:openExternal') return undefined
       throw new Error(`Unexpected channel: ${channel}`)
@@ -363,8 +632,16 @@ describe('CommunityPrompt', () => {
       url: TELEMETRY_DOCUMENTATION_URL
     })
 
-    fireEvent.keyDown(window, { key: 'Escape' })
+    await act(async () => fireEvent.keyDown(window, { key: 'Escape' }))
     expect(screen.queryByRole('region')).toBeNull()
+    expect(mocks.invoke).toHaveBeenCalledWith('telemetry:resolveConsentPrompt', {
+      claimId: CONSENT_CLAIM_ID,
+      decision: 'decline'
+    })
     expect(mocks.invoke).not.toHaveBeenCalledWith('settings:set', expect.anything())
+
+    await passDelay()
+    await passDelay()
+    expect(mocks.invoke).not.toHaveBeenCalledWith('starReminder:claim', undefined)
   })
 })

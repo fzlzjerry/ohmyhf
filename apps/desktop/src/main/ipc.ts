@@ -126,6 +126,7 @@ async function applySettingsPatch(
     // Stop and erase the pseudonymous identity before any unrelated, fallible
     // network or desktop side effect can interrupt the opt-out path.
     ctx.telemetry.clearIdentity()
+    ctx.telemetry.recordExplicitConsentDecline()
   }
   const locale = next.locale === 'system' ? matchLocale(app.getLocale()) : next.locale
   if (SUPPORTED_LOCALES.includes(locale) && locale !== ctx.i18n.getLocale()) {
@@ -133,6 +134,9 @@ async function applySettingsPatch(
     ctx.rebuildMenu()
   }
   if (!telemetryWasEnabled && telemetryIsEnabled) {
+    // The persisted true setting is the explicit acceptance decision. Resolve
+    // the local prompt state before any unrelated asynchronous side effect.
+    ctx.telemetry.recordExplicitConsentAcceptance()
     // Queue the consent event before an unrelated combined proxy patch can
     // fail. The transport itself reads the already-persisted current proxy.
     void ctx.telemetry.capture('telemetry_enabled')
@@ -243,6 +247,9 @@ export function registerIpcHandlers(ctx: AppContext): void {
   })
   handle('telemetry:acknowledgeConsentPrompt', ({ claimId }) =>
     ctx.telemetry.acknowledgeConsentPrompt(claimId)
+  )
+  handle('telemetry:resolveConsentPrompt', ({ claimId, decision }) =>
+    ctx.telemetry.resolveConsentPrompt(claimId, decision)
   )
   handle('starReminder:claim', () => {
     if (!ctx.starReminderEnabled) return { show: false as const }

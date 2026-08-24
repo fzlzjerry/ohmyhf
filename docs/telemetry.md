@@ -53,6 +53,16 @@ types fail closed for that event rather than bypassing the proxy configuration.
 
 - Telemetry starts in the off state for every installation.
 - No consent-screen impression or pre-consent launch event is sent.
+- Reserving or rendering the consent card is not a consent decision. The local prompt state is
+  resolved only when the user explicitly chooses **Enable telemetry**, **No thanks**, or presses
+  Escape. If the renderer reloads or the app exits before a choice is recorded, the same local
+  claim is offered again on a later foreground attempt; no identity is created and no event is
+  sent by that recovery path.
+- Version 0.0.11 recorded a rendered card as complete before the user made a choice. When telemetry
+  remains off, version 0.0.12 migrates that legacy state to an unresolved displayed claim and
+  offers the same claim again, keeping it recoverable until an explicit local decision is recorded.
+  An already enabled setting is migrated as accepted, while disabling an enabled setting is
+  recorded as declined.
 - `telemetry_enabled` is the first event after an explicit opt-in.
 - Turning telemetry off stops new events immediately. Re-enabling it requires another explicit
   user action.
@@ -60,9 +70,11 @@ types fail closed for that event rather than bypassing the proxy configuration.
   containing `telemetryEnabled`) preserve the receiving installation's current choice.
 - PostHog's `distinct_id` is a randomly generated installation UUID stored in the app's local
   SQLite `kv` data. It persists across launches only while telemetry remains enabled. Turning
-  telemetry off or clearing the related local `kv` data deletes it; a later explicit opt-in creates
-  a new UUID. It is a pseudonymous identifier and is not derived from hardware, an operating-system
-  account, a Hugging Face account, a GitHub account, or another user identifier.
+  telemetry off or clearing the related local `kv` data deletes it. If telemetry remains enabled,
+  the next telemetry event creates a new UUID; if telemetry is disabled, only a later explicit
+  opt-in creates one. The old UUID is never restored. It is a pseudonymous identifier and is not
+  derived from hardware, an operating-system account, a Hugging Face account, a GitHub account, or
+  another user identifier.
 - The app does not enable PostHog autocapture, session replay, or person profiles. Every event sets
   `$process_person_profile` to `false`.
 
@@ -141,8 +153,14 @@ only that the project page was opened in the system browser.
 The reminder is driven entirely by device-local SQLite state and is independent of telemetry
 consent. It becomes eligible only after at least three real app launches and meaningful local use:
 a completed download, at least one favorite, or at least five local history entries. The renderer
-waits 30 seconds, a visible and focused app window, and the absence of the Settings, command
-palette, shortcuts, dialog, menu, or select overlays before showing a non-modal card.
+waits 10 seconds, a visible and focused app window, and the absence of the Settings, command
+palette, shortcuts, dialog, menu, select, or mention overlays before showing a non-modal card.
+
+If neither consent nor the Star reminder is eligible at that check, or a claim IPC call fails
+transiently, the foreground renderer retries at a 30-second low-frequency interval. This lets a
+Star reminder become visible in the same app session when meaningful local activity happens after
+the first check. Once either card is actually claimed, no second community card is shown in that
+renderer session.
 
 The main process reserves a candidate reminder first; it increments the lifetime display count and
 emits `star_prompt_shown` only after the foreground renderer acknowledges that the card was

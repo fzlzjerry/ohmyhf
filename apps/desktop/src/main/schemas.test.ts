@@ -102,12 +102,19 @@ describe('ipcRequestSchemas', () => {
     expect(schema.safeParse({ claimId: 'not-a-uuid', action: 'open' }).success).toBe(false)
   })
 
-  it('accepts only UUIDv4 telemetry consent claim tokens', () => {
-    const schema = ipcRequestSchemas['telemetry:acknowledgeConsentPrompt']!
+  it('accepts only UUIDv4 telemetry consent tokens and the fixed decline decision', () => {
+    const acknowledge = ipcRequestSchemas['telemetry:acknowledgeConsentPrompt']!
+    const resolve = ipcRequestSchemas['telemetry:resolveConsentPrompt']!
     const claimId = '12345678-1234-4234-8234-123456789abc'
-    expect(schema.safeParse({ claimId }).success).toBe(true)
-    expect(schema.safeParse({ claimId: 'guessable-token' }).success).toBe(false)
-    expect(schema.safeParse({ claimId, extra: true }).success).toBe(false)
+    expect(acknowledge.safeParse({ claimId }).success).toBe(true)
+    expect(acknowledge.safeParse({ claimId: 'guessable-token' }).success).toBe(false)
+    expect(acknowledge.safeParse({ claimId, extra: true }).success).toBe(false)
+    expect(resolve.safeParse({ claimId, decision: 'decline' }).success).toBe(true)
+    expect(resolve.safeParse({ claimId, decision: 'accept' }).success).toBe(false)
+    expect(resolve.safeParse({ claimId: 'guessable-token', decision: 'decline' }).success).toBe(
+      false
+    )
+    expect(resolve.safeParse({ claimId, decision: 'decline', extra: true }).success).toBe(false)
   })
 
   it('accepts a version-1 settings export envelope', () => {

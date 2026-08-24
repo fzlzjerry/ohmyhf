@@ -8,7 +8,8 @@ import { hasBlockingOverlay, useBlockingOverlay } from '@/hooks/use-blocking-ove
 import { invoke } from '@/lib/ipc'
 import { useAppStore } from '@/stores/app'
 
-const PROMPT_DELAY_MS = 30_000
+const PROMPT_DELAY_MS = 10_000
+const PROMPT_RETRY_DELAY_MS = 30_000
 
 type Prompt =
   | { kind: 'telemetry'; claimId: string; acknowledged: boolean }
@@ -48,6 +49,7 @@ function isForeground(): boolean {
 export function CommunityPrompt(): React.JSX.Element {
   const { t } = useTranslation(['settings', 'common'])
   const settingsOpen = useAppStore((s) => s.settingsOpen)
+  const telemetryEnabled = useAppStore((s) => s.settings.telemetryEnabled)
   const paletteOpen = useAppStore((s) => s.paletteOpen)
   const shortcutsOpen = useAppStore((s) => s.shortcutsOpen)
   const blockingOverlay = useBlockingOverlay()
@@ -57,7 +59,10 @@ export function CommunityPrompt(): React.JSX.Element {
   const [pending, setPending] = useState(false)
   const [foreground, setForeground] = useState(isForeground)
   const [announcement, setAnnouncement] = useState('')
-  const attempted = useRef(false)
+  const [attemptNumber, setAttemptNumber] = useState(0)
+  const attemptInFlight = useRef(false)
+  const askClaimedThisSession = useRef(false)
+  const mounted = useRef(true)
   const consentAcksInFlight = useRef(new Set<string>())
   const starAcksInFlight = useRef(new Set<string>())
   const announcedPrompt = useRef<string | null>(null)
@@ -65,6 +70,26 @@ export function CommunityPrompt(): React.JSX.Element {
     announcedPrompt.current = null
     setAnnouncement('')
     setPrompt(null)
+  }, [])
+
+  // Settings can resolve the same consent while the card is temporarily hidden.
+  // Do not resurrect a now-obsolete disabled-state card when Settings closes.
+  useEffect(() => {
+    if (!telemetryEnabled || prompt?.kind !== 'telemetry') return
+    let canceled = false
+    window.queueMicrotask(() => {
+      if (!canceled) dismissPrompt()
+    })
+    return () => {
+      canceled = true
+    }
+  }, [dismissPrompt, prompt, telemetryEnabled])
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
   }, [])
 
   useEffect(() => {
@@ -87,19 +112,28 @@ export function CommunityPrompt(): React.JSX.Element {
       shortcutsOpen ||
       blockingOverlay ||
       prompt ||
-      attempted.current
+      attemptInFlight.current ||
+      askClaimedThisSession.current
     ) {
       return
     }
+    const delay = attemptNumber === 0 ? PROMPT_DELAY_MS : PROMPT_RETRY_DELAY_MS
     const timer = window.setTimeout(() => {
       // Re-read browser state at the moment of the IPC call; a blur can race the
       // React state update that normally cancels this timer.
-      if (!isForeground() || hasBlockingOverlay()) return
-      attempted.current = true
+      if (!isForeground() || hasBlockingOverlay()) {
+        setAttemptNumber((current) => current + 1)
+        return
+      }
+      if (attemptInFlight.current || askClaimedThisSession.current) return
+      attemptInFlight.current = true
       void (async () => {
+        let claimed = false
         try {
           const telemetry = await invoke('telemetry:claimConsentPrompt', undefined)
           if (telemetry.show) {
+            claimed = true
+            askClaimedThisSession.current = true
             setPrompt({
               kind: 'telemetry',
               claimId: telemetry.claimId,
@@ -109,15 +143,23 @@ export function CommunityPrompt(): React.JSX.Element {
           }
           const star = await invoke('starReminder:claim', undefined)
           if (star.show) {
+            claimed = true
+            askClaimedThisSession.current = true
             setPrompt({ kind: 'star', claimId: star.claimId, promptNumber: null })
           }
         } catch {
           // Community prompts are optional and must never affect app startup.
+          // A later foreground retry can recover transient IPC or SQLite errors.
+        } finally {
+          attemptInFlight.current = false
+          if (mounted.current && !claimed && !askClaimedThisSession.current) {
+            setAttemptNumber((current) => current + 1)
+          }
         }
       })()
-    }, PROMPT_DELAY_MS)
+    }, delay)
     return () => window.clearTimeout(timer)
-  }, [blockingOverlay, foreground, paletteOpen, prompt, settingsOpen, shortcutsOpen])
+  }, [attemptNumber, blockingOverlay, foreground, paletteOpen, prompt, settingsOpen, shortcutsOpen])
 
   const telemetryClaimId = prompt?.kind === 'telemetry' ? prompt.claimId : null
   const telemetryAcknowledged = prompt?.kind === 'telemetry' && prompt.acknowledged
@@ -128,6 +170,9 @@ export function CommunityPrompt(): React.JSX.Element {
 
   useEffect(() => {
     if (promptSuppressed || !telemetryClaimId || telemetryAcknowledged) return
+    // A blur or portal insertion can race the React state/MutationObserver
+    // update. Re-read the DOM immediately before consuming a visible display.
+    if (!isForeground() || hasBlockingOverlay()) return
     if (consentAcksInFlight.current.has(telemetryClaimId)) return
     consentAcksInFlight.current.add(telemetryClaimId)
 
@@ -157,6 +202,7 @@ export function CommunityPrompt(): React.JSX.Element {
 
   useEffect(() => {
     if (promptSuppressed || !starClaimId || starPromptNumber !== null) return
+    if (!isForeground() || hasBlockingOverlay()) return
     if (starAcksInFlight.current.has(starClaimId)) return
     starAcksInFlight.current.add(starClaimId)
 
@@ -240,6 +286,27 @@ export function CommunityPrompt(): React.JSX.Element {
     [dismissPrompt, pending, prompt, push, t]
   )
 
+  const declineTelemetry = useCallback(async (): Promise<void> => {
+    if (pending || prompt?.kind !== 'telemetry' || !prompt.acknowledged) return
+    setPending(true)
+    try {
+      const result = await invoke('telemetry:resolveConsentPrompt', {
+        claimId: prompt.claimId,
+        decision: 'decline'
+      })
+      if (!result.accepted) {
+        push(t('common:error.generic'), 'error')
+        return
+      }
+      dismissPrompt()
+    } catch (error) {
+      // Keep the choice visible until main confirms the explicit local decision.
+      push(error instanceof Error ? error.message : t('common:error.generic'), 'error')
+    } finally {
+      setPending(false)
+    }
+  }, [dismissPrompt, pending, prompt, push, t])
+
   useEffect(() => {
     if (!prompt || promptSuppressed) return
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -254,14 +321,14 @@ export function CommunityPrompt(): React.JSX.Element {
       }
       event.preventDefault()
       if (prompt.kind === 'telemetry') {
-        dismissPrompt()
+        void declineTelemetry()
       } else {
         void respond('later')
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [dismissPrompt, pending, prompt, promptAcknowledged, promptSuppressed, respond])
+  }, [declineTelemetry, pending, prompt, promptAcknowledged, promptSuppressed, respond])
 
   let card: React.ReactNode = null
 
@@ -290,11 +357,13 @@ export function CommunityPrompt(): React.JSX.Element {
 
     card = (
       <PromptCard
+        kind="telemetry"
         icon={BarChart3}
         title={t('settings:community.telemetry.title')}
         body={t('settings:community.telemetry.body')}
       >
         <Button
+          data-community-action="telemetry-accept"
           size="sm"
           variant="cta"
           loading={pending}
@@ -304,6 +373,7 @@ export function CommunityPrompt(): React.JSX.Element {
           {t('settings:community.telemetry.accept')}
         </Button>
         <Button
+          data-community-action="telemetry-details"
           size="sm"
           variant="ghost"
           disabled={pending || !prompt.acknowledged}
@@ -312,10 +382,11 @@ export function CommunityPrompt(): React.JSX.Element {
           {t('settings:community.telemetry.details')}
         </Button>
         <Button
+          data-community-action="telemetry-decline"
           size="sm"
           variant="ghost"
           disabled={pending || !prompt.acknowledged}
-          onClick={dismissPrompt}
+          onClick={() => void declineTelemetry()}
         >
           {t('settings:community.telemetry.decline')}
         </Button>
@@ -326,11 +397,13 @@ export function CommunityPrompt(): React.JSX.Element {
     const finalPrompt = (prompt.promptNumber ?? 0) >= 2
     card = (
       <PromptCard
+        kind="star"
         icon={Star}
         title={t('settings:community.star.title')}
         body={t('settings:community.star.body')}
       >
         <Button
+          data-community-action="star-open"
           size="sm"
           variant="cta"
           loading={pending}
@@ -341,6 +414,7 @@ export function CommunityPrompt(): React.JSX.Element {
           {t('settings:community.star.open')}
         </Button>
         <Button
+          data-community-action="star-later"
           size="sm"
           variant="secondary"
           disabled={pending || !acknowledged}
@@ -351,6 +425,7 @@ export function CommunityPrompt(): React.JSX.Element {
         {!finalPrompt && (
           <button
             type="button"
+            data-community-action="star-disable"
             disabled={pending || !acknowledged}
             onClick={() => void respond('disable')}
             className="rounded-md px-1.5 py-1 text-[11.5px] text-ink-faint transition-colors hover:text-ink disabled:pointer-events-none disabled:opacity-50"
@@ -373,11 +448,13 @@ export function CommunityPrompt(): React.JSX.Element {
 }
 
 function PromptCard({
+  kind,
   icon: Icon,
   title,
   body,
   children
 }: {
+  kind: Prompt['kind']
   icon: React.ComponentType<{ className?: string }>
   title: string
   body: string
@@ -388,6 +465,7 @@ function PromptCard({
   return (
     <section
       role="region"
+      data-community-prompt={kind}
       aria-labelledby={titleId}
       aria-describedby={bodyId}
       onPointerDown={(event) => event.stopPropagation()}

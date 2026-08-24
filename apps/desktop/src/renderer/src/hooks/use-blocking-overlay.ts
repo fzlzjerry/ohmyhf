@@ -5,7 +5,8 @@ const BLOCKING_OVERLAY_SELECTOR = [
   '[role="alertdialog"][data-state="open"]',
   '[aria-modal="true"]:not([data-state="closed"])',
   '[role="menu"][data-state="open"]',
-  '[role="listbox"][data-state="open"]'
+  '[role="listbox"][data-state="open"]',
+  '[data-community-blocking-overlay]'
 ].join(',')
 
 /**
@@ -28,7 +29,7 @@ export function useBlockingOverlay(): boolean {
       subtree: true,
       childList: true,
       attributes: true,
-      attributeFilter: ['aria-modal', 'data-state', 'role']
+      attributeFilter: ['aria-modal', 'data-state', 'role', 'data-community-blocking-overlay']
     })
     return () => observer.disconnect()
   }, [])

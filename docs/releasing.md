@@ -25,7 +25,8 @@ four manifest versions. Other pushes finish after detection without creating rel
    - **verify** runs production dependency audit, format, lint, typecheck, coverage, build, and the
      full Ubuntu E2E suite;
    - **build** packages macOS, Windows, and Linux with `--publish never`, then runs the packaged
-     smoke test on each platform;
+     smoke test on each platform; publishable smoke coverage includes the configured telemetry
+     consent path, legacy consent-state migration, and the same-session Star eligibility retry;
    - **preflight** checks required installers, updater manifests, every referenced file, and its
      SHA-512 value;
    - **publish** creates or resumes the draft, uploads only preflight-approved assets, downloads
@@ -37,6 +38,11 @@ Release.
 The regular CI workflow runs the full Ubuntu E2E suite for every pull request. After verification,
 pushes to `main` also run the reusable macOS, Windows, and Linux packaged smoke matrix with
 publishing disabled.
+
+Non-publishable packaged smoke runs verify the intentionally disabled telemetry path because they
+do not receive the release ingestion key. Publishable runs receive only a non-sensitive boolean
+expectation in the test process; the existing build gate separately verifies, without logging it,
+that the exact configured key and HTTPS collector marker are present in the compiled main bundle.
 
 ## Dry-run
 
