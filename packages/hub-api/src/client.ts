@@ -20,7 +20,10 @@ import type {
   ModelEvalResult,
   MyRepoEntry,
   NotificationsPage,
+  DailyPapersQuery,
   Page,
+  PaperDocument,
+  PaperRelated,
   PaperSummary,
   PostComment,
   PostSummary,
@@ -870,8 +873,17 @@ export class HubClient {
     return all
   }
 
-  async getDailyPapers(cursor?: string): Promise<Page<PaperSummary>> {
-    const url = cursor ?? `${this.endpoint}/api/daily_papers?limit=50`
+  async getDailyPapers(query: DailyPapersQuery = {}): Promise<Page<PaperSummary>> {
+    let url = query.cursor
+    if (!url) {
+      const first = new URL(`${this.endpoint}/api/daily_papers`)
+      first.searchParams.set('limit', '50')
+      if (query.sort) first.searchParams.set('sort', query.sort)
+      if (query.date) first.searchParams.set('date', query.date)
+      if (query.week) first.searchParams.set('week', query.week)
+      if (query.month) first.searchParams.set('month', query.month)
+      url = first.toString()
+    }
     const { body, nextUrl } = await this.getJson<unknown[]>(url)
     return { items: (body as never[]).map(mapPaper), nextCursor: nextUrl }
   }
@@ -881,6 +893,30 @@ export class HubClient {
     const url = `${this.endpoint}/api/papers/${encodeURIComponent(paperId)}`
     const { body } = await this.getJson<unknown>(url, { ttl: 60_000 })
     return mapPaperDetail(body as never)
+  }
+
+  async getPaperRelated(paperId: string): Promise<PaperRelated> {
+    const filter = `arxiv:${paperId}`
+    const [models, datasets, spaces] = await Promise.all([
+      this.searchRepos({ kind: 'model', tags: [filter], sort: 'downloads', limit: 8 }),
+      this.searchRepos({ kind: 'dataset', tags: [filter], sort: 'downloads', limit: 8 }),
+      this.searchRepos({ kind: 'space', tags: [filter], sort: 'likes', limit: 8 })
+    ])
+    return { models: models.items, datasets: datasets.items, spaces: spaces.items }
+  }
+
+  async getPaperDocument(paperId: string, format: 'markdown' | 'pdf'): Promise<PaperDocument> {
+    if (format === 'markdown') {
+      const url = `${this.endpoint}/papers/${encodeURIComponent(paperId)}.md`
+      const text = await this.getText(url)
+      return { format: 'markdown', text }
+    }
+    const url = `https://arxiv.org/pdf/${encodeURIComponent(paperId)}.pdf`
+    const res = await this.fetchWithPolicy(url, { headers: this.headers(url) })
+    if (!res.ok) await this.throwHttpError(res, 'GET', url)
+    const maxBytes = 32 * 1024 * 1024
+    const { bytes, capped } = await readBodyCapped(res, maxBytes)
+    return { format: 'pdf', bytes, tooLarge: capped }
   }
 
   /**

@@ -291,6 +291,23 @@ export interface LeaderboardPage {
   nextCursor?: string
 }
 
+export interface PaperAuthor {
+  name: string
+  username?: string
+}
+
+export type DailyPapersPeriod = 'daily' | 'weekly' | 'monthly'
+export type DailyPapersSort = 'publishedAt' | 'trending'
+
+export interface DailyPapersQuery {
+  cursor?: string
+  period?: DailyPapersPeriod
+  date?: string
+  week?: string
+  month?: string
+  sort?: DailyPapersSort
+}
+
 export interface PaperSummary {
   id: string
   title: string
@@ -298,9 +315,24 @@ export interface PaperSummary {
   publishedAt?: string
   upvotes: number
   authors: string[]
+  authorProfiles?: PaperAuthor[]
   thumbnail?: string
   numComments?: number
+  githubRepo?: string
+  projectPage?: string
+  submittedBy?: string
+  submittedOnDailyAt?: string
+  aiSummary?: string
 }
+
+export interface PaperRelated {
+  models: RepoSummary[]
+  datasets: RepoSummary[]
+  spaces: RepoSummary[]
+}
+
+export type PaperDocument =
+  { format: 'markdown'; text: string } | { format: 'pdf'; bytes: Uint8Array; tooLarge?: boolean }
 
 export type RepoSort = 'trending' | 'downloads' | 'likes' | 'updated' | 'created'
 
@@ -957,6 +989,19 @@ export interface AppSettings {
   llamaServerBinaryPath: string | null
   /** Loopback-only Ollama API port. */
   ollamaPort: number
+}
+
+export type TelemetryCaptureStatus = 'sent' | 'skipped' | 'failed'
+
+/** Local, never-transmitted view of whether this build can send telemetry. */
+export interface TelemetryStatus {
+  configured: boolean
+  enabled: boolean
+  lastCapture?: {
+    event: string
+    status: TelemetryCaptureStatus
+    at: string
+  }
 }
 
 /** Renderer-writable settings. Cache roots and executable paths are selected by main. */

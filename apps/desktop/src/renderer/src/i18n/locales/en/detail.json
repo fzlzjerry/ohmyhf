@@ -130,7 +130,8 @@
     "exportTo": "Export to {{tool}}",
     "lfs": "LFS",
     "noTargets": "No local tools detected",
-    "root": "root"
+    "root": "root",
+    "resize": "Resize file list"
   },
   "gate": {
     "ask": "This repository is gated — request access to download and preview it.",

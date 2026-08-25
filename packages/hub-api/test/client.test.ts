@@ -228,6 +228,58 @@ describe('HubClient.getDailyPapers', () => {
       publishedAt: '2026-01-01T00:00:00.000Z'
     })
   })
+
+  it('forwards period sort and week or month onto the Hub query', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]))
+    const client = new HubClient({ fetchImpl, cacheTtlMs: 0 })
+    await client.getDailyPapers({
+      period: 'weekly',
+      sort: 'trending',
+      week: '2026-W35'
+    })
+    const weekly = new URL(String(fetchImpl.mock.calls[0]![0]))
+    expect(weekly.pathname).toBe('/api/daily_papers')
+    expect(weekly.searchParams.get('limit')).toBe('50')
+    expect(weekly.searchParams.get('sort')).toBe('trending')
+    expect(weekly.searchParams.get('week')).toBe('2026-W35')
+    expect(weekly.searchParams.get('month')).toBeNull()
+
+    await client.getDailyPapers({ period: 'monthly', month: '2026-08', sort: 'publishedAt' })
+    const monthly = new URL(String(fetchImpl.mock.calls[1]![0]))
+    expect(monthly.searchParams.get('month')).toBe('2026-08')
+    expect(monthly.searchParams.get('sort')).toBe('publishedAt')
+  })
+
+  it('maps Hub extras used by the in-app reader', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse([
+        {
+          paper: {
+            id: '2401.00001',
+            title: 'Attention Is Still All You Need',
+            summary: 'A paper.',
+            upvotes: 42,
+            authors: [{ name: 'A. Researcher', user: { name: 'aresearcher' } }],
+            githubRepo: 'org/repo',
+            projectPage: 'https://example.test/project',
+            aiSummary: 'Short take.'
+          },
+          submittedBy: { name: 'Submitter' },
+          submittedOnDailyAt: '2026-01-01T00:00:00.000Z'
+        }
+      ])
+    )
+    const client = new HubClient({ fetchImpl, cacheTtlMs: 0 })
+    const page = await client.getDailyPapers()
+    expect(page.items[0]).toMatchObject({
+      authorProfiles: [{ name: 'A. Researcher', username: 'aresearcher' }],
+      githubRepo: 'org/repo',
+      projectPage: 'https://example.test/project',
+      submittedBy: 'Submitter',
+      submittedOnDailyAt: '2026-01-01T00:00:00.000Z',
+      aiSummary: 'Short take.'
+    })
+  })
 })
 
 describe('HubClient.getPaper', () => {
@@ -252,8 +304,14 @@ describe('HubClient.getPaper', () => {
       publishedAt: '2026-01-01T00:00:00.000Z',
       upvotes: 42,
       authors: ['A. Researcher'],
+      authorProfiles: [{ name: 'A. Researcher' }],
       thumbnail: undefined,
-      numComments: undefined
+      numComments: undefined,
+      githubRepo: undefined,
+      projectPage: undefined,
+      submittedBy: undefined,
+      submittedOnDailyAt: undefined,
+      aiSummary: undefined
     })
   })
 
@@ -264,6 +322,47 @@ describe('HubClient.getPaper', () => {
       name: 'HubApiError',
       status: 404
     })
+  })
+})
+
+describe('HubClient.getPaperRelated', () => {
+  it('searches models, datasets, and spaces with filter=arxiv:{id}', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]))
+    const client = new HubClient({ fetchImpl, cacheTtlMs: 0 })
+    await client.getPaperRelated('2401.00001')
+    const urls = fetchImpl.mock.calls.map(([url]) => new URL(String(url)))
+    expect(urls.map((url) => url.pathname).sort()).toEqual([
+      '/api/datasets',
+      '/api/models',
+      '/api/spaces'
+    ])
+    for (const url of urls) {
+      expect(url.searchParams.getAll('filter')).toContain('arxiv:2401.00001')
+    }
+  })
+})
+
+describe('HubClient.getPaperDocument', () => {
+  it('loads Markdown from the Hub paper page', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response('# Hello', { status: 200 }))
+    const client = new HubClient({ fetchImpl, cacheTtlMs: 0 })
+    const document = await client.getPaperDocument('2401.00001', 'markdown')
+    expect(String(fetchImpl.mock.calls[0]![0])).toBe('https://huggingface.co/papers/2401.00001.md')
+    expect(document).toEqual({ format: 'markdown', text: '# Hello' })
+  })
+
+  it('loads the arXiv PDF through the proxied fetch', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response(new Uint8Array([37, 80, 68, 70]), { status: 200 }))
+    const client = new HubClient({ fetchImpl, cacheTtlMs: 0 })
+    const document = await client.getPaperDocument('2401.00001', 'pdf')
+    expect(String(fetchImpl.mock.calls[0]![0])).toBe('https://arxiv.org/pdf/2401.00001.pdf')
+    expect(document.format).toBe('pdf')
+    if (document.format === 'pdf') {
+      expect(document.tooLarge).toBe(false)
+      expect([...document.bytes]).toEqual([37, 80, 68, 70])
+    }
   })
 })
 

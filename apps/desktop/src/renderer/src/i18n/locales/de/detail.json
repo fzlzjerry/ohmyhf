@@ -107,7 +107,8 @@
     "clearSelection": "Clear",
     "downloadSelected": "Download selected",
     "selectFile": "Select {{file}}",
-    "selected": "{{count}} selected"
+    "selected": "{{count}} selected",
+    "resize": "Dateiliste skalieren"
   },
   "gate": {
     "ask": "Dieses Repository ist zugriffsbeschränkt — fordern Sie Zugriff an, um es herunterzuladen und in der Vorschau anzuzeigen.",

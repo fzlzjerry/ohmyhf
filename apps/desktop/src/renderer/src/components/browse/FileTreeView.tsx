@@ -1,19 +1,30 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { ArrowDownToLine, ChevronRight, File, FileSearch, Folder, Share, X } from 'lucide-react'
+import {
+  ArrowDownToLine,
+  ChevronRight,
+  File,
+  FileSearch,
+  Folder,
+  Share,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldQuestion,
+  X
+} from 'lucide-react'
 import type {
   ExportIntegrationTask,
   ExportTool,
   FileTreeEntry,
   RepoKind,
-  RepoRevisionSelection
+  RepoRevisionSelection,
+  SecurityEvidenceStatus
 } from '@oh-my-huggingface/shared'
 import { normalizeHubEndpoint } from '@oh-my-huggingface/shared'
 import { describeError } from '@/lib/errors'
 import { invoke } from '@/lib/ipc'
 import { cn, formatBytes } from '@/lib/utils'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -25,6 +36,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { QueryErrorState } from '@/components/errors/QueryErrorState'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Progress } from '@/components/ui/progress'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useToasts } from '@/components/ui/toaster'
 import { useCommandActions } from '@/hooks/use-command-actions'
 import { useAppStore } from '@/stores/app'
@@ -48,12 +60,40 @@ const TOOL_EXTENSIONS: Record<ExportTool, string[]> = {
   comfyui: ['.safetensors', '.ckpt', '.pt', '.pth', '.bin', '.gguf']
 }
 
+const TREE_WIDTH_KEY = 'omh:file-tree-width'
+export const FILE_TREE_MIN_WIDTH = 256
+export const FILE_TREE_MAX_WIDTH = 560
+export const FILE_TREE_DEFAULT_WIDTH = 336
+
 /** Export tools that can ingest the given file, by extension. */
 export function exportToolsFor(name: string): ExportTool[] {
   const lower = name.toLowerCase()
   return (Object.keys(TOOL_EXTENSIONS) as ExportTool[]).filter((tool) =>
     TOOL_EXTENSIONS[tool].some((ext) => lower.endsWith(ext))
   )
+}
+
+export function clampFileTreeWidth(value: number): number {
+  return Math.min(FILE_TREE_MAX_WIDTH, Math.max(FILE_TREE_MIN_WIDTH, Math.round(value)))
+}
+
+function readFileTreeWidth(): number {
+  try {
+    const raw = localStorage.getItem(TREE_WIDTH_KEY)
+    if (raw === null) return FILE_TREE_DEFAULT_WIDTH
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? clampFileTreeWidth(parsed) : FILE_TREE_DEFAULT_WIDTH
+  } catch {
+    return FILE_TREE_DEFAULT_WIDTH
+  }
+}
+
+function persistFileTreeWidth(width: number): void {
+  try {
+    localStorage.setItem(TREE_WIDTH_KEY, String(width))
+  } catch {
+    /* ignore quota / private-mode failures */
+  }
 }
 
 /** Flatten a cached snapshot into the current directory listing. */
@@ -86,6 +126,35 @@ export function treeFromSnapshot(
   })
 }
 
+function FileSecurityIcon({
+  status,
+  message
+}: {
+  status: SecurityEvidenceStatus
+  message?: string
+}): React.JSX.Element {
+  const { t } = useTranslation('common')
+  const label = t(`repro.security.status.${status}`)
+  const Icon =
+    status === 'safe' ? ShieldCheck : status === 'malicious' ? ShieldAlert : ShieldQuestion
+  const tone =
+    status === 'safe' ? 'text-success' : status === 'malicious' ? 'text-error' : 'text-warning'
+  const detail = message ? `${label} · ${message}` : label
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={cn('inline-flex size-6 shrink-0 items-center justify-center', tone)}
+          aria-label={detail}
+        >
+          <Icon className="size-3.5" aria-hidden />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{detail}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 export function FileTreeView({
   kind,
   repoId,
@@ -103,9 +172,37 @@ export function FileTreeView({
   // component — by repoId.
   const [selected, setSelected] = useState<FileTreeEntry | null>(null)
   const [checked, setChecked] = useState<Set<string>>(new Set())
+  const [treeWidth, setTreeWidth] = useState(readFileTreeWidth)
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null)
   const endpointKey = normalizeHubEndpoint(useAppStore((state) => state.settings.hubEndpoint))
   const push = useToasts((s) => s.push)
   const security = useSecurityGate()
+
+  const onResizePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      dragRef.current = { startX: event.clientX, startWidth: treeWidth }
+      event.currentTarget.setPointerCapture(event.pointerId)
+    },
+    [treeWidth]
+  )
+
+  const onResizePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return
+    setTreeWidth(
+      clampFileTreeWidth(dragRef.current.startWidth + event.clientX - dragRef.current.startX)
+    )
+  }, [])
+
+  const onResizePointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return
+    dragRef.current = null
+    event.currentTarget.releasePointerCapture(event.pointerId)
+  }, [])
+
+  useEffect(() => {
+    persistFileTreeWidth(treeWidth)
+  }, [treeWidth])
 
   const tree = useQuery({
     queryKey: [
@@ -284,7 +381,7 @@ export function FileTreeView({
   return (
     <div className="flex h-full min-w-0">
       {security.dialog}
-      <div className="flex w-72 min-w-56 flex-col border-r">
+      <div className="flex shrink-0 flex-col border-r" style={{ width: treeWidth }}>
         <div className="flex flex-wrap items-center gap-1 border-b px-3 py-2 text-[12.5px] text-ink-muted">
           <button
             type="button"
@@ -358,7 +455,7 @@ export function FileTreeView({
           {tree.isLoading && (
             <div className="flex flex-col gap-1 p-1">
               {Array.from({ length: 8 }, (_, i) => (
-                <Skeleton key={i} className="h-8" />
+                <Skeleton key={i} className="h-10" />
               ))}
             </div>
           )}
@@ -388,7 +485,7 @@ export function FileTreeView({
                 key={entry.path}
                 data-path={entry.path}
                 className={cn(
-                  'group flex h-8 items-center gap-2 rounded-md px-2',
+                  'group flex items-start gap-1.5 rounded-md px-2 py-1.5',
                   isSelected ? 'bg-select/10' : 'hover:bg-panel'
                 )}
               >
@@ -397,6 +494,7 @@ export function FileTreeView({
                     type="button"
                     onClick={() => setPath(entry.path)}
                     className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    title={name}
                   >
                     <Folder className="size-4 shrink-0 text-ink-muted" aria-hidden />
                     <span className="min-w-0 truncate text-[13px] font-medium">{name}</span>
@@ -405,7 +503,7 @@ export function FileTreeView({
                   <>
                     <input
                       type="checkbox"
-                      className="size-3.5 shrink-0 accent-select"
+                      className="mt-0.5 size-3.5 shrink-0 accent-select"
                       checked={checked.has(entry.path)}
                       aria-label={t('detail:files.selectFile', { file: name })}
                       onChange={() => toggleChecked(entry.path)}
@@ -413,97 +511,118 @@ export function FileTreeView({
                     <button
                       type="button"
                       onClick={() => setSelected(entry)}
-                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                      className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
+                      title={entry.path}
                     >
-                      <File
-                        className={cn(
-                          'size-4 shrink-0',
-                          isSelected ? 'text-select' : 'text-ink-faint'
-                        )}
-                        aria-hidden
-                      />
-                      <span
-                        className={cn(
-                          'min-w-0 flex-1 truncate font-mono text-[12.5px]',
-                          isSelected && 'text-select'
-                        )}
-                      >
-                        {name}
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <File
+                          className={cn(
+                            'size-4 shrink-0',
+                            isSelected ? 'text-select' : 'text-ink-faint'
+                          )}
+                          aria-hidden
+                        />
+                        <span
+                          className={cn(
+                            'min-w-0 truncate font-mono text-[12.5px]',
+                            isSelected && 'text-select'
+                          )}
+                        >
+                          {name}
+                        </span>
+                      </span>
+                      <span className="flex min-w-0 items-center gap-1.5 pl-5 font-mono text-[11px] text-ink-faint">
+                        {entry.lfs && <span>{t('detail:files.lfs')}</span>}
+                        <span>{formatBytes(entry.size)}</span>
                       </span>
                     </button>
-                    {entry.lfs && (
-                      <Badge variant="outline" className="text-[10px]">
-                        {t('detail:files.lfs')}
-                      </Badge>
-                    )}
-                    {entry.security && (
-                      <Badge
-                        variant={
-                          entry.security.status === 'safe'
-                            ? 'success'
-                            : entry.security.status === 'malicious'
-                              ? 'error'
-                              : 'warning'
-                        }
-                        className="text-[9.5px]"
-                        title={entry.security.message}
-                      >
-                        {entry.security.status === 'unknown'
-                          ? t('common:repro.general.unknownNoConclusion')
-                          : entry.security.status}
-                      </Badge>
-                    )}
-                    <span className="w-16 text-right font-mono text-[11.5px] text-ink-faint">
-                      {formatBytes(entry.size)}
-                    </span>
-                    {exportTools.length > 0 && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-6 text-ink-faint"
-                            aria-label={t('detail:files.export')}
-                            disabled={Boolean(activeExport) || exportRun.isPending}
-                          >
-                            <Share className="size-3.5" aria-hidden />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {targets.data && validTargets.length === 0 && (
-                            <DropdownMenuItem disabled>
-                              {t('detail:files.noTargets')}
-                            </DropdownMenuItem>
-                          )}
-                          {validTargets.map((target) => (
-                            <DropdownMenuItem
-                              key={target.tool}
-                              onSelect={() =>
-                                exportRun.mutate({ tool: target.tool, filePath: entry.path })
-                              }
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      {entry.security && (
+                        <FileSecurityIcon
+                          status={entry.security.status}
+                          message={entry.security.message}
+                        />
+                      )}
+                      {exportTools.length > 0 && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={cn(
+                                'size-8 text-ink-faint',
+                                !isSelected &&
+                                  'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100'
+                              )}
+                              aria-label={t('detail:files.export')}
+                              disabled={Boolean(activeExport) || exportRun.isPending}
                             >
-                              {t('detail:files.exportTo', { tool: TOOL_LABELS[target.tool] })}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-6 text-ink-faint"
-                      aria-label={t('detail:files.download')}
-                      loading={download.isPending}
-                      onClick={() => download.mutate([entry.path])}
-                    >
-                      <ArrowDownToLine className="size-3.5" aria-hidden />
-                    </Button>
+                              <Share className="size-3.5" aria-hidden />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {targets.data && validTargets.length === 0 && (
+                              <DropdownMenuItem disabled>
+                                {t('detail:files.noTargets')}
+                              </DropdownMenuItem>
+                            )}
+                            {validTargets.map((target) => (
+                              <DropdownMenuItem
+                                key={target.tool}
+                                onSelect={() =>
+                                  exportRun.mutate({ tool: target.tool, filePath: entry.path })
+                                }
+                              >
+                                {t('detail:files.exportTo', { tool: TOOL_LABELS[target.tool] })}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          'size-8 text-ink-faint',
+                          !isSelected &&
+                            'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100'
+                        )}
+                        aria-label={t('detail:files.download')}
+                        loading={download.isPending}
+                        onClick={() => download.mutate([entry.path])}
+                      >
+                        <ArrowDownToLine className="size-3.5" aria-hidden />
+                      </Button>
+                    </div>
                   </>
                 )}
               </div>
             )
           })}
         </div>
+      </div>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t('detail:files.resize')}
+        aria-valuemin={FILE_TREE_MIN_WIDTH}
+        aria-valuemax={FILE_TREE_MAX_WIDTH}
+        aria-valuenow={treeWidth}
+        tabIndex={0}
+        className="group/resize relative z-10 -ml-px w-2 shrink-0 cursor-col-resize"
+        onPointerDown={onResizePointerDown}
+        onPointerMove={onResizePointerMove}
+        onPointerUp={onResizePointerUp}
+        onPointerCancel={onResizePointerUp}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            event.preventDefault()
+            const delta = event.key === 'ArrowRight' ? 16 : -16
+            setTreeWidth((width) => clampFileTreeWidth(width + delta))
+          }
+        }}
+      >
+        <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border group-hover/resize:bg-select group-focus-visible/resize:bg-select" />
       </div>
 
       {targets.isError && (

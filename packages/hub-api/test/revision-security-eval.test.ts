@@ -270,6 +270,98 @@ describe('security evidence mapping and requests', () => {
     expect(tree[1]?.security?.scanners).not.toContain('hub-file-scan.indexed')
   })
 
+  it('does not treat VirusTotal report URLs or unscanned nested scanners as malware', () => {
+    const tree = mapFileTree([
+      {
+        type: 'file',
+        path: 'model-00001-of-00004.safetensors',
+        size: 3_950_000_000,
+        securityFileStatus: {
+          status: 'safe',
+          avScan: { status: 'unscanned', version: '1.5.2/27961' },
+          pickleImportScan: { status: 'unscanned' },
+          virusTotalScan: {
+            status: 'safe',
+            message: '0/75 engines detect it as malicious.',
+            reportLink: 'https://www.virustotal.com/gui/file/abc?utm_source=huggingface'
+          },
+          protectAiScan: {
+            status: 'safe',
+            reportLink: 'https://insights-db.paloaltonetworks.com/report/1'
+          }
+        }
+      },
+      {
+        type: 'file',
+        path: 'README.md',
+        size: 1200,
+        securityFileStatus: {
+          status: 'safe',
+          avScan: { status: 'unscanned' },
+          pickleImportScan: { status: 'unscanned' },
+          virusTotalScan: { status: 'unscanned' }
+        }
+      },
+      {
+        type: 'file',
+        path: 'legacy.pkl',
+        size: 12,
+        securityFileStatus: {
+          status: 'unsafe',
+          pickleImportScan: { highestSafetyLevel: 'dangerous' }
+        }
+      }
+    ])
+    expect(tree[0]?.security).toMatchObject({ status: 'safe' })
+    expect(tree[0]?.security?.evidence).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: expect.stringMatching(/reportLink/i)
+        })
+      ])
+    )
+    expect(tree[1]?.security).toMatchObject({ status: 'safe' })
+    expect(tree[2]?.security).toMatchObject({ status: 'warning' })
+
+    const report = mapSecurityReport(
+      { securityRepoStatus: { scansDone: true, filesWithIssues: [] } },
+      tree,
+      'model',
+      'org/qwen',
+      'main',
+      COMMIT
+    )
+    expect(report.overall).not.toBe('malicious')
+    expect(report.evidence.some((item) => item.status === 'malicious')).toBe(false)
+    expect(report.evidence.some((item) => /reportLink/i.test(item.source))).toBe(false)
+  })
+
+  it('copies filesWithIssues paths and treats pickle-only unsafe as a warning', () => {
+    const report = mapSecurityReport(
+      {
+        securityRepoStatus: {
+          scansDone: true,
+          filesWithIssues: [{ path: 'pytorch_model.bin', level: 'unsafe' }]
+        }
+      },
+      [],
+      'model',
+      'org/repo',
+      'main',
+      COMMIT
+    )
+    expect(report.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: 'filesWithIssues',
+          status: 'warning',
+          filePath: 'pytorch_model.bin'
+        })
+      ])
+    )
+    expect(report.overall).toBe('warning')
+  })
+
   it('requests securityStatus independently from evalResults at the exact commit', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (url) => {
       const value = String(url)

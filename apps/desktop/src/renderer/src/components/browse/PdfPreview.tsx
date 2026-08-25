@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowDownToLine, ChevronLeft, ChevronRight, FileQuestion } from 'lucide-react'
+import { ArrowDownToLine, FileQuestion } from 'lucide-react'
 import type { RepoKind } from '@oh-my-huggingface/shared'
-import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { invoke } from '@/lib/ipc'
 import { formatBytes } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
+import { PdfBytesViewer } from '@/components/browse/PdfBytesViewer'
 import { useResolvedRepoCommit } from '@/components/browse/revision-context'
 
 /** Keep under hub:fileRange's 64 MiB inclusive-window cap. */
@@ -32,18 +32,15 @@ export function PdfPreview({
 }: PdfPreviewProps): React.JSX.Element {
   const { t } = useTranslation(['detail', 'common'])
   const revision = useResolvedRepoCommit()
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [page, setPage] = useState(1)
-  const [pageCount, setPageCount] = useState(0)
+  const [bytes, setBytes] = useState<Uint8Array | null>(null)
   const [error, setError] = useState<'tooLarge' | 'unreadable' | null>(null)
   const [loading, setLoading] = useState(true)
-  // Keep the pdf.js document across page flips without re-fetching.
-  const docRef = useRef<PDFDocumentProxy | null>(null)
-  const workerRef = useRef<Worker | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    docRef.current = null
+    setBytes(null)
+    setError(null)
+    setLoading(true)
 
     void (async () => {
       try {
@@ -57,7 +54,7 @@ export function PdfPreview({
 
         // Fetch through main-process IPC: pdf.js can't reliably XHR/fetch the
         // omhf-file:// custom scheme under the renderer CSP (connect-src 'self').
-        const bytes = await invoke('hub:fileRange', {
+        const data = await invoke('hub:fileRange', {
           kind,
           repoId,
           path,
@@ -66,24 +63,7 @@ export function PdfPreview({
           end: size - 1
         })
         if (cancelled) return
-
-        const pdfjs = await import('pdfjs-dist')
-        // Vite `?worker` emits a same-origin Worker module (CSP script-src 'self').
-        const PdfWorker = (await import('pdfjs-dist/build/pdf.worker.mjs?worker')).default
-        workerRef.current?.terminate()
-        const worker = new PdfWorker()
-        workerRef.current = worker
-        pdfjs.GlobalWorkerOptions.workerPort = worker
-
-        const copy = new Uint8Array(bytes.byteLength)
-        copy.set(bytes)
-        const doc = await pdfjs.getDocument({ data: copy }).promise
-        if (cancelled) {
-          await doc.cleanup()
-          return
-        }
-        docRef.current = doc
-        setPageCount(doc.numPages)
+        setBytes(data)
         setLoading(false)
       } catch {
         if (!cancelled) {
@@ -95,42 +75,8 @@ export function PdfPreview({
 
     return () => {
       cancelled = true
-      const doc = docRef.current
-      docRef.current = null
-      if (doc) void doc.cleanup()
-      workerRef.current?.terminate()
-      workerRef.current = null
-      void import('pdfjs-dist').then((pdfjs) => {
-        pdfjs.GlobalWorkerOptions.workerPort = null
-      })
     }
   }, [kind, repoId, path, revision, size])
-
-  useEffect(() => {
-    const doc = docRef.current
-    const canvas = canvasRef.current
-    if (!doc || !canvas || page < 1 || page > pageCount || loading) return
-    let cancelled = false
-
-    void (async () => {
-      try {
-        const pdfPage = await doc.getPage(page)
-        if (cancelled) return
-        const viewport = pdfPage.getViewport({ scale: 1.25 })
-        const context = canvas.getContext('2d')
-        if (!context) return
-        canvas.width = viewport.width
-        canvas.height = viewport.height
-        await pdfPage.render({ canvasContext: context, viewport, canvas }).promise
-      } catch {
-        if (!cancelled) setError('unreadable')
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [page, pageCount, loading])
 
   if (loading) {
     return (
@@ -141,7 +87,7 @@ export function PdfPreview({
     )
   }
 
-  if (error || pageCount === 0) {
+  if (error || !bytes) {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <EmptyState
@@ -164,37 +110,13 @@ export function PdfPreview({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-2 border-b px-3 py-1.5">
-        <span className="text-[12px] text-ink-muted">
-          {t('detail:preview.pdfPage', { page, total: pageCount })}
-        </span>
-        <div className="flex items-center gap-0.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            aria-label={t('detail:datasetPreview.prev')}
-            disabled={page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-          >
-            <ChevronLeft className="size-4" aria-hidden />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            aria-label={t('detail:datasetPreview.next')}
-            disabled={page >= pageCount}
-            onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
-          >
-            <ChevronRight className="size-4" aria-hidden />
-          </Button>
-        </div>
-      </div>
-      <div className="flex min-h-0 flex-1 justify-center overflow-auto bg-panel/40 p-4">
-        <canvas ref={canvasRef} className="max-w-full shadow-sm" />
-      </div>
-    </div>
+    <PdfBytesViewer
+      bytes={bytes}
+      errorTitle={t('detail:preview.pdfErrorTitle')}
+      errorBody={t('detail:preview.pdfErrorBody')}
+      pageLabel={(page, total) => t('detail:preview.pdfPage', { page, total })}
+      prevLabel={t('detail:datasetPreview.prev')}
+      nextLabel={t('detail:datasetPreview.next')}
+    />
   )
 }

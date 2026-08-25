@@ -235,7 +235,14 @@
       "description": "PostHog 只會收到 7 類固定事件，其中包含只在遙測維持啟用期間跨啟動持續存在的隨機安裝識別碼、應用程式版本、平台、架構、語言，以及 Star 提醒的次數和操作。停用遙測會刪除此識別碼；日後再次選擇加入時會建立新的識別碼。網路傳輸時 PostHog 可能看到來源 IP；發行版本使用的 PostHog 專案必須設定為捨棄 IP 資料，$geoip_disable 只負責停用 GeoIP 地理資訊擴充。不會傳送帳號、權杖、儲存庫、路徑、檔名、搜尋、下載記錄或檔案內容。",
       "enabled": "分享化名化使用資料",
       "enabledHint": "已啟用；固定事件會傳送至 PostHog，可隨時立即停用。",
-      "disabledHint": "預設關閉；啟用前不會傳送任何遙測。"
+      "disabledHint": "預設關閉；啟用前不會傳送任何遙測。",
+      "unconfiguredHint": "此本機或未簽署建置無法傳送遙測。帶有 PostHog 專案金鑰的正式安裝包才可以。",
+      "lastCapture": "上次事件：{{event}} · {{status}} · {{time}}",
+      "captureStatus": {
+        "sent": "已傳送",
+        "skipped": "已略過",
+        "failed": "失敗"
+      }
     }
   },
   "profile": {

@@ -235,7 +235,14 @@
       "description": "PostHog receives only seven fixed events with a random installation ID that persists across launches only while telemetry is enabled, app version, platform, architecture, locale, and, for Star reminders, the prompt number and action. Turning telemetry off deletes the ID; opting in again later creates a new one. PostHog may see the source IP in transit. The release PostHog project must be configured to discard IP data; $geoip_disable only disables GeoIP enrichment. No account, token, repository, path, filename, search, download, or file content is sent.",
       "enabled": "Share pseudonymous usage",
       "enabledHint": "Enabled. Fixed events are sent to PostHog; you can turn this off immediately at any time.",
-      "disabledHint": "Off by default. Nothing is sent until you enable it."
+      "disabledHint": "Off by default. Nothing is sent until you enable it.",
+      "unconfiguredHint": "This local or unsigned build cannot send telemetry. Packaged releases with a PostHog project key can.",
+      "lastCapture": "Last event: {{event}} · {{status}} · {{time}}",
+      "captureStatus": {
+        "sent": "sent",
+        "skipped": "skipped",
+        "failed": "failed"
+      }
     }
   },
   "profile": {

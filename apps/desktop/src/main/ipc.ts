@@ -275,6 +275,7 @@ export function registerIpcHandlers(ctx: AppContext): void {
   handle('telemetry:resolveConsentPrompt', ({ claimId, decision }) =>
     ctx.telemetry.resolveConsentPrompt(claimId, decision)
   )
+  handle('telemetry:status', () => ctx.telemetry.getStatus())
   handle('starReminder:claim', () => {
     if (!ctx.starReminderEnabled) return { show: false as const }
     try {
@@ -443,8 +444,10 @@ export function registerIpcHandlers(ctx: AppContext): void {
 
   // --- hub --------------------------------------------------------------------
   handle('hub:search', ({ query }) => ctx.hub.searchRepos(query))
-  handle('hub:papers', (req) => ctx.hub.getDailyPapers(req?.cursor))
+  handle('hub:papers', (req) => ctx.hub.getDailyPapers(req ?? {}))
   handle('hub:paper', ({ paperId }) => ctx.hub.getPaper(paperId))
+  handle('hub:paperRelated', ({ paperId }) => ctx.hub.getPaperRelated(paperId))
+  handle('hub:paperDocument', ({ paperId, format }) => ctx.hub.getPaperDocument(paperId, format))
   handle('hub:repoDetail', ({ kind, repoId, revision }) =>
     ctx.hub.getRepoDetail(kind, repoId, revision)
   )

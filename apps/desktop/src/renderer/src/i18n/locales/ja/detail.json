@@ -107,7 +107,8 @@
     "clearSelection": "Clear",
     "downloadSelected": "Download selected",
     "selectFile": "Select {{file}}",
-    "selected": "{{count}} selected"
+    "selected": "{{count}} selected",
+    "resize": "ファイル一覧の幅を変更"
   },
   "gate": {
     "ask": "このリポジトリは承認制です — ダウンロードとプレビューにはアクセスをリクエストしてください。",

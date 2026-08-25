@@ -5,7 +5,15 @@ import { describe, expect, it, vi } from 'vitest'
 vi.stubGlobal('window', {
   matchMedia: () => ({ matches: false, addEventListener: () => {} })
 })
-const { exportToolsFor, treeFromSnapshot } = await import('./FileTreeView')
+const { clampFileTreeWidth, exportToolsFor, treeFromSnapshot } = await import('./FileTreeView')
+
+describe('clampFileTreeWidth', () => {
+  it('keeps the tree between the readable floor and a usable ceiling', () => {
+    expect(clampFileTreeWidth(100)).toBe(256)
+    expect(clampFileTreeWidth(900)).toBe(560)
+    expect(clampFileTreeWidth(336.4)).toBe(336)
+  })
+})
 
 describe('exportToolsFor', () => {
   it('offers all targets for GGUF files', () => {

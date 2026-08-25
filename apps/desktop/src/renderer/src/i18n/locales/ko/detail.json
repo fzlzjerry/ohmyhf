@@ -107,7 +107,8 @@
     "clearSelection": "Clear",
     "downloadSelected": "Download selected",
     "selectFile": "Select {{file}}",
-    "selected": "{{count}} selected"
+    "selected": "{{count}} selected",
+    "resize": "파일 목록 너비 조절"
   },
   "gate": {
     "ask": "이 저장소는 게이트로 제한되어 있습니다 — 다운로드하고 미리 보려면 액세스를 요청하세요.",

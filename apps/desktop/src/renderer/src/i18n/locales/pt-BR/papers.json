@@ -1,16 +1,66 @@
 {
+  "aiSummary": "Resumo de IA",
   "authors": "Autores",
   "comment": {
     "placeholder": "Escreva um comentário (Markdown é compatível)…",
     "posted": "Comentário publicado"
   },
-  "empty": "Nenhum artigo carregado ainda.",
-  "listError": "Não foi possível carregar os Artigos Diários",
+  "comments": {
+    "empty": "Nenhum comentário ainda.",
+    "heading": "Comentários",
+    "loadError": "Não foi possível carregar os comentários"
+  },
   "detailError": "Não foi possível carregar este artigo",
-  "retryMore": "Tentar carregar mais novamente",
+  "empty": "Nenhum artigo carregado ainda.",
+  "emptyHint": "Tente outro título, autor ou id do arXiv.",
+  "emptySearch": "Nenhum artigo corresponde à sua busca.",
+  "listError": "Não foi possível carregar os Artigos Diários",
+  "loadMore": "Carregar mais artigos",
+  "noAbstract": "Não há resumo disponível para este artigo.",
+  "noAiSummary": "Não há um resumo de IA disponível.",
+  "openGithub": "Abrir GitHub",
+  "openProject": "Página do projeto",
+  "period": {
+    "daily": "Diário",
+    "monthly": "Mensal",
+    "weekly": "Semanal"
+  },
   "published": "Publicado {{time}}",
+  "readHere": "Ler aqui",
   "readOnArxiv": "Ler no arXiv",
   "readOnHub": "Abrir no Hub",
+  "reader": {
+    "loadingMarkdown": "Carregando o Markdown do artigo…",
+    "loadingPdf": "Carregando PDF…",
+    "markdownError": "Não foi possível carregar o Markdown do artigo.",
+    "noMarkdown": "Não há versão Markdown disponível para este artigo.",
+    "noPdf": "Não há PDF disponível para este artigo.",
+    "pdfError": "Não foi possível carregar o PDF.",
+    "pdfTooLarge": "Este PDF tem mais de 32 MiB e não pode ser visualizado aqui."
+  },
+  "refresh": "Atualizar artigos",
+  "related": "Relacionados no Hub",
+  "relatedDatasets": "Conjuntos de dados",
+  "relatedEmpty": "Ainda não há artefatos do Hub para este id do arXiv.",
+  "relatedError": "Não foi possível carregar os artefatos relacionados.",
+  "relatedModels": "Modelos",
+  "relatedSpaces": "Spaces",
+  "retryMore": "Tentar carregar mais novamente",
+  "search": "Pesquisar artigos",
+  "select": "Selecione um artigo.",
+  "selectHint": "Os artigos diários vêm do Hugging Face. Abra um para ler o resumo, Markdown ou PDF.",
+  "sort": {
+    "published": "Recentes",
+    "trending": "Em alta"
+  },
+  "submittedBy": "Enviado por {{name}}",
+  "subtitle": "Artigos diários do Hugging Face, com leitor integrado.",
+  "tabs": {
+    "abstract": "Resumo",
+    "comments": "Comentários",
+    "paper": "Artigo",
+    "pdf": "PDF"
+  },
   "title": "Artigos Diários",
   "upvote": {
     "add": "Votar a favor",
@@ -19,10 +69,5 @@
     "remove": "Remover voto a favor",
     "sessionExpired": "Sua sessão web do Hub expirou. Reconecte-a em Configurações → Conta para votar a favor a partir do aplicativo."
   },
-  "upvotes": "Votos a favor",
-  "comments": {
-    "heading": "Comentários",
-    "empty": "Nenhum comentário ainda.",
-    "loadError": "Não foi possível carregar os comentários"
-  }
+  "upvotes": "Votos a favor"
 }

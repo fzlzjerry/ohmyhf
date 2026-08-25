@@ -1,4 +1,5 @@
 {
+  "aiSummary": "AI summary",
   "authors": "Authors",
   "comment": {
     "placeholder": "Write a comment (Markdown supported)…",
@@ -9,13 +10,57 @@
     "heading": "Comments",
     "loadError": "Couldn't load comments"
   },
-  "empty": "No papers loaded yet.",
-  "listError": "Couldn't load Daily Papers",
   "detailError": "Couldn't load this paper",
-  "retryMore": "Retry loading more",
+  "empty": "No papers loaded yet.",
+  "emptyHint": "Try a different title, author, or arXiv id.",
+  "emptySearch": "No papers matched your search.",
+  "listError": "Couldn't load Daily Papers",
+  "loadMore": "Load more papers",
+  "noAbstract": "No abstract is available for this paper.",
+  "noAiSummary": "No AI summary is available.",
+  "openGithub": "Open GitHub",
+  "openProject": "Project page",
+  "period": {
+    "daily": "Daily",
+    "monthly": "Monthly",
+    "weekly": "Weekly"
+  },
   "published": "Published {{time}}",
+  "readHere": "Read here",
   "readOnArxiv": "Read on arXiv",
   "readOnHub": "Open on the Hub",
+  "reader": {
+    "loadingMarkdown": "Loading paper Markdown…",
+    "loadingPdf": "Loading PDF…",
+    "markdownError": "Couldn't load the paper Markdown.",
+    "noMarkdown": "No Markdown version is available for this paper.",
+    "noPdf": "No PDF is available for this paper.",
+    "pdfError": "Couldn't load the PDF.",
+    "pdfTooLarge": "This PDF is larger than 32 MiB and cannot be previewed here."
+  },
+  "refresh": "Refresh papers",
+  "related": "Related on the Hub",
+  "relatedDatasets": "Datasets",
+  "relatedEmpty": "No related Hub artifacts for this arXiv id yet.",
+  "relatedError": "Couldn't load related artifacts.",
+  "relatedModels": "Models",
+  "relatedSpaces": "Spaces",
+  "retryMore": "Retry loading more",
+  "search": "Search papers",
+  "select": "Select a paper.",
+  "selectHint": "Daily papers arrive from Hugging Face. Open one to read the abstract, Markdown, or PDF.",
+  "sort": {
+    "published": "Latest",
+    "trending": "Trending"
+  },
+  "submittedBy": "Submitted by {{name}}",
+  "subtitle": "Hugging Face daily papers, with a built-in reader.",
+  "tabs": {
+    "abstract": "Abstract",
+    "comments": "Comments",
+    "paper": "Paper",
+    "pdf": "PDF"
+  },
   "title": "Daily Papers",
   "upvote": {
     "add": "Upvote",

@@ -1,16 +1,66 @@
 {
+  "aiSummary": "AI 摘要",
   "authors": "作者",
   "comment": {
     "placeholder": "撰寫留言（支援 Markdown）…",
     "posted": "留言已發佈"
   },
-  "empty": "尚未載入任何論文。",
-  "listError": "無法載入每日論文",
+  "comments": {
+    "empty": "尚無留言。",
+    "heading": "留言",
+    "loadError": "無法載入留言"
+  },
   "detailError": "無法載入此論文",
-  "retryMore": "重試載入更多",
+  "empty": "尚未載入任何論文。",
+  "emptyHint": "試試換個標題、作者或 arXiv 編號。",
+  "emptySearch": "沒有符合的論文。",
+  "listError": "無法載入每日論文",
+  "loadMore": "載入更多論文",
+  "noAbstract": "這篇論文沒有摘要。",
+  "noAiSummary": "沒有可用的 AI 摘要。",
+  "openGithub": "開啟 GitHub",
+  "openProject": "專案頁面",
+  "period": {
+    "daily": "每日",
+    "monthly": "每月",
+    "weekly": "每週"
+  },
   "published": "發佈於 {{time}}",
+  "readHere": "在此閱讀",
   "readOnArxiv": "在 arXiv 上閱讀",
   "readOnHub": "在 Hub 上開啟",
+  "reader": {
+    "loadingMarkdown": "正在載入論文 Markdown…",
+    "loadingPdf": "正在載入 PDF…",
+    "markdownError": "無法載入論文 Markdown。",
+    "noMarkdown": "這篇論文沒有 Markdown 版本。",
+    "noPdf": "這篇論文沒有 PDF。",
+    "pdfError": "無法載入 PDF。",
+    "pdfTooLarge": "這份 PDF 超過 32 MiB，無法在此預覽。"
+  },
+  "refresh": "重新整理論文",
+  "related": "Hub 上的相關資源",
+  "relatedDatasets": "資料集",
+  "relatedEmpty": "這個 arXiv 編號還沒有關聯的 Hub 資源。",
+  "relatedError": "無法載入相關資源。",
+  "relatedModels": "模型",
+  "relatedSpaces": "空間",
+  "retryMore": "重試載入更多",
+  "search": "搜尋論文",
+  "select": "選擇一篇論文。",
+  "selectHint": "每日論文來自 Hugging Face。開啟一篇即可閱讀摘要、Markdown 或 PDF。",
+  "sort": {
+    "published": "最新",
+    "trending": "熱門"
+  },
+  "submittedBy": "由 {{name}} 提交",
+  "subtitle": "Hugging Face 每日論文，可在應用程式內閱讀。",
+  "tabs": {
+    "abstract": "摘要",
+    "comments": "留言",
+    "paper": "正文",
+    "pdf": "PDF"
+  },
   "title": "每日論文",
   "upvote": {
     "add": "推薦",
@@ -19,10 +69,5 @@
     "remove": "取消推薦",
     "sessionExpired": "您的 Hub 網頁工作階段已過期。請前往「設定 → 帳戶」重新連接，以在應用程式內推薦。"
   },
-  "upvotes": "推薦數",
-  "comments": {
-    "heading": "留言",
-    "empty": "尚無留言。",
-    "loadError": "無法載入留言"
-  }
+  "upvotes": "推薦數"
 }

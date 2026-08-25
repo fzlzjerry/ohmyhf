@@ -235,7 +235,14 @@
       "description": "PostHog erhält nur sieben feste Ereignisse mit einer zufälligen Installationskennung, die nur bei aktivierter Telemetrie über App-Starts hinweg bestehen bleibt, App-Version, Plattform, Architektur, Sprache sowie bei Star-Hinweisen deren Nummer und Aktion. Beim Abschalten der Telemetrie wird die Kennung gelöscht; eine spätere erneute Zustimmung erstellt eine neue. PostHog kann die Quell-IP beim Transport sehen. Das für Releases verwendete PostHog-Projekt muss so konfiguriert sein, dass IP-Daten verworfen werden; $geoip_disable deaktiviert nur die GeoIP-Anreicherung. Konten, Tokens, Repositories, Pfade, Dateinamen, Suchen, Downloads und Dateiinhalte werden nicht gesendet.",
       "enabled": "Pseudonyme Nutzung teilen",
       "enabledHint": "Aktiviert. Feste Ereignisse werden an PostHog gesendet; jederzeit sofort abschaltbar.",
-      "disabledHint": "Standardmäßig aus. Bis zur Aktivierung wird nichts gesendet."
+      "disabledHint": "Standardmäßig aus. Bis zur Aktivierung wird nichts gesendet.",
+      "unconfiguredHint": "Dieser lokale oder unsignierte Build kann keine Telemetrie senden. Paketierte Releases mit einem PostHog-Projektschlüssel können das.",
+      "lastCapture": "Letztes Ereignis: {{event}} · {{status}} · {{time}}",
+      "captureStatus": {
+        "sent": "gesendet",
+        "skipped": "übersprungen",
+        "failed": "fehlgeschlagen"
+      }
     }
   },
   "profile": {

@@ -1,16 +1,66 @@
 {
+  "aiSummary": "Résumé IA",
   "authors": "Auteurs",
   "comment": {
     "placeholder": "Écrivez un commentaire (Markdown pris en charge)…",
     "posted": "Commentaire publié"
   },
-  "empty": "Aucun article chargé pour le moment.",
-  "listError": "Impossible de charger les Daily Papers",
+  "comments": {
+    "empty": "Aucun commentaire pour le moment.",
+    "heading": "Commentaires",
+    "loadError": "Impossible de charger les commentaires"
+  },
   "detailError": "Impossible de charger cet article",
-  "retryMore": "Réessayer de charger plus",
+  "empty": "Aucun article chargé pour le moment.",
+  "emptyHint": "Essayez un autre titre, auteur ou identifiant arXiv.",
+  "emptySearch": "Aucun article ne correspond à votre recherche.",
+  "listError": "Impossible de charger les Daily Papers",
+  "loadMore": "Charger plus d’articles",
+  "noAbstract": "Aucun résumé n’est disponible pour cet article.",
+  "noAiSummary": "Aucun résumé IA n’est disponible.",
+  "openGithub": "Ouvrir GitHub",
+  "openProject": "Page du projet",
+  "period": {
+    "daily": "Quotidien",
+    "monthly": "Mensuel",
+    "weekly": "Hebdomadaire"
+  },
   "published": "Publié {{time}}",
+  "readHere": "Lire ici",
   "readOnArxiv": "Lire sur arXiv",
   "readOnHub": "Ouvrir sur le Hub",
+  "reader": {
+    "loadingMarkdown": "Chargement du Markdown de l’article…",
+    "loadingPdf": "Chargement du PDF…",
+    "markdownError": "Impossible de charger le Markdown de l’article.",
+    "noMarkdown": "Aucune version Markdown n’est disponible pour cet article.",
+    "noPdf": "Aucun PDF n’est disponible pour cet article.",
+    "pdfError": "Impossible de charger le PDF.",
+    "pdfTooLarge": "Ce PDF dépasse 32 Mo et ne peut pas être prévisualisé ici."
+  },
+  "refresh": "Actualiser les articles",
+  "related": "Liés sur le Hub",
+  "relatedDatasets": "Jeux de données",
+  "relatedEmpty": "Aucun artefact Hub n’est encore lié à cet identifiant arXiv.",
+  "relatedError": "Impossible de charger les artefacts liés.",
+  "relatedModels": "Modèles",
+  "relatedSpaces": "Spaces",
+  "retryMore": "Réessayer de charger plus",
+  "search": "Rechercher des articles",
+  "select": "Sélectionnez un article.",
+  "selectHint": "Les Daily Papers viennent de Hugging Face. Ouvrez-en un pour lire le résumé, le Markdown ou le PDF.",
+  "sort": {
+    "published": "Récents",
+    "trending": "Tendances"
+  },
+  "submittedBy": "Soumis par {{name}}",
+  "subtitle": "Daily Papers de Hugging Face, avec un lecteur intégré.",
+  "tabs": {
+    "abstract": "Résumé",
+    "comments": "Commentaires",
+    "paper": "Article",
+    "pdf": "PDF"
+  },
   "title": "Daily Papers",
   "upvote": {
     "add": "Voter",
@@ -19,10 +69,5 @@
     "remove": "Retirer le vote",
     "sessionExpired": "Votre session web du Hub a expiré. Reconnectez-la dans Paramètres → Compte pour voter depuis l'application."
   },
-  "upvotes": "Votes",
-  "comments": {
-    "heading": "Commentaires",
-    "empty": "Aucun commentaire pour le moment.",
-    "loadError": "Impossible de charger les commentaires"
-  }
+  "upvotes": "Votes"
 }

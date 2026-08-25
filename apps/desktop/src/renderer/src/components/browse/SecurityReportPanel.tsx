@@ -58,7 +58,7 @@ export function SecurityReportPanel({
           }
         >
           <Icon className="size-3" aria-hidden />
-          {report.overall === 'unknown' ? t('repro.general.unknownNoConclusion') : result.decision}
+          {t(`repro.security.decision.${result.decision}`)}
         </Badge>
         <span className="font-mono text-[10.5px] text-ink-faint">
           {t('repro.security.checkedAt', {
@@ -112,7 +112,9 @@ export function SecurityReportPanel({
                 key={`${evidence.source}:${evidence.filePath ?? ''}:${index}`}
                 className="border-t border-border-card"
               >
-                <td className="px-2 py-1.5 font-medium">{evidence.status}</td>
+                <td className="px-2 py-1.5 font-medium">
+                  {t(`repro.security.status.${evidence.status}`)}
+                </td>
                 <td className="px-2 py-1.5 font-mono text-ink-muted">{evidence.source}</td>
                 <td className="max-w-72 truncate px-2 py-1.5 font-mono text-ink-muted">
                   {evidence.filePath ?? t('repro.security.repositoryLevel')}

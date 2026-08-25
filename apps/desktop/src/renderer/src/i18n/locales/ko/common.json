@@ -163,7 +163,20 @@
       "checked": "Checked",
       "reasons": "Reasons",
       "evidence": "Evidence",
-      "confirmAction": "Confirm this action"
+      "confirmAction": "Confirm this action",
+      "status": {
+        "safe": "안전",
+        "malicious": "악성",
+        "warning": "경고",
+        "pending": "검사 중",
+        "error": "검사 오류",
+        "unknown": "알 수 없음"
+      },
+      "decision": {
+        "allow": "허용",
+        "confirm": "확인 필요",
+        "block": "차단됨"
+      }
     },
     "space": {
       "liveWarning": "This Run tab shows the current live deployment and may differ from selected commit {{commit}}.",
