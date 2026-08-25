@@ -665,7 +665,9 @@ export class TelemetryService {
 /**
  * A stored decline must win over the opt-out default. Older builds recorded
  * "No thanks" without writing settings, so an upgrade would otherwise start
- * sending events from a user who already refused.
+ * sending events from a user who already refused. Persistence failures are
+ * swallowed so this optional migration cannot prevent launch; the next start
+ * retries.
  */
 export function applyExplicitTelemetryDecline(
   settings: {
@@ -674,9 +676,13 @@ export function applyExplicitTelemetryDecline(
   },
   telemetry: Pick<TelemetryService, 'hasExplicitDecline' | 'clearIdentity'>
 ): void {
-  if (!telemetry.hasExplicitDecline()) return
-  if (settings.get().telemetryEnabled === true) {
-    settings.set({ telemetryEnabled: false })
+  try {
+    if (!telemetry.hasExplicitDecline()) return
+    if (settings.get().telemetryEnabled === true) {
+      settings.set({ telemetryEnabled: false })
+    }
+    telemetry.clearIdentity()
+  } catch {
+    // Optional telemetry migration must never take down startup.
   }
-  telemetry.clearIdentity()
 }

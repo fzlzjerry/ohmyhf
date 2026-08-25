@@ -474,6 +474,31 @@ describe('TelemetryService', () => {
     expect(values.has(INSTALLATION_ID_KEY)).toBe(false)
   })
 
+  it('contains settings persistence failures so startup can continue', () => {
+    const backing = createKvDb({
+      [CONSENT_PROMPT_KEY]: JSON.stringify({
+        version: 2,
+        claimId: CONSENT_CLAIM_ID_1,
+        status: 'resolved',
+        resolution: 'declined'
+      }),
+      [INSTALLATION_ID_KEY]: INSTALL_ID_1
+    })
+    const settings = {
+      get: () => ({ telemetryEnabled: true }),
+      set: (): never => {
+        throw new Error('sqlite readonly')
+      }
+    }
+    const { service } = makeService({
+      db: backing.db,
+      enabled: () => true
+    })
+
+    expect(() => applyExplicitTelemetryDecline(settings, service)).not.toThrow()
+    expect(backing.values.get(INSTALLATION_ID_KEY)).toBe(INSTALL_ID_1)
+  })
+
   it('does not create consent state when the build is unconfigured', () => {
     for (const { service, values, immediateCalls } of [
       makeService({ apiKey: '', enabled: () => false }),

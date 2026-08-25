@@ -214,7 +214,13 @@ if (!gotLock) {
       // The getter is evaluated per event so Settings changes apply immediately.
       fetchImpl: createFailClosedDynamicProxiedFetch(() => settings.get().proxyUrl)
     })
-    applyExplicitTelemetryDecline(settings, telemetry)
+    try {
+      applyExplicitTelemetryDecline(settings, telemetry)
+    } catch {
+      // Honor a stored decline without blocking window creation if SQLite is
+      // read-only or full. The helper also fails closed; this is a last guard.
+      console.error('[telemetry] failed to honor a stored telemetry decline')
+    }
     const starReminder = new StarReminderService({
       db,
       hasMeaningfulActivity: () => {
