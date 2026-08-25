@@ -315,11 +315,14 @@ export class TelemetryService {
    * acknowledgement without a decision receives the same claim again. Only an
    * explicit keep/decline resolves it; reserving creates no installation
    * identity and emits no event. An enabled setting is not a decision: the
-   * opt-out default can send events before this card is resolved.
+   * opt-out default can send events before this card is resolved. A disabled
+   * setting is not disclosed: the card states that telemetry is on, and a
+   * stored-off preference must stay off unless the user re-enables it.
    */
   claimConsentPrompt(): ConsentPromptClaim {
     try {
       if (!this.isConfigured()) return false
+      if (this.enabled() !== true) return false
 
       const transaction = this.db.transaction((): ConsentPromptClaim => {
         const row = this.db

@@ -598,6 +598,7 @@ describe('CommunityPrompt', () => {
   })
 
   it('finishes telemetry acceptance through the persisted settings write', async () => {
+    mocks.state.settings.telemetryEnabled = true
     const settings = { telemetryEnabled: true }
     mocks.invoke.mockImplementation(async (channel: string) => {
       if (channel === 'telemetry:claimConsentPrompt') {
@@ -624,6 +625,29 @@ describe('CommunityPrompt', () => {
       'telemetry:resolveConsentPrompt',
       expect.anything()
     )
+    expect(screen.queryByRole('region')).toBeNull()
+  })
+
+  it('does not turn telemetry on when Got it is clicked while it is already off', async () => {
+    mocks.state.settings.telemetryEnabled = false
+    mocks.invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'telemetry:claimConsentPrompt') {
+        return { show: true, claimId: CONSENT_CLAIM_ID }
+      }
+      if (channel === 'telemetry:acknowledgeConsentPrompt') {
+        return { accepted: true, newlyAccepted: true }
+      }
+      throw new Error(`Unexpected channel: ${channel}`)
+    })
+    render(<CommunityPrompt />)
+    await passDelay()
+
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'settings:community.telemetry.accept' }))
+    )
+
+    expect(mocks.invoke).not.toHaveBeenCalledWith('settings:set', expect.anything())
+    expect(mocks.setSettings).not.toHaveBeenCalled()
     expect(screen.queryByRole('region')).toBeNull()
   })
 

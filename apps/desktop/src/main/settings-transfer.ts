@@ -25,12 +25,13 @@ export function portableSettingsForExport(settings: AppSettings): PortableAppSet
 
 /**
  * Apply imported preferences while preserving installation-local state. Older
- * exports may contain telemetryEnabled, but it is intentionally ignored.
+ * exports may contain telemetryEnabled, but it is intentionally ignored — the
+ * result omits it so applying the patch cannot resolve consent.
  */
 export function settingsFromImport(
   current: AppSettings,
   imported: Partial<AppSettings>
-): AppSettings {
+): Omit<AppSettings, 'telemetryEnabled'> {
   const {
     hfCacheDir: _importedCacheDir,
     telemetryEnabled: _importedTelemetryConsent,
@@ -38,11 +39,11 @@ export function settingsFromImport(
     llamaServerBinaryPath: _importedLlamaBinaryPath,
     ...portableSettings
   } = imported
+  const { telemetryEnabled: _defaultTelemetryConsent, ...defaultsWithoutConsent } = DEFAULT_SETTINGS
   return {
-    ...DEFAULT_SETTINGS,
+    ...defaultsWithoutConsent,
     ...portableSettings,
     hfCacheDir: current.hfCacheDir,
-    telemetryEnabled: current.telemetryEnabled,
     ollamaBinaryPath: current.ollamaBinaryPath,
     llamaServerBinaryPath: current.llamaServerBinaryPath
   }

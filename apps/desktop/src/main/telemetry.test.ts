@@ -116,7 +116,6 @@ describe('TelemetryService', () => {
     const createFirstClaimId = vi.fn(() => CONSENT_CLAIM_ID_1)
     const first = makeService({
       db: backing.db,
-      enabled: () => false,
       createConsentClaimId: createFirstClaimId
     })
 
@@ -128,7 +127,6 @@ describe('TelemetryService', () => {
     const createSecondClaimId = vi.fn(() => CONSENT_CLAIM_ID_2)
     const reloaded = makeService({
       db: backing.db,
-      enabled: () => false,
       createConsentClaimId: createSecondClaimId
     })
     expect(reloaded.service.claimConsentPrompt()).toEqual({ claimId: CONSENT_CLAIM_ID_1 })
@@ -148,7 +146,7 @@ describe('TelemetryService', () => {
 
   it('acknowledges display idempotently without resolving or consuming the claim', () => {
     const backing = createKvDb()
-    const { service, fetchImpl } = makeService({ db: backing.db, enabled: () => false })
+    const { service, fetchImpl } = makeService({ db: backing.db })
     const claim = service.claimConsentPrompt()
     expect(claim).toEqual({ claimId: CONSENT_CLAIM_ID_1 })
     if (claim === false) throw new Error('expected a consent claim')
@@ -172,7 +170,6 @@ describe('TelemetryService', () => {
     expect(service.claimConsentPrompt()).toEqual({ claimId: CONSENT_CLAIM_ID_1 })
     const reloaded = makeService({
       db: backing.db,
-      enabled: () => false,
       createConsentClaimId: () => CONSENT_CLAIM_ID_2
     })
     expect(reloaded.service.claimConsentPrompt()).toEqual({ claimId: CONSENT_CLAIM_ID_1 })
@@ -192,7 +189,7 @@ describe('TelemetryService', () => {
   })
 
   it('resolves only an explicit decline from a displayed claim and is idempotent', () => {
-    const { service, fetchImpl, values, immediateCalls } = makeService({ enabled: () => false })
+    const { service, fetchImpl, values, immediateCalls } = makeService()
     const claim = service.claimConsentPrompt()
     if (claim === false) throw new Error('expected a consent claim')
 
@@ -270,7 +267,7 @@ describe('TelemetryService', () => {
   })
 
   it('preserves the current claim when settings explicitly accept after display or decline', () => {
-    const { service, values } = makeService({ enabled: () => false })
+    const { service, values } = makeService()
     const claim = service.claimConsentPrompt()
     if (claim === false) throw new Error('expected a consent claim')
     service.acknowledgeConsentPrompt(claim.claimId)
@@ -319,7 +316,6 @@ describe('TelemetryService', () => {
       })
       const { service, fetchImpl } = makeService({
         db: backing.db,
-        enabled: () => false,
         createConsentClaimId: () => CONSENT_CLAIM_ID_2
       })
 
@@ -369,6 +365,40 @@ describe('TelemetryService', () => {
     expect(values.has(INSTALLATION_ID_KEY)).toBe(false)
     expect(fetchImpl).not.toHaveBeenCalled()
     expect(immediateCalls()).toBe(1)
+  })
+
+  it('does not offer the opt-out disclosure when telemetry is already off', () => {
+    const fresh = makeService({ enabled: () => false })
+    expect(fresh.service.claimConsentPrompt()).toBe(false)
+    expect(fresh.values.has(CONSENT_PROMPT_KEY)).toBe(false)
+    expect(fresh.values.has(INSTALLATION_ID_KEY)).toBe(false)
+    expect(fresh.fetchImpl).not.toHaveBeenCalled()
+    expect(fresh.immediateCalls()).toBe(0)
+
+    const backing = createKvDb({
+      [CONSENT_PROMPT_KEY]: JSON.stringify({
+        version: 1,
+        claimId: CONSENT_CLAIM_ID_1,
+        shown: true
+      })
+    })
+    const upgraded = makeService({
+      db: backing.db,
+      enabled: () => false,
+      createConsentClaimId: () => CONSENT_CLAIM_ID_2
+    })
+
+    expect(upgraded.service.claimConsentPrompt()).toBe(false)
+    expect(backing.values.get(CONSENT_PROMPT_KEY)).toBe(
+      JSON.stringify({
+        version: 1,
+        claimId: CONSENT_CLAIM_ID_1,
+        shown: true
+      })
+    )
+    expect(backing.values.has(INSTALLATION_ID_KEY)).toBe(false)
+    expect(upgraded.fetchImpl).not.toHaveBeenCalled()
+    expect(upgraded.immediateCalls()).toBe(0)
   })
 
   it('treats only a resolved decline as an explicit opt-out', () => {
@@ -465,7 +495,6 @@ describe('TelemetryService', () => {
       }
     ]) {
       const { service, values, fetchImpl } = makeService({
-        enabled: () => false,
         createConsentClaimId
       })
       expect(service.claimConsentPrompt()).toBe(false)
@@ -498,7 +527,6 @@ describe('TelemetryService', () => {
     const createConsentClaimId = vi.fn(() => CONSENT_CLAIM_ID_2)
     const { service, fetchImpl } = makeService({
       db: backing.db,
-      enabled: () => false,
       createConsentClaimId
     })
 
@@ -554,9 +582,10 @@ describe('TelemetryService', () => {
       })
 
       await expect(service.capture('app_launched')).resolves.toEqual({ status: 'skipped' })
-      expect(service.claimConsentPrompt()).toEqual({ claimId: CONSENT_CLAIM_ID_1 })
+      expect(service.claimConsentPrompt()).toBe(false)
       expect(fetchImpl).not.toHaveBeenCalled()
       expect(values.has(INSTALLATION_ID_KEY)).toBe(false)
+      expect(values.has(CONSENT_PROMPT_KEY)).toBe(false)
     }
   })
 

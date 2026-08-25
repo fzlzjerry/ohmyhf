@@ -393,6 +393,8 @@ export function registerIpcHandlers(ctx: AppContext): void {
     }
     const parsed = settingsExportFileSchema.safeParse(raw)
     if (!parsed.success) throw new Error('Invalid settings file')
+    // Import must not write telemetryEnabled: applySettingsPatch treats that
+    // field as an explicit keep/decline and would resolve the disclosure.
     const next = await applySettingsPatch(
       ctx,
       settingsFromImport(ctx.settings.get(), parsed.data.settings)

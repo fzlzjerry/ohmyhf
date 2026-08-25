@@ -350,8 +350,10 @@ export function CommunityPrompt(): React.JSX.Element {
       if (pending) return
       setPending(true)
       try {
-        const settings = await invoke('settings:set', { patch: { telemetryEnabled: true } })
-        setSettings(settings)
+        if (telemetryEnabled) {
+          const settings = await invoke('settings:set', { patch: { telemetryEnabled: true } })
+          setSettings(settings)
+        }
         dismissPrompt()
       } catch (error) {
         push(error instanceof Error ? error.message : t('common:error.generic'), 'error')

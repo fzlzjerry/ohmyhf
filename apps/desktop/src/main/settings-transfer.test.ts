@@ -42,7 +42,7 @@ describe('settings transfer privacy boundaries', () => {
       expect(result.hfCacheDir).toBe('/local/cache')
       expect(result.ollamaBinaryPath).toBe('/local/bin/ollama')
       expect(result.llamaServerBinaryPath).toBe('/local/bin/llama-server')
-      expect(result.telemetryEnabled).toBe(!importedConsent)
+      expect(result).not.toHaveProperty('telemetryEnabled')
       expect(result.theme).toBe('dark')
     }
   )
