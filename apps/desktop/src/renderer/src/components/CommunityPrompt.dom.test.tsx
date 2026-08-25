@@ -387,6 +387,25 @@ describe('CommunityPrompt', () => {
     expect(screen.getByRole('status').textContent).toBe('settings:community.telemetry.title')
   })
 
+  it('keeps the disclosure visible when telemetry is already enabled', async () => {
+    mocks.state.settings.telemetryEnabled = true
+    mocks.invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'telemetry:claimConsentPrompt') {
+        return { show: true, claimId: CONSENT_CLAIM_ID }
+      }
+      if (channel === 'telemetry:acknowledgeConsentPrompt') {
+        return { accepted: true, newlyAccepted: true }
+      }
+      throw new Error(`Unexpected channel: ${channel}`)
+    })
+    render(<CommunityPrompt />)
+
+    await passDelay()
+    expect(
+      screen.getByRole('region', { name: 'settings:community.telemetry.title' })
+    ).not.toBeNull()
+  })
+
   it('removes a consent card resolved by the Settings telemetry switch', async () => {
     mocks.invoke.mockImplementation(async (channel: string) => {
       if (channel === 'telemetry:claimConsentPrompt') {
@@ -557,6 +576,7 @@ describe('CommunityPrompt', () => {
               decision: 'decline'
             }
       }
+      if (channel === 'settings:set') return { telemetryEnabled: false }
       throw new Error(`Unexpected channel: ${channel}`)
     })
     render(<CommunityPrompt />)
@@ -571,6 +591,9 @@ describe('CommunityPrompt', () => {
 
     await act(async () => fireEvent.click(decline))
     expect(resolveAttempts).toBe(2)
+    expect(mocks.invoke).toHaveBeenCalledWith('settings:set', {
+      patch: { telemetryEnabled: false }
+    })
     expect(screen.queryByRole('region')).toBeNull()
   })
 
@@ -615,6 +638,7 @@ describe('CommunityPrompt', () => {
       if (channel === 'telemetry:resolveConsentPrompt') {
         return { accepted: true, newlyResolved: true, decision: 'decline' }
       }
+      if (channel === 'settings:set') return { telemetryEnabled: false }
       if (channel === 'system:openExternal') return undefined
       throw new Error(`Unexpected channel: ${channel}`)
     })
@@ -638,7 +662,9 @@ describe('CommunityPrompt', () => {
       claimId: CONSENT_CLAIM_ID,
       decision: 'decline'
     })
-    expect(mocks.invoke).not.toHaveBeenCalledWith('settings:set', expect.anything())
+    expect(mocks.invoke).toHaveBeenCalledWith('settings:set', {
+      patch: { telemetryEnabled: false }
+    })
 
     await passDelay()
     await passDelay()

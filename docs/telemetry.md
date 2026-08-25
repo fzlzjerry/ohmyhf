@@ -1,22 +1,22 @@
 # Optional pseudonymous usage telemetry
 
 Oh My HuggingFace can send seven fixed, pseudonymous product events to PostHog. This telemetry is
-not anonymous: opted-in events share a persistent, randomly generated installation identifier so
+not anonymous: enabled events share a persistent, randomly generated installation identifier so
 launches from one installation can be counted consistently.
 
-Telemetry is **disabled by default**. The app sends nothing to PostHog until the user explicitly
-opts in, and the user can turn it off again at any time from **Settings → Privacy & data**. Release
-builds without a PostHog project key disable the telemetry subsystem and do not show its consent
-prompt.
+Telemetry is **on by default** in packaged releases that include a PostHog project key. The user
+can turn it off at any time from **Settings → Privacy & data** or from the first-run disclosure
+card. Release builds without a PostHog project key disable the telemetry subsystem and do not show
+its disclosure.
 
 ## Build configuration
 
 Telemetry is configured at build time:
 
-| Variable              | Required               | Meaning                                                                                                                                                                                                                              |
-| --------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `POSTHOG_PROJECT_KEY` | For publishable builds | PostHog project ingestion key. An absent or empty value disables telemetry and its consent prompt. The key is embedded in every released desktop binary, so it is a public ingestion identifier rather than an authorization secret. |
-| `POSTHOG_HOST`        | For publishable builds | Region-specific HTTPS PostHog ingestion origin. This repository's US Cloud project uses `https://us.i.posthog.com`. Local builds default to that origin, but release CI requires it explicitly to prevent cross-region delivery.     |
+| Variable              | Required               | Meaning                                                                                                                                                                                                                          |
+| --------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POSTHOG_PROJECT_KEY` | For publishable builds | PostHog project ingestion key. An absent or empty value disables telemetry and its disclosure. The key is embedded in every released desktop binary, so it is a public ingestion identifier rather than an authorization secret. |
+| `POSTHOG_HOST`        | For publishable builds | Region-specific HTTPS PostHog ingestion origin. This repository's US Cloud project uses `https://us.i.posthog.com`. Local builds default to that origin, but release CI requires it explicitly to prevent cross-region delivery. |
 
 Provide the same values to every platform build so macOS, Windows, and Linux releases have the
 same behavior. For example:
@@ -54,28 +54,30 @@ types fail closed for that event rather than bypassing the proxy configuration.
 
 ## Consent and persistent installation identity
 
-- Telemetry starts in the off state for every installation.
-- No consent-screen impression or pre-consent launch event is sent.
-- Reserving or rendering the consent card is not a consent decision. The local prompt state is
-  resolved only when the user explicitly chooses **Enable telemetry**, **No thanks**, or presses
-  Escape. If the renderer reloads or the app exits before a choice is recorded, the same local
-  claim is offered again on a later foreground attempt; no identity is created and no event is
-  sent by that recovery path.
-- Version 0.0.11 recorded a rendered card as complete before the user made a choice. When telemetry
-  remains off, version 0.0.12 migrates that legacy state to an unresolved displayed claim and
-  offers the same claim again, keeping it recoverable until an explicit local decision is recorded.
-  An already enabled setting is migrated as accepted, while disabling an enabled setting is
-  recorded as declined.
-- `telemetry_enabled` is the first event after an explicit opt-in.
+- New installations start with telemetry on. An existing installation that already stored
+  `telemetryEnabled: false` keeps that preference. A stored explicit decline always wins over the
+  new default, including older installs that recorded **No thanks** without writing settings.
+- Packaged launches may send `app_launched` before the disclosure card is shown or resolved.
+- Reserving or rendering the disclosure card is not a decision. The local prompt state is resolved
+  only when the user explicitly chooses **Got it**, **Turn off**, or presses Escape (**Turn off**).
+  If the renderer reloads or the app exits before a choice is recorded, the same local claim is
+  offered again on a later foreground attempt. That recovery path does not create an identity or
+  emit an extra event by itself.
+- Version 0.0.11 recorded a rendered card as complete before the user made a choice. Version 0.0.12
+  migrates that legacy state to an unresolved displayed claim and offers the same claim again,
+  keeping it recoverable until an explicit local decision is recorded. Disabling an enabled setting
+  is recorded as declined. An enabled setting alone is not treated as acceptance of the disclosure.
+- `telemetry_enabled` is emitted only after the user turns telemetry on from an off state, not for
+  the opt-out default on first launch.
 - Turning telemetry off stops new events immediately. Re-enabling it requires another explicit
   user action.
-- Telemetry consent is installation-local: exports omit it, and imports (including older files
-  containing `telemetryEnabled`) preserve the receiving installation's current choice.
+- The telemetry preference is installation-local: exports omit it, and imports (including older
+  files containing `telemetryEnabled`) preserve the receiving installation's current choice.
 - PostHog's `distinct_id` is a randomly generated installation UUID stored in the app's local
   SQLite `kv` data. It persists across launches only while telemetry remains enabled. Turning
   telemetry off or clearing the related local `kv` data deletes it. If telemetry remains enabled,
   the next telemetry event creates a new UUID; if telemetry is disabled, only a later explicit
-  opt-in creates one. The old UUID is never restored. It is a pseudonymous identifier and is not
+  re-enable creates one. The old UUID is never restored. It is a pseudonymous identifier and is not
   derived from hardware, an operating-system account, a Hugging Face account, a GitHub account, or
   another user identifier.
 - The app does not enable PostHog autocapture, session replay, or person profiles. Every event sets
@@ -93,8 +95,8 @@ Only these event names are accepted:
 
 | Event                   | When it is emitted                                                                                                |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `telemetry_enabled`     | The user explicitly enables pseudonymous telemetry.                                                               |
-| `app_launched`          | An opted-in user launches the packaged desktop app.                                                               |
+| `telemetry_enabled`     | The user turns telemetry on from an off state (not the opt-out default on first launch).                          |
+| `app_launched`          | A user with telemetry enabled launches the packaged desktop app.                                                  |
 | `star_prompt_shown`     | The locally scheduled GitHub Star reminder is shown.                                                              |
 | `star_prompt_opened`    | The user chooses the action that opens the project on GitHub.                                                     |
 | `star_prompt_snoozed`   | On prompt 1, the user chooses to be reminded later.                                                               |
@@ -103,7 +105,7 @@ Only these event names are accepted:
 
 Every event contains only fields from this fixed allow-list:
 
-- PostHog's required `distinct_id`: the opted-in-lifecycle installation UUID described above;
+- PostHog's required `distinct_id`: the enabled-lifecycle installation UUID described above;
 - `schema_version`;
 - `app_version`;
 - `platform`;
@@ -153,13 +155,13 @@ The reminder opens the canonical project page:
 GitHub, inspect a user's GitHub account, or claim that a Star was actually created. A click means
 only that the project page was opened in the system browser.
 
-The reminder is driven entirely by device-local SQLite state and is independent of telemetry
-consent. It becomes eligible only after at least three real app launches and meaningful local use:
+The reminder is driven entirely by device-local SQLite state and is independent of the telemetry
+preference. It becomes eligible only after at least three real app launches and meaningful local use:
 a completed download, at least one favorite, or at least five local history entries. The renderer
 waits 10 seconds, a visible and focused app window, and the absence of the Settings, command
 palette, shortcuts, dialog, menu, select, or mention overlays before showing a non-modal card.
 
-If neither consent nor the Star reminder is eligible at that check, or a claim IPC call fails
+If neither the telemetry disclosure nor the Star reminder is eligible at that check, or a claim IPC call fails
 transiently, the foreground renderer retries at a 30-second low-frequency interval. This lets a
 Star reminder become visible in the same app session when meaningful local activity happens after
 the first check. Once either card is actually claimed, no second community card is shown in that

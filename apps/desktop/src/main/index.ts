@@ -36,7 +36,7 @@ import { applyAppProxy } from './proxy'
 import { SettingsStore } from './settings'
 import { SecurityGate } from './security-gate'
 import { StarReminderService } from './star-reminder'
-import { DEFAULT_POSTHOG_HOST, TelemetryService } from './telemetry'
+import { applyExplicitTelemetryDecline, DEFAULT_POSTHOG_HOST, TelemetryService } from './telemetry'
 import { TrayManager } from './tray'
 import { resolveUpdateClient, UpdateManager } from './updater'
 
@@ -214,6 +214,7 @@ if (!gotLock) {
       // The getter is evaluated per event so Settings changes apply immediately.
       fetchImpl: createFailClosedDynamicProxiedFetch(() => settings.get().proxyUrl)
     })
+    applyExplicitTelemetryDecline(settings, telemetry)
     const starReminder = new StarReminderService({
       db,
       hasMeaningfulActivity: () => {

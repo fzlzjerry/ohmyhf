@@ -26,7 +26,7 @@ four manifest versions. Other pushes finish after detection without creating rel
      full Ubuntu E2E suite;
    - **build** packages macOS, Windows, and Linux with `--publish never`, then runs the packaged
      smoke test on each platform; publishable smoke coverage includes the configured telemetry
-     consent path, legacy consent-state migration, and the same-session Star eligibility retry;
+     opt-out disclosure, legacy consent-state migration, and the same-session Star eligibility retry;
    - **preflight** checks required installers, updater manifests, every referenced file, and its
      SHA-512 value;
    - **publish** creates or resumes the draft, uploads only preflight-approved assets, downloads

@@ -112,7 +112,7 @@ export interface IpcInvokeContract {
   'settings:selectCacheDir': { req: void; res: AppSettings | null }
   'settings:resetCacheDir': { req: void; res: AppSettings }
 
-  /** Atomically reserves an unresolved, opt-in telemetry explanation card. */
+  /** Atomically reserves an unresolved opt-out telemetry disclosure card. */
   'telemetry:claimConsentPrompt': {
     req: void
     res: { show: false } | { show: true; claimId: string }

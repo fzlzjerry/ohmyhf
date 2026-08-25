@@ -1,6 +1,12 @@
+import { DEFAULT_SETTINGS } from '@oh-my-huggingface/shared'
 import { describe, expect, it, vi } from 'vitest'
 import type { AppDatabase } from './db'
-import { DEFAULT_POSTHOG_HOST, TelemetryService, type TelemetryEvent } from './telemetry'
+import {
+  applyExplicitTelemetryDecline,
+  DEFAULT_POSTHOG_HOST,
+  TelemetryService,
+  type TelemetryEvent
+} from './telemetry'
 
 const INSTALL_ID_1 = '11111111-1111-4111-8111-111111111111'
 const INSTALL_ID_2 = '22222222-2222-4222-8222-222222222222'
@@ -99,6 +105,10 @@ function makeService(overrides: Partial<ConstructorParameters<typeof TelemetrySe
 describe('TelemetryService', () => {
   it("defaults release builds to this repository's US Cloud ingestion region", () => {
     expect(DEFAULT_POSTHOG_HOST).toBe('https://us.i.posthog.com')
+  })
+
+  it('defaults new installations to telemetry on', () => {
+    expect(DEFAULT_SETTINGS.telemetryEnabled).toBe(true)
   })
 
   it('persists and reuses one consent reservation across service instances', () => {
@@ -325,7 +335,7 @@ describe('TelemetryService', () => {
     }
   })
 
-  it('maps an enabled v0.0.11 state to explicit acceptance without re-prompting', () => {
+  it('migrates an enabled v0.0.11 state to a reclaimable disclosure instead of treating it as accepted', () => {
     const backing = createKvDb({
       [CONSENT_PROMPT_KEY]: JSON.stringify({
         version: 1,
@@ -335,30 +345,103 @@ describe('TelemetryService', () => {
     })
     const { service, fetchImpl } = makeService({ db: backing.db })
 
-    expect(service.claimConsentPrompt()).toBe(false)
+    expect(service.claimConsentPrompt()).toEqual({ claimId: CONSENT_CLAIM_ID_1 })
     expect(JSON.parse(backing.values.get(CONSENT_PROMPT_KEY)!)).toEqual({
       version: 2,
       claimId: CONSENT_CLAIM_ID_1,
-      status: 'resolved',
-      resolution: 'accepted'
+      status: 'displayed',
+      resolution: null
     })
     expect(backing.values.has(INSTALLATION_ID_KEY)).toBe(false)
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
-  it('does not offer consent when enabled and records that prior acceptance locally', () => {
+  it('still offers the opt-out disclosure when telemetry is already enabled', () => {
     const { service, values, fetchImpl, immediateCalls } = makeService()
 
-    expect(service.claimConsentPrompt()).toBe(false)
+    expect(service.claimConsentPrompt()).toEqual({ claimId: CONSENT_CLAIM_ID_1 })
     expect(JSON.parse(values.get(CONSENT_PROMPT_KEY)!)).toEqual({
       version: 2,
       claimId: CONSENT_CLAIM_ID_1,
-      status: 'resolved',
-      resolution: 'accepted'
+      status: 'reserved',
+      resolution: null
     })
     expect(values.has(INSTALLATION_ID_KEY)).toBe(false)
     expect(fetchImpl).not.toHaveBeenCalled()
     expect(immediateCalls()).toBe(1)
+  })
+
+  it('treats only a resolved decline as an explicit opt-out', () => {
+    expect(makeService().service.hasExplicitDecline()).toBe(false)
+    expect(makeService({ enabled: () => false }).service.hasExplicitDecline()).toBe(false)
+
+    const declined = createKvDb({
+      [CONSENT_PROMPT_KEY]: JSON.stringify({
+        version: 2,
+        claimId: CONSENT_CLAIM_ID_1,
+        status: 'resolved',
+        resolution: 'declined'
+      })
+    })
+    expect(makeService({ db: declined.db }).service.hasExplicitDecline()).toBe(true)
+
+    const accepted = createKvDb({
+      [CONSENT_PROMPT_KEY]: JSON.stringify({
+        version: 2,
+        claimId: CONSENT_CLAIM_ID_1,
+        status: 'resolved',
+        resolution: 'accepted'
+      })
+    })
+    expect(makeService({ db: accepted.db }).service.hasExplicitDecline()).toBe(false)
+  })
+
+  it('forces the opt-out default off when a stored decline is present', () => {
+    const backing = createKvDb({
+      [CONSENT_PROMPT_KEY]: JSON.stringify({
+        version: 2,
+        claimId: CONSENT_CLAIM_ID_1,
+        status: 'resolved',
+        resolution: 'declined'
+      }),
+      [INSTALLATION_ID_KEY]: INSTALL_ID_1
+    })
+    let telemetryEnabled = true
+    const settings = {
+      get: () => ({ telemetryEnabled }),
+      set: (patch: { telemetryEnabled: boolean }) => {
+        telemetryEnabled = patch.telemetryEnabled
+      }
+    }
+    const { service } = makeService({
+      db: backing.db,
+      enabled: () => telemetryEnabled
+    })
+
+    applyExplicitTelemetryDecline(settings, service)
+    expect(telemetryEnabled).toBe(false)
+    expect(backing.values.has(INSTALLATION_ID_KEY)).toBe(false)
+
+    applyExplicitTelemetryDecline(settings, service)
+    expect(telemetryEnabled).toBe(false)
+  })
+
+  it('does not change an enabled setting when no explicit decline is stored', () => {
+    let telemetryEnabled = true
+    const settings = {
+      get: () => ({ telemetryEnabled }),
+      set: (patch: { telemetryEnabled: boolean }) => {
+        telemetryEnabled = patch.telemetryEnabled
+      }
+    }
+    const { service, values } = makeService({
+      enabled: () => telemetryEnabled,
+      createId: () => INSTALL_ID_1
+    })
+
+    applyExplicitTelemetryDecline(settings, service)
+    expect(telemetryEnabled).toBe(true)
+    expect(values.has(INSTALLATION_ID_KEY)).toBe(false)
   })
 
   it('does not create consent state when the build is unconfigured', () => {
@@ -434,7 +517,7 @@ describe('TelemetryService', () => {
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
-  it('does nothing until the injected opt-in getter returns true', async () => {
+  it('does nothing until the injected enabled getter returns true', async () => {
     let enabled = false
     const { service, fetchImpl, values } = makeService({ enabled: () => enabled })
 
@@ -675,7 +758,7 @@ describe('TelemetryService', () => {
     expect(bodies.map((body) => body.distinct_id)).toEqual([INSTALL_ID_1, INSTALL_ID_2])
   })
 
-  it('rotates any stale identity before a new explicit opt-in lifecycle', async () => {
+  it('rotates any stale identity before a new explicit re-enable lifecycle', async () => {
     const backing = createKvDb({ [INSTALLATION_ID_KEY]: INSTALL_ID_1 })
     const { service, fetchImpl } = makeService({
       db: backing.db,
@@ -690,7 +773,7 @@ describe('TelemetryService', () => {
     expect(body.distinct_id).toBe(INSTALL_ID_2)
   })
 
-  it('does not create an identity when an opt-in is attempted in an unconfigured build', () => {
+  it('does not create an identity when a re-enable is attempted in an unconfigured build', () => {
     const { service, values } = makeService({ apiKey: '' })
 
     expect(service.prepareIdentityForOptIn()).toBe(false)

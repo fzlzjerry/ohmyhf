@@ -3,7 +3,7 @@
     "disclaimer": "Diese Anwendung steht in keiner Verbindung zu Hugging Face, Inc. und wird von diesem Unternehmen weder unterstützt noch gesponsert. „Hugging Face“ ist eine Marke von Hugging Face, Inc. und wird hier nur verwendet, um auf den Dienst zu verweisen, mit dem diese Anwendung verbunden ist.",
     "github": "Quellcode auf GitHub",
     "license": "Lizenziert unter Apache-2.0",
-    "privacy": "Deine Daten bleiben auf diesem Gerät, sofern du nicht unter „Datenschutz & Daten“ ausdrücklich optionale Nutzungs-Telemetrie aktivierst. Mit deiner Zustimmung werden sieben feste PostHog-Ereignisse mit einer zufälligen Installationskennung, die nur bei aktivierter Telemetrie über App-Starts hinweg bestehen bleibt, sowie App-Version, Plattform, Architektur und Sprache gesendet. Beim Abschalten der Telemetrie wird die Kennung gelöscht; eine spätere erneute Zustimmung erstellt eine neue. PostHog kann deine IP beim Transport sehen. Das für Releases verwendete PostHog-Projekt muss so konfiguriert sein, dass IP-Daten verworfen werden; $geoip_disable deaktiviert nur die GeoIP-Anreicherung. Konten, Tokens, Repositories, Pfade, Dateinamen, Suchen, Downloads und Inhalte werden nicht gesendet. Jederzeit abschaltbar. Dein Zugriffstoken bleibt durch den Schlüsselbund des Betriebssystems verschlüsselt und wird nur auf diesem Gerät gespeichert.",
+    "privacy": "Deine Daten bleiben auf diesem Gerät, außer der optionalen Nutzungs-Telemetrie, die unter „Datenschutz & Daten“ standardmäßig aktiviert ist und jederzeit abgeschaltet werden kann. Im aktiven Zustand werden sieben feste PostHog-Ereignisse mit einer zufälligen Installationskennung, die nur bei aktivierter Telemetrie über App-Starts hinweg bestehen bleibt, sowie App-Version, Plattform, Architektur und Sprache gesendet. Beim Abschalten der Telemetrie wird die Kennung gelöscht; ein späteres erneutes Einschalten erstellt eine neue. PostHog kann deine IP beim Transport sehen. Das für Releases verwendete PostHog-Projekt muss so konfiguriert sein, dass IP-Daten verworfen werden; $geoip_disable deaktiviert nur die GeoIP-Anreicherung. Konten, Tokens, Repositories, Pfade, Dateinamen, Suchen, Downloads und Inhalte werden nicht gesendet. Dein Zugriffstoken bleibt durch den Schlüsselbund des Betriebssystems verschlüsselt und wird nur auf diesem Gerät gespeichert.",
     "title": "Über",
     "unofficialTitle": "INOFFIZIELL",
     "updates": {
@@ -41,10 +41,10 @@
   },
   "community": {
     "telemetry": {
-      "title": "Optionale Nutzungs-Telemetrie",
-      "body": "Mit deiner Zustimmung werden sieben feste PostHog-Ereignisse mit einer zufälligen Installationskennung, die nur bei aktivierter Telemetrie über App-Starts hinweg bestehen bleibt, sowie App-Version, Plattform, Architektur und Sprache gesendet. Beim Abschalten der Telemetrie wird die Kennung gelöscht; eine spätere erneute Zustimmung erstellt eine neue. PostHog kann deine IP beim Transport sehen. Das für Releases verwendete PostHog-Projekt muss so konfiguriert sein, dass IP-Daten verworfen werden; $geoip_disable deaktiviert nur die GeoIP-Anreicherung. Konten, Tokens, Repositories, Pfade, Dateinamen, Suchen, Downloads und Inhalte werden nicht gesendet. Jederzeit abschaltbar.",
-      "accept": "Telemetrie aktivieren",
-      "decline": "Nein, danke",
+      "title": "Nutzungs-Telemetrie ist aktiv",
+      "body": "Diese App sendet sieben feste PostHog-Ereignisse mit einer zufälligen Installationskennung, die nur bei aktivierter Telemetrie über App-Starts hinweg bestehen bleibt, sowie App-Version, Plattform, Architektur und Sprache. Beim Abschalten der Telemetrie wird die Kennung gelöscht; ein späteres erneutes Einschalten erstellt eine neue. PostHog kann deine IP beim Transport sehen. Das für Releases verwendete PostHog-Projekt muss so konfiguriert sein, dass IP-Daten verworfen werden; $geoip_disable deaktiviert nur die GeoIP-Anreicherung. Konten, Tokens, Repositories, Pfade, Dateinamen, Suchen, Downloads und Inhalte werden nicht gesendet. Jederzeit abschaltbar.",
+      "accept": "Verstanden",
+      "decline": "Abschalten",
       "details": "Telemetrie-Details"
     },
     "star": {
@@ -231,13 +231,13 @@
       "title": "Einstellungsübertragung"
     },
     "telemetry": {
-      "title": "Optionale Nutzungs-Telemetrie",
-      "description": "PostHog erhält nur sieben feste Ereignisse mit einer zufälligen Installationskennung, die nur bei aktivierter Telemetrie über App-Starts hinweg bestehen bleibt, App-Version, Plattform, Architektur, Sprache sowie bei Star-Hinweisen deren Nummer und Aktion. Beim Abschalten der Telemetrie wird die Kennung gelöscht; eine spätere erneute Zustimmung erstellt eine neue. PostHog kann die Quell-IP beim Transport sehen. Das für Releases verwendete PostHog-Projekt muss so konfiguriert sein, dass IP-Daten verworfen werden; $geoip_disable deaktiviert nur die GeoIP-Anreicherung. Konten, Tokens, Repositories, Pfade, Dateinamen, Suchen, Downloads und Dateiinhalte werden nicht gesendet.",
+      "title": "Nutzungs-Telemetrie",
+      "description": "PostHog erhält nur sieben feste Ereignisse mit einer zufälligen Installationskennung, die nur bei aktivierter Telemetrie über App-Starts hinweg bestehen bleibt, App-Version, Plattform, Architektur, Sprache sowie bei Star-Hinweisen deren Nummer und Aktion. Telemetrie ist standardmäßig aktiv. Beim Abschalten wird die Kennung gelöscht; ein späteres erneutes Einschalten erstellt eine neue. PostHog kann die Quell-IP beim Transport sehen. Das für Releases verwendete PostHog-Projekt muss so konfiguriert sein, dass IP-Daten verworfen werden; $geoip_disable deaktiviert nur die GeoIP-Anreicherung. Konten, Tokens, Repositories, Pfade, Dateinamen, Suchen, Downloads und Dateiinhalte werden nicht gesendet.",
       "enabled": "Pseudonyme Nutzung teilen",
       "enabledHint": "Aktiviert. Feste Ereignisse werden an PostHog gesendet; jederzeit sofort abschaltbar.",
-      "disabledHint": "Standardmäßig aus. Bis zur Aktivierung wird nichts gesendet.",
+      "disabledHint": "Aus. Es wird nichts gesendet. Sie können dies jederzeit wieder einschalten.",
       "unconfiguredHint": "Dieser lokale oder unsignierte Build kann keine Telemetrie senden. Paketierte Releases mit einem PostHog-Projektschlüssel können das.",
-      "optedInUnconfiguredHint": "Dieser Build kann keine Telemetrie senden, die gespeicherte Einstellung ist aber noch aktiv. Schalten Sie sie aus, um die Einwilligung zu widerrufen, damit ein späteres Release nicht wieder sendet.",
+      "optedInUnconfiguredHint": "Dieser Build kann keine Telemetrie senden, die gespeicherte Einstellung ist aber noch aktiv. Schalten Sie sie aus, um abzulehnen, damit ein späteres Release nicht zu senden beginnt.",
       "lastCapture": "Letztes Ereignis: {{event}} · {{status}} · {{time}}",
       "captureStatus": {
         "sent": "gesendet",

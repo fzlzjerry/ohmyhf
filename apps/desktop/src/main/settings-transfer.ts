@@ -1,16 +1,16 @@
 import type { AppSettings } from '@oh-my-huggingface/shared'
 import { DEFAULT_SETTINGS } from '@oh-my-huggingface/shared'
 
-/** Settings that are portable between installations. Consent is deliberately local. */
+/** Settings that are portable between installations. Telemetry preference is local. */
 export type PortableAppSettings = Omit<
   AppSettings,
   'hfCacheDir' | 'telemetryEnabled' | 'ollamaBinaryPath' | 'llamaServerBinaryPath'
 >
 
 /**
- * Machine paths and telemetry consent are never exported. In particular, a
- * settings file must not be able to confer telemetry consent on another
- * installation when it is later imported.
+ * Machine paths and the local telemetry preference are never exported. In
+ * particular, a settings file must not be able to enable or disable telemetry
+ * on another installation when it is later imported.
  */
 export function portableSettingsForExport(settings: AppSettings): PortableAppSettings {
   const {
