@@ -1809,7 +1809,7 @@ export function mapBillingUsage(raw: RawBillingUsage): BillingUsage {
 interface RawActivityRepo {
   id?: string
   author?: string
-  repoType?: RepoKind
+  repoType?: string
   likes?: number
   downloads?: number
   private?: boolean
@@ -1826,7 +1826,7 @@ interface RawActivityItem {
   type?: string
   repoData?: RawActivityRepo
   repoId?: string
-  repoType?: RepoKind
+  repoType?: string
   socialPost?: unknown
   discussionData?: {
     num?: number
@@ -1842,7 +1842,7 @@ function mapActivityRepo(raw: RawActivityRepo, repoType: RepoKind): RepoSummary 
   const slash = id.indexOf('/')
   return {
     id,
-    kind: raw.repoType ?? repoType,
+    kind: repoType,
     author: raw.author ?? (slash >= 0 ? id.slice(0, slash) : id),
     name: slash >= 0 ? id.slice(slash + 1) : id,
     likes: raw.likes ?? 0,
@@ -1870,8 +1870,16 @@ export function mapActivityFeed(
     const actor = a.user ?? ''
     const actorAvatarUrl = abs(a.userAvatarUrl ?? a.orgAvatarUrl)
     const actorIsPro = a.isPro
-    const repoType = a.repoType ?? 'model'
-    if ((a.type === 'like' || a.type === 'update' || a.type === 'publish') && a.repoData?.id) {
+    // The live feed also contains unsupported Hub resources such as buckets and
+    // kernels. Raw API types are untrusted at runtime: never let an unknown kind
+    // reach the renderer's exhaustive RepoKind icon/path maps.
+    const rawRepoType = a.repoData?.repoType ?? a.repoType
+    const repoType = rawRepoType === undefined ? 'model' : asRepoKind(rawRepoType)
+    if (
+      repoType &&
+      (a.type === 'like' || a.type === 'update' || a.type === 'publish') &&
+      a.repoData?.id
+    ) {
       items.push({
         kind: a.type,
         time: a.time,
@@ -1890,6 +1898,7 @@ export function mapActivityFeed(
         post: mapPost(a.socialPost as never, endpoint)
       })
     } else if (
+      repoType &&
       a.type === 'discussion' &&
       a.discussionData &&
       a.repoId &&
