@@ -222,10 +222,14 @@ export function RepoList({ kind, selectedId, onSelect }: RepoListProps): React.J
         tabIndex={0}
         onKeyDown={onKeyDown}
         className="min-h-0 flex-1 overflow-y-auto outline-none"
-        role="listbox"
+        role="list"
         aria-label={t(`searchPlaceholder.${kind}`)}
       >
-        <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+        <div
+          role="presentation"
+          className="relative w-full"
+          style={{ height: virtualizer.getTotalSize() }}
+        >
           {virtualItems.map((row) => {
             if (row.index >= rowCount) {
               return (
@@ -248,13 +252,14 @@ export function RepoList({ kind, selectedId, onSelect }: RepoListProps): React.J
                   style={{ top: row.start + 3, height: SPACE_ROW_HEIGHT - 6 }}
                 >
                   {pair.map((repo) => (
-                    <SpaceCard
-                      key={repo.id}
-                      repo={repo}
-                      selected={repo.id === selectedId}
-                      onSelect={(r) => onSelect(r, 'pointer')}
-                      locale={locale}
-                    />
+                    <div key={repo.id} role="listitem" className="min-w-0">
+                      <SpaceCard
+                        repo={repo}
+                        selected={repo.id === selectedId}
+                        onSelect={(r) => onSelect(r, 'pointer')}
+                        locale={locale}
+                      />
+                    </div>
                   ))}
                 </div>
               )
@@ -266,6 +271,7 @@ export function RepoList({ kind, selectedId, onSelect }: RepoListProps): React.J
             return (
               <div
                 key={repo.id}
+                role="listitem"
                 className={cn(
                   'group absolute inset-x-1 flex items-center rounded-lg transition-colors duration-100',
                   selected ? 'bg-select/10' : 'hover:bg-panel'
@@ -274,8 +280,7 @@ export function RepoList({ kind, selectedId, onSelect }: RepoListProps): React.J
               >
                 <button
                   type="button"
-                  role="option"
-                  aria-selected={selected}
+                  aria-current={selected ? 'true' : undefined}
                   className="flex h-full min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-lg px-2.5 text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
                   onClick={() => onSelect(repo, 'pointer')}
                 >

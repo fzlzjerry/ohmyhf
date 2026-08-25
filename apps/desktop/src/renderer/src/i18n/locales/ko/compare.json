@@ -1,6 +1,6 @@
 {
   "add": "추가",
-  "addPlaceholder": "모델 ID로 추가하세요. 예: meta-llama/Llama-3-8B…",
+  "addPlaceholder": "모델 이름, 작성자 또는 ID로 검색…",
   "attr": {
     "downloads": "다운로드 수",
     "library": "라이브러리",
@@ -21,5 +21,9 @@
   "max": "최대 4개의 모델까지 비교할 수 있습니다.",
   "remove": "제거",
   "title": "모델 비교",
-  "invalidId": "유효한 모델 ID를 입력하세요. 예: gpt2 또는 meta-llama/Llama-3-8B."
+  "invalidId": "유효한 모델 ID를 입력하세요. 예: gpt2 또는 meta-llama/Llama-3-8B.",
+  "searchHint": "정확한 모델 ID를 외우지 않고 Hub 검색 결과에서 선택하세요.",
+  "popular": "인기 모델",
+  "results": "검색 결과",
+  "noResults": "일치하는 모델을 찾지 못했습니다."
 }

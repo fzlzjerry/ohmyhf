@@ -31,7 +31,7 @@ function PdfPreviewBody({
   onDownload,
   downloading
 }: PdfPreviewProps & { revision: string }): React.JSX.Element {
-  const { t } = useTranslation(['detail', 'common'])
+  const { t } = useTranslation(['detail', 'common', 'papers'])
   const [bytes, setBytes] = useState<Uint8Array | null>(null)
   const [error, setError] = useState<'tooLarge' | 'unreadable' | null>(null)
   const [loading, setLoading] = useState(true)
@@ -115,6 +115,9 @@ function PdfPreviewBody({
       pageLabel={(page, total) => t('detail:preview.pdfPage', { page, total })}
       prevLabel={t('detail:datasetPreview.prev')}
       nextLabel={t('detail:datasetPreview.next')}
+      zoomInLabel={t('papers:reader.zoomIn')}
+      zoomOutLabel={t('papers:reader.zoomOut')}
+      fitWidthLabel={t('papers:reader.fitWidth')}
     />
   )
 }

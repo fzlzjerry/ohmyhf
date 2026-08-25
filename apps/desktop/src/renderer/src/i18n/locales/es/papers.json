@@ -36,7 +36,12 @@
     "noMarkdown": "Este artículo no tiene versión Markdown.",
     "noPdf": "Este artículo no tiene PDF.",
     "pdfError": "No se pudo cargar el PDF.",
-    "pdfTooLarge": "Este PDF supera los 32 MiB y no se puede previsualizar aquí."
+    "pdfTooLarge": "Este PDF supera los 32 MiB y no se puede previsualizar aquí.",
+    "expand": "Ampliar lector",
+    "collapse": "Restaurar lista de artículos",
+    "zoomIn": "Acercar",
+    "zoomOut": "Alejar",
+    "fitWidth": "Ajustar al ancho"
   },
   "refresh": "Actualizar artículos",
   "related": "Relacionado en el Hub",

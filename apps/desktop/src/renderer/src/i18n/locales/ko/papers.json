@@ -36,7 +36,12 @@
     "noMarkdown": "이 논문에는 Markdown 버전이 없습니다.",
     "noPdf": "이 논문에는 PDF가 없습니다.",
     "pdfError": "PDF를 불러올 수 없습니다.",
-    "pdfTooLarge": "이 PDF는 32MiB보다 커서 여기서 미리볼 수 없습니다."
+    "pdfTooLarge": "이 PDF는 32MiB보다 커서 여기서 미리볼 수 없습니다.",
+    "expand": "리더 확장",
+    "collapse": "논문 목록 복원",
+    "zoomIn": "확대",
+    "zoomOut": "축소",
+    "fitWidth": "너비에 맞춤"
   },
   "refresh": "논문 새로고침",
   "related": "Hub의 관련 리소스",

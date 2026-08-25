@@ -64,6 +64,28 @@ type StatusFilter = DiscussionStatusFilter | 'all'
 
 const STATUS_FILTERS: readonly StatusFilter[] = ['open', 'closed', 'all']
 
+function useDiscussionList(
+  kind: RepoKind,
+  repoId: string,
+  type: DiscussionType,
+  status: StatusFilter,
+  endpointKey: string
+) {
+  return useInfiniteQuery({
+    queryKey: ['discussions', kind, repoId, type, status, endpointKey],
+    queryFn: ({ pageParam }) =>
+      invoke('hub:discussions', {
+        kind,
+        repoId,
+        type,
+        status: status === 'all' ? undefined : status,
+        cursor: pageParam === '' ? undefined : pageParam
+      }),
+    initialPageParam: '',
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? null
+  })
+}
+
 /** Statuses with a localized word under detail:discussions.status.*. */
 const KNOWN_STATUSES: readonly string[] = ['open', 'closed', 'merged', 'draft']
 
@@ -747,26 +769,30 @@ export function DiscussionsPanel({
   // repo change) so the open-on-Hub button falls back to the repo home page.
   useEffect(() => () => onActiveDiscussion?.(null), [onActiveDiscussion])
 
-  const list = useInfiniteQuery({
-    queryKey: ['discussions', kind, repoId, segment, status, endpointKey],
-    queryFn: ({ pageParam }) =>
-      invoke('hub:discussions', {
-        kind,
-        repoId,
-        type: segment,
-        status: status === 'all' ? undefined : status,
-        cursor: pageParam === '' ? undefined : pageParam
-      }),
-    initialPageParam: '',
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? null
-  })
-  const discussions = useMemo(() => list.data?.pages.flatMap((p) => p.items) ?? [], [list.data])
+  // Keep both feeds mounted so their server-reported totals remain visible.
+  // Switching segments no longer trades one useful count for the other.
+  const discussionList = useDiscussionList(kind, repoId, 'discussion', status, endpointKey)
+  const pullRequestList = useDiscussionList(kind, repoId, 'pull_request', status, endpointKey)
+  const list = segment === 'discussion' ? discussionList : pullRequestList
+  const discussions = useMemo(
+    () => list.data?.pages.flatMap((page) => page.items) ?? [],
+    [list.data]
+  )
+  const discussionCount =
+    discussionList.data?.pages[0]?.total ??
+    (discussionList.data
+      ? discussionList.data.pages.reduce((sum, page) => sum + page.items.length, 0)
+      : undefined)
+  const pullRequestCount =
+    pullRequestList.data?.pages[0]?.total ??
+    (pullRequestList.data
+      ? pullRequestList.data.pages.reduce((sum, page) => sum + page.items.length, 0)
+      : undefined)
 
-  if (selected !== null) {
-    return <Thread kind={kind} repoId={repoId} num={selected} onBack={() => select(null)} />
+  const changeSegment = (next: DiscussionType): void => {
+    setSegment(next)
+    if (selected !== null) select(null)
   }
-
-  const count = list.data !== undefined ? discussions.length : undefined
 
   return (
     <div className="flex h-full flex-col">
@@ -774,15 +800,15 @@ export function DiscussionsPanel({
         <div className="flex items-center gap-0.5 rounded-md border bg-panel p-0.5">
           <SegmentButton
             active={segment === 'discussion'}
-            onClick={() => setSegment('discussion')}
+            onClick={() => changeSegment('discussion')}
             label={t('detail:discussions.segment.discussions')}
-            count={segment === 'discussion' ? count : undefined}
+            count={discussionCount}
           />
           <SegmentButton
             active={segment === 'pull_request'}
-            onClick={() => setSegment('pull_request')}
+            onClick={() => changeSegment('pull_request')}
             label={t('detail:discussions.segment.pullRequests')}
-            count={segment === 'pull_request' ? count : undefined}
+            count={pullRequestCount}
           />
         </div>
         <div className="flex items-center gap-1">
@@ -795,7 +821,7 @@ export function DiscussionsPanel({
               className={cn(
                 'rounded-full border px-2 py-0.5 text-[11.5px] transition-colors duration-150',
                 status === filter
-                  ? 'border-select/40 bg-select/10 text-select'
+                  ? 'border-select/40 bg-select/10 text-select dark:text-ink-strong'
                   : 'text-ink-muted hover:bg-panel hover:text-ink'
               )}
             >
@@ -807,70 +833,77 @@ export function DiscussionsPanel({
             repoId={repoId}
             defaultPullRequest={segment === 'pull_request'}
             onCreated={(num) => {
-              void list.refetch()
+              void discussionList.refetch()
+              void pullRequestList.refetch()
               select(num)
             }}
           />
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-        {list.isLoading && (
-          <div className="flex flex-col gap-1 p-1">
-            {Array.from({ length: 6 }, (_, i) => (
-              <Skeleton key={i} className="h-11" />
-            ))}
-          </div>
-        )}
-        {list.isError && (
-          <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
-            <p className="max-w-sm text-[12.5px] text-ink-muted">{list.error.message}</p>
-            <Button size="sm" onClick={() => void list.refetch()}>
-              {t('common:retry')}
-            </Button>
-          </div>
-        )}
-        {list.data !== undefined && discussions.length === 0 && (
-          <div className="p-6 text-center text-[13px] text-ink-muted">
-            {segment === 'pull_request' ? t('detail:pr.empty') : t('detail:discussions.empty')}
-          </div>
-        )}
-        {discussions.map((discussion: DiscussionSummary) => (
-          <button
-            key={discussion.num}
-            type="button"
-            onClick={() => select(discussion.num)}
-            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors duration-150 outline-none hover:bg-panel focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
-          >
-            {discussion.isPullRequest ? (
-              <GitPullRequest
-                className={cn('size-4 shrink-0', PR_ICON_COLOR[discussion.status])}
-                aria-label={t('detail:discussions.pullRequest')}
-              />
-            ) : (
-              <MessageSquare className="size-4 shrink-0 text-ink-faint" aria-hidden />
-            )}
-            <span className="min-w-0 flex-1 truncate text-[13px]">{discussion.title}</span>
-            <Badge variant={STATUS_VARIANT[discussion.status]}>
-              {t(`detail:discussions.status.${discussion.status}`)}
-            </Badge>
-            <span className="w-20 shrink-0 text-right text-[11.5px] text-ink-faint">
-              {formatRelativeTime(discussion.createdAt, locale)}
-            </span>
-          </button>
-        ))}
-        {list.hasNextPage && (
-          <div className="flex justify-center py-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              loading={list.isFetchingNextPage}
-              onClick={() => void list.fetchNextPage()}
+      {selected !== null ? (
+        <div className="min-h-0 flex-1">
+          <Thread kind={kind} repoId={repoId} num={selected} onBack={() => select(null)} />
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+          {list.isLoading && (
+            <div className="flex flex-col gap-1 p-1">
+              {Array.from({ length: 6 }, (_, i) => (
+                <Skeleton key={i} className="h-11" />
+              ))}
+            </div>
+          )}
+          {list.isError && (
+            <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
+              <p className="max-w-sm text-[12.5px] text-ink-muted">{list.error.message}</p>
+              <Button size="sm" onClick={() => void list.refetch()}>
+                {t('common:retry')}
+              </Button>
+            </div>
+          )}
+          {list.data !== undefined && discussions.length === 0 && (
+            <div className="p-6 text-center text-[13px] text-ink-muted">
+              {segment === 'pull_request' ? t('detail:pr.empty') : t('detail:discussions.empty')}
+            </div>
+          )}
+          {discussions.map((discussion: DiscussionSummary) => (
+            <button
+              key={discussion.num}
+              type="button"
+              onClick={() => select(discussion.num)}
+              className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors duration-150 outline-none hover:bg-panel focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
             >
-              {t('detail:discussions.loadMore')}
-            </Button>
-          </div>
-        )}
-      </div>
+              {discussion.isPullRequest ? (
+                <GitPullRequest
+                  className={cn('size-4 shrink-0', PR_ICON_COLOR[discussion.status])}
+                  aria-label={t('detail:discussions.pullRequest')}
+                />
+              ) : (
+                <MessageSquare className="size-4 shrink-0 text-ink-faint" aria-hidden />
+              )}
+              <span className="min-w-0 flex-1 truncate text-[13px]">{discussion.title}</span>
+              <Badge variant={STATUS_VARIANT[discussion.status]}>
+                {t(`detail:discussions.status.${discussion.status}`)}
+              </Badge>
+              <span className="w-20 shrink-0 text-right text-[11.5px] text-ink-faint">
+                {formatRelativeTime(discussion.createdAt, locale)}
+              </span>
+            </button>
+          ))}
+          {list.hasNextPage && (
+            <div className="flex justify-center py-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={list.isFetchingNextPage}
+                onClick={() => void list.fetchNextPage()}
+              >
+                {t('detail:discussions.loadMore')}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

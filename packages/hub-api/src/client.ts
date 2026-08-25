@@ -963,7 +963,7 @@ export class HubClient {
         nextCursor = next.toString()
       }
     }
-    return { items, nextCursor }
+    return { items, nextCursor, total: body.count }
   }
 
   /**

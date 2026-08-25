@@ -1,6 +1,6 @@
 {
   "add": "追加",
-  "addPlaceholder": "モデルIDを追加(例: meta-llama/Llama-3-8B…)",
+  "addPlaceholder": "モデル名、作者、ID で検索…",
   "attr": {
     "downloads": "ダウンロード数",
     "library": "ライブラリ",
@@ -21,5 +21,9 @@
   "max": "比較できるのは最大4つのモデルまでです。",
   "remove": "削除",
   "title": "モデルを比較",
-  "invalidId": "有効なモデルIDを入力してください(例: gpt2 または meta-llama/Llama-3-8B)。"
+  "invalidId": "有効なモデルIDを入力してください(例: gpt2 または meta-llama/Llama-3-8B)。",
+  "searchHint": "Hub の検索結果から選べるため、正確なモデル ID は不要です。",
+  "popular": "人気のモデル",
+  "results": "検索結果",
+  "noResults": "一致するモデルが見つかりません。"
 }

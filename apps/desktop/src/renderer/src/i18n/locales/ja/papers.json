@@ -36,7 +36,12 @@
     "noMarkdown": "この論文にはMarkdown版がありません。",
     "noPdf": "この論文にはPDFがありません。",
     "pdfError": "PDFを読み込めませんでした。",
-    "pdfTooLarge": "このPDFは32MiBを超えるため、ここではプレビューできません。"
+    "pdfTooLarge": "このPDFは32MiBを超えるため、ここではプレビューできません。",
+    "expand": "リーダーを拡大",
+    "collapse": "論文一覧を復元",
+    "zoomIn": "拡大",
+    "zoomOut": "縮小",
+    "fitWidth": "幅に合わせる"
   },
   "refresh": "論文を更新",
   "related": "Hub上の関連リソース",

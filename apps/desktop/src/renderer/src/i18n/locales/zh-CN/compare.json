@@ -1,6 +1,6 @@
 {
   "add": "添加",
-  "addPlaceholder": "输入模型 id 添加，例如 meta-llama/Llama-3-8B…",
+  "addPlaceholder": "搜索模型名称、作者或 ID…",
   "attr": {
     "downloads": "下载量",
     "library": "框架",
@@ -21,5 +21,9 @@
   "max": "最多可对比 4 个模型。",
   "remove": "移除",
   "title": "模型对比",
-  "invalidId": "请输入有效的模型 id，例如 gpt2 或 meta-llama/Llama-3-8B。"
+  "invalidId": "请输入有效的模型 id，例如 gpt2 或 meta-llama/Llama-3-8B。",
+  "searchHint": "直接从 Hub 搜索选择，不用记住完整模型 ID。",
+  "popular": "热门模型",
+  "results": "搜索结果",
+  "noResults": "没有找到匹配的模型。"
 }

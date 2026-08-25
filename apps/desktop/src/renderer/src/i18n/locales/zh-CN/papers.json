@@ -36,7 +36,12 @@
     "noMarkdown": "这篇论文没有 Markdown 版本。",
     "noPdf": "这篇论文没有 PDF。",
     "pdfError": "无法加载 PDF。",
-    "pdfTooLarge": "这份 PDF 超过 32 MiB，无法在此预览。"
+    "pdfTooLarge": "这份 PDF 超过 32 MiB，无法在此预览。",
+    "expand": "展开阅读器",
+    "collapse": "恢复论文列表",
+    "zoomIn": "放大",
+    "zoomOut": "缩小",
+    "fitWidth": "适应宽度"
   },
   "refresh": "刷新论文",
   "related": "Hub 上的相关资源",

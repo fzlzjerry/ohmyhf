@@ -77,6 +77,7 @@ describe('HubClient.listDiscussions pagination', () => {
       status: 'open'
     })
     expect(page.items.map((d) => d.num)).toEqual([1])
+    expect(page.total).toBe(2)
     const next = new URL(page.nextCursor!)
     expect(next.pathname).toBe('/api/models/a/b/discussions')
     expect(next.searchParams.get('p')).toBe('1')
@@ -93,6 +94,7 @@ describe('HubClient.listDiscussions pagination', () => {
     const page = await client.listDiscussions('model', 'a/b', { cursor })
     expect(fetchImpl.mock.calls[0]![0]).toBe(cursor)
     expect(page.items.map((d) => d.num)).toEqual([2])
+    expect(page.total).toBe(2)
     expect(page.nextCursor).toBeUndefined()
   })
 
@@ -100,6 +102,7 @@ describe('HubClient.listDiscussions pagination', () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ discussions: [disc(1)] }))
     const client = new HubClient({ fetchImpl, ...FAST })
     const page = await client.listDiscussions('space', 'a/b')
+    expect(page.total).toBeUndefined()
     expect(page.nextCursor).toBeUndefined()
   })
 })

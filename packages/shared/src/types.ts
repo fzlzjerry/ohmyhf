@@ -356,6 +356,8 @@ export interface SearchQuery {
 export interface Page<T> {
   items: T[]
   nextCursor?: string
+  /** Server-reported result count when the endpoint exposes one. */
+  total?: number
 }
 
 /**

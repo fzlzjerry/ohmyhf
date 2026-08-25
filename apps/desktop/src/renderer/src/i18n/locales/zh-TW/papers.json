@@ -36,7 +36,12 @@
     "noMarkdown": "這篇論文沒有 Markdown 版本。",
     "noPdf": "這篇論文沒有 PDF。",
     "pdfError": "無法載入 PDF。",
-    "pdfTooLarge": "這份 PDF 超過 32 MiB，無法在此預覽。"
+    "pdfTooLarge": "這份 PDF 超過 32 MiB，無法在此預覽。",
+    "expand": "展開閱讀器",
+    "collapse": "還原論文清單",
+    "zoomIn": "放大",
+    "zoomOut": "縮小",
+    "fitWidth": "符合寬度"
   },
   "refresh": "重新整理論文",
   "related": "Hub 上的相關資源",

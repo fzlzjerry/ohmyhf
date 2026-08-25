@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
@@ -8,7 +8,9 @@ import {
   ExternalLink,
   FileText,
   Heart,
+  Maximize2,
   MessageSquare,
+  Minimize2,
   RefreshCw,
   Search,
   ThumbsUp
@@ -221,7 +223,11 @@ function PaperDocumentPane({
     if (payload.text.trim() === '') {
       return <EmptyState icon={FileText} title={t('papers:reader.noMarkdown')} />
     }
-    return <MarkdownView markdown={payload.text} />
+    return (
+      <div className="mx-auto w-full max-w-[72ch] py-2">
+        <MarkdownView markdown={payload.text} />
+      </div>
+    )
   }
   if (payload.tooLarge) {
     return <EmptyState icon={FileText} title={t('papers:reader.pdfTooLarge')} />
@@ -230,7 +236,7 @@ function PaperDocumentPane({
     return <EmptyState icon={FileText} title={t('papers:reader.noPdf')} />
   }
   return (
-    <div className="h-[min(70vh,40rem)] overflow-hidden rounded-md border">
+    <div className="h-[calc(100vh-13rem)] min-h-[32rem] max-h-[64rem] overflow-hidden rounded-lg border bg-panel">
       <PdfBytesViewer
         key={paperId}
         bytes={payload.bytes}
@@ -239,13 +245,24 @@ function PaperDocumentPane({
         pageLabel={(page, total) => t('detail:preview.pdfPage', { page, total })}
         prevLabel={t('detail:datasetPreview.prev')}
         nextLabel={t('detail:datasetPreview.next')}
+        zoomInLabel={t('papers:reader.zoomIn')}
+        zoomOutLabel={t('papers:reader.zoomOut')}
+        fitWidthLabel={t('papers:reader.fitWidth')}
       />
     </div>
   )
 }
 
 /** Paper detail pane; reusable from SearchPage without leaving the search layout. */
-export function PaperDetailPane({ paperId }: { paperId: string }): React.JSX.Element {
+export function PaperDetailPane({
+  paperId,
+  readerExpanded = false,
+  onReaderExpandedChange
+}: {
+  paperId: string
+  readerExpanded?: boolean
+  onReaderExpandedChange?: (expanded: boolean) => void
+}): React.JSX.Element {
   const { t } = useTranslation(['papers', 'common', 'detail'])
   const navigate = useNavigate()
   const auth = useAppStore((s) => s.auth)
@@ -254,6 +271,7 @@ export function PaperDetailPane({ paperId }: { paperId: string }): React.JSX.Ele
   const locale = resolveLocale(settings, appInfo)
   const endpointKey = normalizeHubEndpoint(settings.hubEndpoint)
   const [tab, setTab] = useState<ReaderTab>('abstract')
+  const reading = tab === 'paper' || tab === 'pdf'
 
   const paper = useQuery({
     queryKey: ['paper', paperId, endpointKey],
@@ -261,6 +279,22 @@ export function PaperDetailPane({ paperId }: { paperId: string }): React.JSX.Ele
     enabled: paperId !== ''
   })
   const selected = paper.data
+
+  useEffect(() => {
+    if (!readerExpanded || onReaderExpandedChange === undefined) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onReaderExpandedChange(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onReaderExpandedChange, readerExpanded])
+
+  useEffect(
+    () => () => {
+      onReaderExpandedChange?.(false)
+    },
+    [onReaderExpandedChange]
+  )
 
   if (paper.isPending) {
     return (
@@ -296,116 +330,150 @@ export function PaperDetailPane({ paperId }: { paperId: string }): React.JSX.Ele
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto min-[1200px]:flex-row">
-      <article className="mx-auto flex min-w-0 w-full max-w-[72ch] flex-1 flex-col gap-4 p-6">
-        <div className="flex items-start gap-3">
-          {auth.status === 'signedIn' && (
-            <UpvoteButton
-              upvotes={selected.upvotes}
-              hubUrl={hubPaperUrl(selected.id, settings.hubEndpoint)}
-              onToggle={(next) =>
-                invoke('hub:paperUpvoteSet', { paperId: selected.id, upvoted: next })
-              }
-            />
-          )}
-          <div className="min-w-0 flex-1">
-            <h1 className="text-xl leading-snug font-semibold text-balance text-ink-strong">
-              {selected.title}
-            </h1>
-            <p className="mt-1 font-mono text-[12px] text-ink-faint">{selected.id}</p>
-          </div>
-        </div>
-        <div className="nums flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-ink-faint">
-          <span className="flex items-center gap-1">
-            <ThumbsUp className="size-3.5" aria-hidden />
-            {formatCount(selected.upvotes, locale)}
-          </span>
-          {selected.publishedAt && (
-            <>
-              <span className="text-decor" aria-hidden>
-                ·
-              </span>
-              <span>
-                {t('papers:published', {
-                  time: formatRelativeTime(selected.publishedAt, locale)
-                })}
-              </span>
-            </>
-          )}
-          {selected.submittedBy && (
-            <>
-              <span className="text-decor" aria-hidden>
-                ·
-              </span>
-              <span>{t('papers:submittedBy', { name: selected.submittedBy })}</span>
-            </>
-          )}
-        </div>
-        {authors.length > 0 && (
-          <p className="text-[12.5px] text-ink-muted">
-            <span className="font-medium text-ink">{t('papers:authors')}: </span>
-            {authors.map((author, index) => (
-              <span key={`${author.name}:${author.username ?? index}`}>
-                {index > 0 ? ', ' : null}
-                {author.username ? (
-                  <button
-                    type="button"
-                    className="text-select hover:underline"
-                    onClick={() => navigate(`/users/${author.username}`)}
-                  >
-                    {author.name}
-                  </button>
-                ) : (
-                  author.name
-                )}
-              </span>
-            ))}
-          </p>
+      <article
+        className={cn(
+          'mx-auto flex min-w-0 w-full flex-1 flex-col gap-4',
+          reading ? 'max-w-[84rem] p-4' : 'max-w-[72ch] p-6'
         )}
-        <div className="flex flex-wrap gap-2">
-          <Button variant="cta" size="md" onClick={() => setTab('paper')}>
-            <FileText className="size-3.5" aria-hidden />
-            {t('papers:readHere')}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => openExternal(`https://arxiv.org/abs/${selected.id}`)}
-          >
-            <ExternalLink className="size-3.5" aria-hidden />
-            {t('papers:readOnArxiv')}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => openExternal(hubPaperUrl(selected.id, settings.hubEndpoint))}
-          >
-            <ExternalLink className="size-3.5" aria-hidden />
-            {t('papers:readOnHub')}
-          </Button>
-          {github && (
-            <Button variant="ghost" size="sm" onClick={() => openExternal(github)}>
-              <ExternalLink className="size-3.5" aria-hidden />
-              {t('papers:openGithub')}
-            </Button>
+      >
+        <header className={cn('flex flex-col gap-4', reading && 'mx-auto w-full max-w-[72ch]')}>
+          <div className="flex items-start gap-3">
+            {auth.status === 'signedIn' && (
+              <UpvoteButton
+                upvotes={selected.upvotes}
+                hubUrl={hubPaperUrl(selected.id, settings.hubEndpoint)}
+                onToggle={(next) =>
+                  invoke('hub:paperUpvoteSet', { paperId: selected.id, upvoted: next })
+                }
+              />
+            )}
+            <div className="min-w-0 flex-1">
+              <h1 className="text-xl leading-snug font-semibold text-balance text-ink-strong">
+                {selected.title}
+              </h1>
+              <p className="mt-1 font-mono text-[12px] text-ink-faint">{selected.id}</p>
+            </div>
+          </div>
+          {(auth.status !== 'signedIn' || selected.publishedAt || selected.submittedBy) && (
+            <div className="nums flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-ink-faint">
+              {auth.status !== 'signedIn' && (
+                <span className="flex items-center gap-1">
+                  <ThumbsUp className="size-3.5" aria-hidden />
+                  {formatCount(selected.upvotes, locale)}
+                </span>
+              )}
+              {selected.publishedAt && (
+                <span>
+                  {t('papers:published', {
+                    time: formatRelativeTime(selected.publishedAt, locale)
+                  })}
+                </span>
+              )}
+              {selected.submittedBy && (
+                <span>{t('papers:submittedBy', { name: selected.submittedBy })}</span>
+              )}
+            </div>
           )}
-          {selected.projectPage && (
-            <Button variant="ghost" size="sm" onClick={() => openExternal(selected.projectPage!)}>
-              <ExternalLink className="size-3.5" aria-hidden />
-              {t('papers:openProject')}
-            </Button>
+          {authors.length > 0 && (
+            <p className="text-[12.5px] text-ink-muted">
+              <span className="font-medium text-ink">{t('papers:authors')}: </span>
+              {authors.map((author, index) => (
+                <span key={`${author.name}:${author.username ?? index}`}>
+                  {index > 0 ? ', ' : null}
+                  {author.username ? (
+                    <button
+                      type="button"
+                      className="text-select hover:underline"
+                      onClick={() => navigate(`/users/${author.username}`)}
+                    >
+                      {author.name}
+                    </button>
+                  ) : (
+                    author.name
+                  )}
+                </span>
+              ))}
+            </p>
           )}
-        </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="cta" size="md" onClick={() => setTab('paper')}>
+              <FileText className="size-3.5" aria-hidden />
+              {t('papers:readHere')}
+            </Button>
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => openExternal(`https://arxiv.org/abs/${selected.id}`)}
+            >
+              <ExternalLink className="size-3.5" aria-hidden />
+              {t('papers:readOnArxiv')}
+            </Button>
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => openExternal(hubPaperUrl(selected.id, settings.hubEndpoint))}
+            >
+              <ExternalLink className="size-3.5" aria-hidden />
+              {t('papers:readOnHub')}
+            </Button>
+            {github && (
+              <Button variant="ghost" size="md" onClick={() => openExternal(github)}>
+                <ExternalLink className="size-3.5" aria-hidden />
+                {t('papers:openGithub')}
+              </Button>
+            )}
+            {selected.projectPage && (
+              <Button variant="ghost" size="md" onClick={() => openExternal(selected.projectPage!)}>
+                <ExternalLink className="size-3.5" aria-hidden />
+                {t('papers:openProject')}
+              </Button>
+            )}
+          </div>
+        </header>
         <Tabs
           value={tab}
-          onValueChange={(value) => setTab(value as ReaderTab)}
+          onValueChange={(value) => {
+            const next = value as ReaderTab
+            setTab(next)
+            if (next !== 'paper' && next !== 'pdf' && readerExpanded) {
+              onReaderExpandedChange?.(false)
+            }
+          }}
           className="flex min-h-0 flex-col"
         >
-          <TabsList>
-            <TabsTrigger value="abstract">{t('papers:tabs.abstract')}</TabsTrigger>
-            <TabsTrigger value="paper">{t('papers:tabs.paper')}</TabsTrigger>
-            <TabsTrigger value="pdf">{t('papers:tabs.pdf')}</TabsTrigger>
-            <TabsTrigger value="comments">{t('papers:tabs.comments')}</TabsTrigger>
-          </TabsList>
+          <div className={cn('flex items-end border-b', reading && 'mx-auto w-full max-w-[72ch]')}>
+            <TabsList className="min-w-0 flex-1 border-b-0">
+              <TabsTrigger value="abstract">{t('papers:tabs.abstract')}</TabsTrigger>
+              <TabsTrigger value="paper">{t('papers:tabs.paper')}</TabsTrigger>
+              <TabsTrigger value="pdf">{t('papers:tabs.pdf')}</TabsTrigger>
+              <TabsTrigger value="comments">
+                <span className="inline-flex items-center gap-1.5">
+                  {t('papers:tabs.comments')}
+                  {selected.numComments !== undefined && (
+                    <span className="nums text-[11px] text-ink-faint">
+                      {formatCount(selected.numComments, locale)}
+                    </span>
+                  )}
+                </span>
+              </TabsTrigger>
+            </TabsList>
+            {reading && onReaderExpandedChange !== undefined && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mb-1 mr-1 shrink-0"
+                aria-pressed={readerExpanded}
+                onClick={() => onReaderExpandedChange(!readerExpanded)}
+              >
+                {readerExpanded ? (
+                  <Minimize2 className="size-3.5" aria-hidden />
+                ) : (
+                  <Maximize2 className="size-3.5" aria-hidden />
+                )}
+                {readerExpanded ? t('papers:reader.collapse') : t('papers:reader.expand')}
+              </Button>
+            )}
+          </div>
           <TabsContent value="abstract" className="flex flex-col gap-4 pt-4">
             {selected.thumbnail && (
               <img
@@ -443,7 +511,7 @@ export function PaperDetailPane({ paperId }: { paperId: string }): React.JSX.Ele
           </TabsContent>
         </Tabs>
       </article>
-      <PaperRelatedSidebar paperId={selected.id} />
+      {!reading && <PaperRelatedSidebar paperId={selected.id} />}
     </div>
   )
 }
@@ -461,6 +529,12 @@ export function PapersPage(): React.JSX.Element {
   const [period, setPeriod] = useState<DailyPapersPeriod>('daily')
   const [sort, setSort] = useState<DailyPapersSort>('publishedAt')
   const [query, setQuery] = useState('')
+  const [expandedPaperId, setExpandedPaperId] = useState<string | null>(null)
+  const readerExpanded = selectedId !== undefined && expandedPaperId === selectedId
+  const changeReaderExpanded = useCallback(
+    (expanded: boolean) => setExpandedPaperId(expanded ? (selectedId ?? null) : null),
+    [selectedId]
+  )
 
   const {
     data,
@@ -547,7 +621,12 @@ export function PapersPage(): React.JSX.Element {
 
   return (
     <div className="flex h-full min-w-0">
-      <section className="flex w-[24rem] shrink-0 flex-col border-r max-[1000px]:w-80">
+      <section
+        className={cn(
+          'flex w-[24rem] shrink-0 flex-col border-r max-[1000px]:w-80',
+          readerExpanded && 'hidden'
+        )}
+      >
         <div className="flex flex-col gap-2 px-3 pt-3 pb-2">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
@@ -679,12 +758,17 @@ export function PapersPage(): React.JSX.Element {
                       <span
                         className={cn(
                           'line-clamp-2 text-[13px] leading-tight font-medium',
-                          isSelected && 'text-select'
+                          isSelected && 'text-select dark:text-ink-strong'
                         )}
                       >
                         {paperItem.title}
                       </span>
-                      <span className="nums flex items-center gap-2 text-[11.5px] text-ink-faint">
+                      <span
+                        className={cn(
+                          'nums flex items-center gap-2 text-[11.5px]',
+                          isSelected ? 'text-ink-muted' : 'text-ink-faint'
+                        )}
+                      >
                         <span className="flex items-center gap-0.5">
                           <ThumbsUp className="size-3" aria-hidden />
                           {formatCount(paperItem.upvotes, locale)}
@@ -716,7 +800,12 @@ export function PapersPage(): React.JSX.Element {
 
       <section className="min-w-0 flex-1 overflow-hidden">
         {selectedId ? (
-          <PaperDetailPane key={selectedId} paperId={selectedId} />
+          <PaperDetailPane
+            key={selectedId}
+            paperId={selectedId}
+            readerExpanded={readerExpanded}
+            onReaderExpandedChange={changeReaderExpanded}
+          />
         ) : (
           <div className="flex h-full items-center justify-center p-8">
             <EmptyState icon={FileText} title={t('papers:select')} body={t('papers:selectHint')} />

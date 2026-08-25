@@ -1,6 +1,6 @@
 {
   "add": "Add",
-  "addPlaceholder": "Add a model by id, e.g. meta-llama/Llama-3-8B…",
+  "addPlaceholder": "Search models by name, author, or id…",
   "attr": {
     "downloads": "Downloads",
     "library": "Library",
@@ -21,5 +21,9 @@
   "max": "You can compare up to 4 models.",
   "remove": "Remove",
   "title": "Compare models",
-  "invalidId": "Enter a valid model id, e.g. gpt2 or meta-llama/Llama-3-8B."
+  "invalidId": "Enter a valid model id, e.g. gpt2 or meta-llama/Llama-3-8B.",
+  "searchHint": "Choose from Hub results — no exact model id required.",
+  "popular": "Popular models",
+  "results": "Search results",
+  "noResults": "No matching models found."
 }

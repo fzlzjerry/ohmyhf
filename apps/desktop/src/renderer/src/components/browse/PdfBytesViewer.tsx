@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, FileQuestion } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileQuestion, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
+
+const MIN_ZOOM = 0.6
+const MAX_ZOOM = 2.4
+const ZOOM_STEP = 0.2
 
 function isPdfRenderCancelled(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
@@ -18,7 +22,10 @@ export function PdfBytesViewer({
   errorBody,
   pageLabel,
   prevLabel,
-  nextLabel
+  nextLabel,
+  zoomInLabel,
+  zoomOutLabel,
+  fitWidthLabel
 }: {
   bytes: Uint8Array
   errorTitle: string
@@ -26,11 +33,18 @@ export function PdfBytesViewer({
   pageLabel: (page: number, total: number) => string
   prevLabel: string
   nextLabel: string
+  zoomInLabel: string
+  zoomOutLabel: string
+  fitWidthLabel: string
 }): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const [loadedBytes, setLoadedBytes] = useState(bytes)
   const [page, setPage] = useState(1)
+  const [pageDraft, setPageDraft] = useState('1')
   const [pageCount, setPageCount] = useState(0)
+  const [zoom, setZoom] = useState(1)
+  const [containerWidth, setContainerWidth] = useState(0)
   const [error, setError] = useState(false)
   const [loading, setLoading] = useState(true)
   const docRef = useRef<PDFDocumentProxy | null>(null)
@@ -40,7 +54,9 @@ export function PdfBytesViewer({
   if (bytes !== loadedBytes) {
     setLoadedBytes(bytes)
     setPage(1)
+    setPageDraft('1')
     setPageCount(0)
+    setZoom(1)
     setError(false)
     setLoading(true)
   }
@@ -92,6 +108,24 @@ export function PdfBytesViewer({
   }, [bytes])
 
   useEffect(() => {
+    const container = scrollRef.current
+    if (!container || loading || error) return
+    const measure = (): void => setContainerWidth(container.clientWidth)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [error, loading])
+
+  useEffect(() => {
+    const container = scrollRef.current
+    if (container) {
+      container.scrollTop = 0
+      container.scrollLeft = 0
+    }
+  }, [page])
+
+  useEffect(() => {
     const doc = docRef.current
     const canvas = canvasRef.current
     if (!doc || !canvas || page < 1 || page > pageCount || loading) return
@@ -101,13 +135,22 @@ export function PdfBytesViewer({
       try {
         const pdfPage = await doc.getPage(page)
         if (cancelled) return
-        const viewport = pdfPage.getViewport({ scale: 1.25 })
+        const baseViewport = pdfPage.getViewport({ scale: 1 })
+        const availableWidth = Math.max(280, containerWidth - 32)
+        const fitScale = Math.min(2, Math.max(0.4, availableWidth / baseViewport.width))
+        const cssScale = fitScale * zoom
+        const outputScale = Math.min(window.devicePixelRatio || 1, 2)
+        const cssViewport = pdfPage.getViewport({ scale: cssScale })
+        const renderViewport = pdfPage.getViewport({ scale: cssScale * outputScale })
         const context = canvas.getContext('2d')
         if (!context) return
-        canvas.width = viewport.width
-        canvas.height = viewport.height
+
+        canvas.width = Math.floor(renderViewport.width)
+        canvas.height = Math.floor(renderViewport.height)
+        canvas.style.width = `${Math.floor(cssViewport.width)}px`
+        canvas.style.height = `${Math.floor(cssViewport.height)}px`
         renderTaskRef.current?.cancel()
-        const task = pdfPage.render({ canvasContext: context, viewport, canvas })
+        const task = pdfPage.render({ canvasContext: context, viewport: renderViewport, canvas })
         renderTaskRef.current = task
         await task.promise
       } catch (cause) {
@@ -121,13 +164,28 @@ export function PdfBytesViewer({
       renderTaskRef.current?.cancel()
       renderTaskRef.current = null
     }
-  }, [page, pageCount, loading, bytes])
+  }, [page, pageCount, loading, bytes, containerWidth, zoom])
+
+  const goToPage = (next: number): void => {
+    const clamped = Math.min(pageCount, Math.max(1, next))
+    setPage(clamped)
+    setPageDraft(String(clamped))
+  }
+
+  const commitPageDraft = (): void => {
+    const parsed = Number.parseInt(pageDraft, 10)
+    if (Number.isNaN(parsed)) {
+      setPageDraft(String(page))
+      return
+    }
+    goToPage(parsed)
+  }
 
   if (loading) {
     return (
-      <div className="flex flex-col gap-2 p-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-96 w-full" />
+      <div className="flex h-full min-h-0 flex-col gap-2 p-4">
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="min-h-80 flex-1" />
       </div>
     )
   }
@@ -142,33 +200,95 @@ export function PdfBytesViewer({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-2 border-b px-3 py-1.5">
-        <span className="text-[12px] text-ink-muted">{pageLabel(page, pageCount)}</span>
-        <div className="flex items-center gap-0.5">
+      <div className="flex min-h-10 shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-bg px-2.5 py-1.5">
+        <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
             className="size-7"
             aria-label={prevLabel}
             disabled={page <= 1}
-            onClick={() => setPage((current) => Math.max(1, current - 1))}
+            onClick={() => goToPage(page - 1)}
           >
             <ChevronLeft className="size-4" aria-hidden />
           </Button>
+          <div className="nums flex h-7 items-center gap-1 rounded-md border bg-field px-1.5 text-[12px] text-ink-muted shadow-field-inset">
+            <input
+              value={pageDraft}
+              inputMode="numeric"
+              aria-label={pageLabel(page, pageCount)}
+              className="w-7 bg-transparent text-center text-ink outline-none"
+              onChange={(event) => setPageDraft(event.target.value.replace(/\D/g, ''))}
+              onBlur={commitPageDraft}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  commitPageDraft()
+                  event.currentTarget.blur()
+                }
+                if (event.key === 'Escape') {
+                  setPageDraft(String(page))
+                  event.currentTarget.blur()
+                }
+              }}
+            />
+            <span aria-hidden>/</span>
+            <span>{pageCount}</span>
+          </div>
           <Button
             variant="ghost"
             size="icon"
             className="size-7"
             aria-label={nextLabel}
             disabled={page >= pageCount}
-            onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+            onClick={() => goToPage(page + 1)}
           >
             <ChevronRight className="size-4" aria-hidden />
           </Button>
         </div>
+        <div className="flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            aria-label={zoomOutLabel}
+            disabled={zoom <= MIN_ZOOM}
+            onClick={() => setZoom((current) => Math.max(MIN_ZOOM, current - ZOOM_STEP))}
+          >
+            <ZoomOut className="size-3.5" aria-hidden />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="nums h-7 min-w-16 px-1.5 text-[11.5px]"
+            aria-label={fitWidthLabel}
+            title={fitWidthLabel}
+            onClick={() => setZoom(1)}
+          >
+            <Maximize2 className="size-3.5" aria-hidden />
+            {Math.round(zoom * 100)}%
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            aria-label={zoomInLabel}
+            disabled={zoom >= MAX_ZOOM}
+            onClick={() => setZoom((current) => Math.min(MAX_ZOOM, current + ZOOM_STEP))}
+          >
+            <ZoomIn className="size-3.5" aria-hidden />
+          </Button>
+        </div>
       </div>
-      <div className="flex min-h-0 flex-1 justify-center overflow-auto bg-panel/40 p-4">
-        <canvas ref={canvasRef} className="max-w-full shadow-sm" />
+      <div
+        ref={scrollRef}
+        role="region"
+        tabIndex={0}
+        aria-label={pageLabel(page, pageCount)}
+        className="min-h-0 flex-1 overflow-auto bg-panel/60 p-4 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus/25"
+      >
+        <div className="mx-auto w-fit min-w-fit">
+          <canvas ref={canvasRef} className="block bg-white shadow-sm ring-1 ring-border-card" />
+        </div>
       </div>
     </div>
   )

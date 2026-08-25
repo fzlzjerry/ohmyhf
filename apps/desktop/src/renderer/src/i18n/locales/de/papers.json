@@ -36,7 +36,12 @@
     "noMarkdown": "Für dieses Paper ist keine Markdown-Version verfügbar.",
     "noPdf": "Für dieses Paper ist kein PDF verfügbar.",
     "pdfError": "Das PDF konnte nicht geladen werden.",
-    "pdfTooLarge": "Dieses PDF ist größer als 32 MiB und kann hier nicht angezeigt werden."
+    "pdfTooLarge": "Dieses PDF ist größer als 32 MiB und kann hier nicht angezeigt werden.",
+    "expand": "Reader erweitern",
+    "collapse": "Papierliste wiederherstellen",
+    "zoomIn": "Vergrößern",
+    "zoomOut": "Verkleinern",
+    "fitWidth": "An Breite anpassen"
   },
   "refresh": "Paper aktualisieren",
   "related": "Verwandt im Hub",

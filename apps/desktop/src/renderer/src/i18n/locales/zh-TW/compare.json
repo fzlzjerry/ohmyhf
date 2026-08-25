@@ -1,6 +1,6 @@
 {
   "add": "新增",
-  "addPlaceholder": "以 ID 新增模型，例如 meta-llama/Llama-3-8B…",
+  "addPlaceholder": "搜尋模型名稱、作者或 ID…",
   "attr": {
     "downloads": "下載次數",
     "library": "函式庫",
@@ -21,5 +21,9 @@
   "max": "最多可比較 4 個模型。",
   "remove": "移除",
   "title": "比較模型",
-  "invalidId": "請輸入有效的模型 ID，例如 gpt2 或 meta-llama/Llama-3-8B。"
+  "invalidId": "請輸入有效的模型 ID，例如 gpt2 或 meta-llama/Llama-3-8B。",
+  "searchHint": "直接從 Hub 搜尋選取，不必記住完整模型 ID。",
+  "popular": "熱門模型",
+  "results": "搜尋結果",
+  "noResults": "找不到符合的模型。"
 }

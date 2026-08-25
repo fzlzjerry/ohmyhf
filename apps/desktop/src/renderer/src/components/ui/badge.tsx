@@ -10,7 +10,7 @@ const badgeVariants = cva(
         neutral: 'border bg-linear-to-b from-btn-from to-btn-to text-ink-muted',
         select: 'bg-select/10 text-select border border-select/25',
         brand: 'bg-brand text-brand-ink border border-transparent font-semibold',
-        success: 'bg-success/10 text-success border border-success/25',
+        success: 'bg-success/10 text-success-ink border border-success/25',
         warning: 'bg-warning/15 text-ink border border-warning/40',
         error: 'bg-error/10 text-error border border-error/25',
         outline: 'border text-ink-muted'

@@ -51,7 +51,8 @@ on `#0b0f19` cards.
 Tag category hues (blue, green, indigo `#615fff`, orange `#fe6e00`, purple, red `#fb2c36`,
 amber) tint the leading icon tile of task tags; the task→hue/icon mapping is data in
 `apps/desktop/src/renderer/src/lib/tag-colors.ts`. Semantic state: Tailwind green/amber/red/blue
-(600 light, 400–500 dark); state is never conveyed by color alone.
+(600 light, 400–500 dark); small success badges use the darker `success-ink` role in light mode.
+State is never conveyed by color alone.
 
 ### Signature textures
 

@@ -1,6 +1,6 @@
 {
   "add": "Adicionar",
-  "addPlaceholder": "Adicione um modelo pelo id, ex.: meta-llama/Llama-3-8B…",
+  "addPlaceholder": "Busque por nome, autor ou id…",
   "attr": {
     "downloads": "Downloads",
     "library": "Biblioteca",
@@ -21,5 +21,9 @@
   "max": "Você pode comparar até 4 modelos.",
   "remove": "Remover",
   "title": "Comparar modelos",
-  "invalidId": "Insira um id de modelo válido, ex.: gpt2 ou meta-llama/Llama-3-8B."
+  "invalidId": "Insira um id de modelo válido, ex.: gpt2 ou meta-llama/Llama-3-8B.",
+  "searchHint": "Escolha nos resultados do Hub — não é preciso lembrar o id exato.",
+  "popular": "Modelos populares",
+  "results": "Resultados da busca",
+  "noResults": "Nenhum modelo correspondente foi encontrado."
 }

@@ -121,6 +121,7 @@
   --c-tag-yellow: oklch(0.769 0.188 70.08);
   /* Semantic state — never conveyed by color alone */
   --c-success: oklch(0.627 0.194 149.214);
+  --c-success-ink: oklch(0.448 0.119 151.328); /* green-800: small status text */
   --c-warning: oklch(0.666 0.179 58.318);
   --c-error: oklch(0.577 0.245 27.325);
   --c-info: oklch(0.546 0.245 262.881);
@@ -194,6 +195,7 @@
   --c-tag-red: oklch(0.704 0.191 22.216);
   --c-tag-yellow: oklch(0.828 0.189 84.429);
   --c-success: oklch(0.723 0.192 149.579);
+  --c-success-ink: var(--c-success);
   --c-warning: oklch(0.769 0.188 70.08);
   --c-error: oklch(0.704 0.191 22.216);
   --c-info: oklch(0.623 0.214 259.815);
@@ -257,6 +259,7 @@
   --color-tag-red: var(--c-tag-red);
   --color-tag-yellow: var(--c-tag-yellow);
   --color-success: var(--c-success);
+  --color-success-ink: var(--c-success-ink);
   --color-warning: var(--c-warning);
   --color-error: var(--c-error);
   --color-info: var(--c-info);

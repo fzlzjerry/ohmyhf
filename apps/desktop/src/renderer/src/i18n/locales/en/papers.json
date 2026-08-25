@@ -36,7 +36,12 @@
     "noMarkdown": "No Markdown version is available for this paper.",
     "noPdf": "No PDF is available for this paper.",
     "pdfError": "Couldn't load the PDF.",
-    "pdfTooLarge": "This PDF is larger than 32 MiB and cannot be previewed here."
+    "pdfTooLarge": "This PDF is larger than 32 MiB and cannot be previewed here.",
+    "expand": "Expand reader",
+    "collapse": "Restore paper list",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "fitWidth": "Fit width"
   },
   "refresh": "Refresh papers",
   "related": "Related on the Hub",

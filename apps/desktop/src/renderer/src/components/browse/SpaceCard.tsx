@@ -16,8 +16,7 @@ export function SpaceCard({ repo, selected, onSelect, locale }: SpaceCardProps):
   return (
     <button
       type="button"
-      role="option"
-      aria-selected={selected}
+      aria-current={selected ? 'true' : undefined}
       onClick={() => onSelect(repo)}
       className={cn(
         'relative flex h-full min-w-0 flex-col overflow-hidden rounded-lg p-2.5 text-left text-white outline-none',
