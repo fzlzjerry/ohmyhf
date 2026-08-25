@@ -230,7 +230,7 @@ describe('HubClient.getDailyPapers', () => {
   })
 
   it('forwards period sort and week or month onto the Hub query', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]))
+    const fetchImpl = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse([])))
     const client = new HubClient({ fetchImpl, cacheTtlMs: 0 })
     await client.getDailyPapers({
       period: 'weekly',
@@ -327,7 +327,7 @@ describe('HubClient.getPaper', () => {
 
 describe('HubClient.getPaperRelated', () => {
   it('searches models, datasets, and spaces with filter=arxiv:{id}', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]))
+    const fetchImpl = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse([])))
     const client = new HubClient({ fetchImpl, cacheTtlMs: 0 })
     await client.getPaperRelated('2401.00001')
     const urls = fetchImpl.mock.calls.map(([url]) => new URL(String(url)))

@@ -230,6 +230,7 @@ function PaperDocumentPane({
   return (
     <div className="h-[min(70vh,40rem)] overflow-hidden rounded-md border">
       <PdfBytesViewer
+        key={paperId}
         bytes={payload.bytes}
         errorTitle={t('papers:reader.pdfError')}
         errorBody={t('papers:reader.noPdf')}

@@ -22,29 +22,27 @@ interface PdfPreviewProps {
   downloading: boolean
 }
 
-export function PdfPreview({
+function PdfPreviewBody({
   kind,
   repoId,
   path,
   size,
+  revision,
   onDownload,
   downloading
-}: PdfPreviewProps): React.JSX.Element {
+}: PdfPreviewProps & { revision: string }): React.JSX.Element {
   const { t } = useTranslation(['detail', 'common'])
-  const revision = useResolvedRepoCommit()
   const [bytes, setBytes] = useState<Uint8Array | null>(null)
   const [error, setError] = useState<'tooLarge' | 'unreadable' | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let cancelled = false
-    setBytes(null)
-    setError(null)
-    setLoading(true)
 
     void (async () => {
       try {
         if (size <= 0 || size > MAX_PDF_BYTES) {
+          await Promise.resolve()
           if (!cancelled) {
             setError('tooLarge')
             setLoading(false)
@@ -117,6 +115,17 @@ export function PdfPreview({
       pageLabel={(page, total) => t('detail:preview.pdfPage', { page, total })}
       prevLabel={t('detail:datasetPreview.prev')}
       nextLabel={t('detail:datasetPreview.next')}
+    />
+  )
+}
+
+export function PdfPreview(props: PdfPreviewProps): React.JSX.Element {
+  const revision = useResolvedRepoCommit()
+  return (
+    <PdfPreviewBody
+      key={`${props.kind}:${props.repoId}:${props.path}:${revision}:${props.size}`}
+      {...props}
+      revision={revision}
     />
   )
 }

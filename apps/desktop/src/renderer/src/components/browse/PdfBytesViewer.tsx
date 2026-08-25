@@ -30,16 +30,12 @@ export function PdfBytesViewer({
 
   useEffect(() => {
     let cancelled = false
-    docRef.current = null
-    setPage(1)
-    setPageCount(0)
-    setError(false)
-    setLoading(true)
 
     void (async () => {
       try {
         const pdfjs = await import('pdfjs-dist')
         const PdfWorker = (await import('pdfjs-dist/build/pdf.worker.mjs?worker')).default
+        if (cancelled) return
         workerRef.current?.terminate()
         const worker = new PdfWorker()
         workerRef.current = worker
