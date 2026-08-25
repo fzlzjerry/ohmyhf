@@ -30,6 +30,10 @@ export function PdfBytesViewer({
 
   useEffect(() => {
     let cancelled = false
+    setLoading(true)
+    setError(false)
+    setPage(1)
+    setPageCount(0)
 
     void (async () => {
       try {

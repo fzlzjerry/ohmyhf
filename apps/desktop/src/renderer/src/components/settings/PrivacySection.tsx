@@ -62,7 +62,7 @@ export function PrivacySection(): React.JSX.Element {
     queryKey: ['telemetry-status'],
     queryFn: () => invoke('telemetry:status', undefined)
   })
-  const telemetryConfigured = telemetryStatus.data?.configured === true
+  const telemetryConfigured = telemetryStatus.data?.configured !== false
   const lastCapture = telemetryStatus.data?.lastCapture
 
   const clearLocal = useMutation({

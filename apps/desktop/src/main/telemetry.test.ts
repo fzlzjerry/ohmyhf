@@ -441,6 +441,7 @@ describe('TelemetryService', () => {
     await expect(service.capture('app_launched')).resolves.toEqual({ status: 'skipped' })
     expect(fetchImpl).not.toHaveBeenCalled()
     expect(values.size).toBe(0)
+    expect(service.getStatus().lastCapture).toBeUndefined()
 
     enabled = true
     await expect(service.capture('app_launched')).resolves.toEqual({ status: 'sent' })

@@ -514,7 +514,7 @@ export class TelemetryService {
         !this.fetchImpl ||
         this.enabled() !== true
       ) {
-        return remember({ status: 'skipped' })
+        return { status: 'skipped' }
       }
       const eventProperties = starPromptProperties(event, args[0])
       if (eventProperties === null) return remember({ status: 'skipped' })
