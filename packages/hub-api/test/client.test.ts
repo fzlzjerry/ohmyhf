@@ -262,7 +262,8 @@ describe('HubClient.getDailyPapers', () => {
             authors: [{ name: 'A. Researcher', user: { name: 'aresearcher' } }],
             githubRepo: 'org/repo',
             projectPage: 'https://example.test/project',
-            aiSummary: 'Short take.'
+            aiSummary: 'Short take.',
+            submittedOnDailyAt: '2026-01-02T00:00:00.000Z'
           },
           submittedBy: { name: 'Submitter' },
           submittedOnDailyAt: '2026-01-01T00:00:00.000Z'
@@ -276,7 +277,7 @@ describe('HubClient.getDailyPapers', () => {
       githubRepo: 'org/repo',
       projectPage: 'https://example.test/project',
       submittedBy: 'Submitter',
-      submittedOnDailyAt: '2026-01-01T00:00:00.000Z',
+      submittedOnDailyAt: '2026-01-02T00:00:00.000Z',
       aiSummary: 'Short take.'
     })
   })

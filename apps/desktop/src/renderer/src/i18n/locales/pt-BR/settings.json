@@ -237,6 +237,7 @@
       "enabledHint": "Ativada. Eventos fixos são enviados ao PostHog; você pode desativar imediatamente a qualquer momento.",
       "disabledHint": "Desativada por padrão. Nada é enviado até você ativar.",
       "unconfiguredHint": "Esta build local ou sem assinatura não pode enviar telemetria. Lançamentos empacotados com uma chave de projeto PostHog podem.",
+      "optedInUnconfiguredHint": "Esta build não pode enviar telemetria, mas a preferência salva continua ligada. Desligue para revogar o consentimento e impedir que um lançamento empacotado posterior retome o envio.",
       "lastCapture": "Último evento: {{event}} · {{status}} · {{time}}",
       "captureStatus": {
         "sent": "enviado",

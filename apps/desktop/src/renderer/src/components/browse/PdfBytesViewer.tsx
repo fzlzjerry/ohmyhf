@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, FileQuestion } from 'lucide-react'
-import type { PDFDocumentProxy } from 'pdfjs-dist'
+import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
+
+function isPdfRenderCancelled(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const name = 'name' in error ? String(error.name) : ''
+  const message = 'message' in error ? String(error.message) : ''
+  return name === 'RenderingCancelledException' || /cancel/i.test(message)
+}
 
 export function PdfBytesViewer({
   bytes,
@@ -21,19 +28,25 @@ export function PdfBytesViewer({
   nextLabel: string
 }): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [loadedBytes, setLoadedBytes] = useState(bytes)
   const [page, setPage] = useState(1)
   const [pageCount, setPageCount] = useState(0)
   const [error, setError] = useState(false)
   const [loading, setLoading] = useState(true)
   const docRef = useRef<PDFDocumentProxy | null>(null)
   const workerRef = useRef<Worker | null>(null)
+  const renderTaskRef = useRef<RenderTask | null>(null)
+
+  if (bytes !== loadedBytes) {
+    setLoadedBytes(bytes)
+    setPage(1)
+    setPageCount(0)
+    setError(false)
+    setLoading(true)
+  }
 
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
-    setError(false)
-    setPage(1)
-    setPageCount(0)
 
     void (async () => {
       try {
@@ -65,6 +78,8 @@ export function PdfBytesViewer({
 
     return () => {
       cancelled = true
+      renderTaskRef.current?.cancel()
+      renderTaskRef.current = null
       const doc = docRef.current
       docRef.current = null
       if (doc) void doc.cleanup()
@@ -91,16 +106,22 @@ export function PdfBytesViewer({
         if (!context) return
         canvas.width = viewport.width
         canvas.height = viewport.height
-        await pdfPage.render({ canvasContext: context, viewport, canvas }).promise
-      } catch {
-        if (!cancelled) setError(true)
+        renderTaskRef.current?.cancel()
+        const task = pdfPage.render({ canvasContext: context, viewport, canvas })
+        renderTaskRef.current = task
+        await task.promise
+      } catch (cause) {
+        if (cancelled || isPdfRenderCancelled(cause)) return
+        setError(true)
       }
     })()
 
     return () => {
       cancelled = true
+      renderTaskRef.current?.cancel()
+      renderTaskRef.current = null
     }
-  }, [page, pageCount, loading])
+  }, [page, pageCount, loading, bytes])
 
   if (loading) {
     return (

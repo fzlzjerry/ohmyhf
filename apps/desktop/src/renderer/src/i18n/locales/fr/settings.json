@@ -237,6 +237,7 @@
       "enabledHint": "Activée. Des événements fixes sont envoyés à PostHog ; vous pouvez la désactiver immédiatement à tout moment.",
       "disabledHint": "Désactivée par défaut. Rien n’est envoyé avant votre activation.",
       "unconfiguredHint": "Cette version locale ou non signée ne peut pas envoyer de télémétrie. Les versions empaquetées avec une clé de projet PostHog le peuvent.",
+      "optedInUnconfiguredHint": "Cette version ne peut pas envoyer de télémétrie, mais le réglage enregistré est encore activé. Désactivez-le pour retirer le consentement, afin qu’une version empaquetée ultérieure ne reprenne pas l’envoi.",
       "lastCapture": "Dernier événement : {{event}} · {{status}} · {{time}}",
       "captureStatus": {
         "sent": "envoyé",

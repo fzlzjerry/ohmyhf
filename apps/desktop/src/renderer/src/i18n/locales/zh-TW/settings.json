@@ -237,6 +237,7 @@
       "enabledHint": "已啟用；固定事件會傳送至 PostHog，可隨時立即停用。",
       "disabledHint": "預設關閉；啟用前不會傳送任何遙測。",
       "unconfiguredHint": "此本機或未簽署建置無法傳送遙測。帶有 PostHog 專案金鑰的正式安裝包才可以。",
+      "optedInUnconfiguredHint": "此建置無法傳送遙測，但已儲存的偏好仍為開啟。請關閉以撤回同意，避免之後的正式安裝包恢復傳送。",
       "lastCapture": "上次事件：{{event}} · {{status}} · {{time}}",
       "captureStatus": {
         "sent": "已傳送",

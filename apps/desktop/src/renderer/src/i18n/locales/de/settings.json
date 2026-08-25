@@ -237,6 +237,7 @@
       "enabledHint": "Aktiviert. Feste Ereignisse werden an PostHog gesendet; jederzeit sofort abschaltbar.",
       "disabledHint": "Standardmäßig aus. Bis zur Aktivierung wird nichts gesendet.",
       "unconfiguredHint": "Dieser lokale oder unsignierte Build kann keine Telemetrie senden. Paketierte Releases mit einem PostHog-Projektschlüssel können das.",
+      "optedInUnconfiguredHint": "Dieser Build kann keine Telemetrie senden, die gespeicherte Einstellung ist aber noch aktiv. Schalten Sie sie aus, um die Einwilligung zu widerrufen, damit ein späteres Release nicht wieder sendet.",
       "lastCapture": "Letztes Ereignis: {{event}} · {{status}} · {{time}}",
       "captureStatus": {
         "sent": "gesendet",

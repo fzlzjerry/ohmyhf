@@ -237,6 +237,7 @@
       "enabledHint": "켜져 있습니다. 고정 이벤트가 PostHog로 전송되며 언제든 즉시 끌 수 있습니다.",
       "disabledHint": "기본적으로 꺼져 있으며, 켜기 전에는 아무것도 전송되지 않습니다.",
       "unconfiguredHint": "이 로컬 또는 서명되지 않은 빌드는 텔레메트리를 보낼 수 없습니다. PostHog 프로젝트 키가 있는 패키지 릴리스는 가능합니다.",
+      "optedInUnconfiguredHint": "이 빌드는 텔레메트리를 보낼 수 없지만 저장된 설정은 켜져 있습니다. 동의를 철회하려면 끄세요. 이후 패키지 릴리스에서 전송이 재개되지 않도록 합니다.",
       "lastCapture": "마지막 이벤트: {{event}} · {{status}} · {{time}}",
       "captureStatus": {
         "sent": "전송됨",

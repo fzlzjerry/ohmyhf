@@ -893,6 +893,7 @@ interface RawPaperFields {
   project_page?: string
   ai_summary?: string
   aiSummary?: string
+  submittedOnDailyAt?: string
 }
 
 interface RawDailyPaper extends RawPaperFields {
@@ -938,7 +939,7 @@ export function mapPaper(raw: RawDailyPaper): PaperSummary {
     githubRepo: stringValue(p.githubRepo) ?? stringValue(p.github_repo),
     projectPage: stringValue(p.projectPage) ?? stringValue(p.project_page),
     submittedBy: submittedByName(raw.submittedBy),
-    submittedOnDailyAt: stringValue(raw.submittedOnDailyAt),
+    submittedOnDailyAt: stringValue(p.submittedOnDailyAt) ?? stringValue(raw.submittedOnDailyAt),
     aiSummary: stringValue(p.aiSummary) ?? stringValue(p.ai_summary)
   }
 }

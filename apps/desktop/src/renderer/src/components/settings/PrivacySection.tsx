@@ -58,12 +58,21 @@ export function PrivacySection(): React.JSX.Element {
     queryFn: () => invoke('cache:scan', undefined),
     staleTime: 5 * 60_000
   })
+  const [statusPollUntil, setStatusPollUntil] = useState<number | null>(null)
   const telemetryStatus = useQuery({
     queryKey: ['telemetry-status'],
-    queryFn: () => invoke('telemetry:status', undefined)
+    queryFn: () => invoke('telemetry:status', undefined),
+    refetchInterval: (query) => {
+      if (statusPollUntil === null || Date.now() >= statusPollUntil) return false
+      if (query.state.data?.lastCapture) return false
+      return 400
+    }
   })
+  const statusReady = telemetryStatus.isSuccess
   const telemetryConfigured = telemetryStatus.data?.configured === true
   const lastCapture = telemetryStatus.data?.lastCapture
+  const canEnableTelemetry = telemetryConfigured
+  const canDisableTelemetry = settings.telemetryEnabled === true
 
   const clearLocal = useMutation({
     mutationFn: () =>
@@ -130,19 +139,26 @@ export function PrivacySection(): React.JSX.Element {
             </span>
             <span className="text-[12px] text-ink-muted">
               {t(
-                !telemetryConfigured
-                  ? 'settings:privacy.telemetry.unconfiguredHint'
-                  : settings.telemetryEnabled
+                !statusReady
+                  ? settings.telemetryEnabled
                     ? 'settings:privacy.telemetry.enabledHint'
                     : 'settings:privacy.telemetry.disabledHint'
+                  : !telemetryConfigured && settings.telemetryEnabled
+                    ? 'settings:privacy.telemetry.optedInUnconfiguredHint'
+                    : !telemetryConfigured
+                      ? 'settings:privacy.telemetry.unconfiguredHint'
+                      : settings.telemetryEnabled
+                        ? 'settings:privacy.telemetry.enabledHint'
+                        : 'settings:privacy.telemetry.disabledHint'
               )}
             </span>
           </div>
           <Switch
-            checked={telemetryConfigured && settings.telemetryEnabled}
-            disabled={!telemetryConfigured}
+            checked={settings.telemetryEnabled}
+            disabled={!canEnableTelemetry && !canDisableTelemetry}
             onCheckedChange={(telemetryEnabled) => {
               setTelemetryError(null)
+              if (telemetryEnabled) setStatusPollUntil(Date.now() + 10_000)
               void updateSettings({ telemetryEnabled })
                 .then(() => telemetryStatus.refetch())
                 .catch((error: unknown) => {

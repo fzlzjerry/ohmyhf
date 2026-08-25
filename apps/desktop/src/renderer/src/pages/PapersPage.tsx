@@ -177,7 +177,9 @@ function PaperDocumentPane({
   const document = useQuery({
     queryKey: ['paper-document', format, paperId, endpointKey],
     queryFn: () => invoke('hub:paperDocument', { paperId, format }),
-    enabled: active && paperId !== ''
+    enabled: active && paperId !== '',
+    staleTime: 30 * 60_000,
+    gcTime: 30 * 60_000
   })
 
   if (!active) return <div />
@@ -484,7 +486,9 @@ export function PapersPage(): React.JSX.Element {
     [papers, query]
   )
   const rows = useMemo(() => groupPapersByDay(visible), [visible])
-  const showLoader = hasNextPage && query.trim() === ''
+  const searching = query.trim() !== ''
+  const showLoader = Boolean(hasNextPage)
+  const searchExhausted = searching && visible.length === 0 && !hasNextPage && !isFetchingNextPage
 
   // TanStack Virtual exposes imperative functions that React Compiler cannot memoize safely.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -504,22 +508,26 @@ export function PapersPage(): React.JSX.Element {
     overscan: 8
   })
   const virtualItems = virtualizer.getVirtualItems()
+  const scrollOffset = virtualizer.scrollOffset ?? 0
   const stickyDay = useMemo(() => {
-    for (const item of virtualItems) {
-      const row = rows[item.index]
-      if (row?.type === 'day') return row.day
-      if (row?.type === 'paper') {
-        return paperDayKey(row.paper.submittedOnDailyAt ?? row.paper.publishedAt)
-      }
+    const firstVisible =
+      virtualItems.find((item) => item.start + item.size > scrollOffset) ?? virtualItems[0]
+    if (!firstVisible) return undefined
+    const row = rows[firstVisible.index]
+    if (row?.type === 'day') return row.day
+    if (row?.type === 'paper') {
+      return paperDayKey(row.paper.submittedOnDailyAt ?? row.paper.publishedAt)
     }
     return undefined
-  }, [rows, virtualItems])
+  }, [rows, scrollOffset, virtualItems])
 
   useEffect(() => {
     const last = virtualItems.at(-1)
+    const shouldPageFromScroll =
+      last !== undefined && last.index >= rows.length - 1 && !(searching && visible.length === 0)
+    const shouldDrainSearch = searching && visible.length === 0
     if (
-      last &&
-      last.index >= rows.length - 1 &&
+      (shouldPageFromScroll || shouldDrainSearch) &&
       hasNextPage &&
       !isFetchingNextPage &&
       !isFetchNextPageError
@@ -529,6 +537,8 @@ export function PapersPage(): React.JSX.Element {
   }, [
     virtualItems,
     rows.length,
+    searching,
+    visible.length,
     hasNextPage,
     isFetchingNextPage,
     isFetchNextPageError,
@@ -605,7 +615,7 @@ export function PapersPage(): React.JSX.Element {
           />
         ) : papers.length === 0 ? (
           <EmptyState icon={FileText} title={t('papers:empty')} className="flex-1" />
-        ) : visible.length === 0 ? (
+        ) : searchExhausted ? (
           <EmptyState
             icon={Search}
             title={t('papers:emptySearch')}

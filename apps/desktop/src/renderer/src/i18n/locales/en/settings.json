@@ -237,6 +237,7 @@
       "enabledHint": "Enabled. Fixed events are sent to PostHog; you can turn this off immediately at any time.",
       "disabledHint": "Off by default. Nothing is sent until you enable it.",
       "unconfiguredHint": "This local or unsigned build cannot send telemetry. Packaged releases with a PostHog project key can.",
+      "optedInUnconfiguredHint": "This build cannot send telemetry, but the saved preference is still on. Turn it off to revoke consent so a later packaged release does not resume sending.",
       "lastCapture": "Last event: {{event}} · {{status}} · {{time}}",
       "captureStatus": {
         "sent": "sent",
