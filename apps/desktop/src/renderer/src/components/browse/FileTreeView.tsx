@@ -39,6 +39,12 @@ import { Progress } from '@/components/ui/progress'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useToasts } from '@/components/ui/toaster'
 import { useCommandActions } from '@/hooks/use-command-actions'
+import {
+  downloadBlockedByCapacity,
+  estimatedWriteBytes,
+  isDiskCapacityError,
+  useDownloadCapacity
+} from '@/hooks/use-download-capacity'
 import { useAppStore } from '@/stores/app'
 import { FilePreview } from '@/components/browse/FilePreview'
 import { useSecurityGate } from '@/hooks/use-security-gate'
@@ -126,6 +132,17 @@ export function treeFromSnapshot(
   })
 }
 
+function missingFileBytes(
+  files: Array<{ path: string; size: number }>,
+  cachedSizes: ReadonlyMap<string, number>
+): number {
+  let total = 0
+  for (const file of files) {
+    if (cachedSizes.get(file.path) !== file.size) total += file.size
+  }
+  return total
+}
+
 function FileSecurityIcon({
   status,
   message
@@ -171,10 +188,11 @@ export function FileTreeView({
   // repoId changes because the parent keys RepoDetail — and thus this
   // component — by repoId.
   const [selected, setSelected] = useState<FileTreeEntry | null>(null)
-  const [checked, setChecked] = useState<Set<string>>(new Set())
+  const [checked, setChecked] = useState<Map<string, number>>(new Map())
   const [treeWidth, setTreeWidth] = useState(readFileTreeWidth)
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null)
   const endpointKey = normalizeHubEndpoint(useAppStore((state) => state.settings.hubEndpoint))
+  const openSettings = useAppStore((state) => state.openSettings)
   const push = useToasts((s) => s.push)
   const security = useSecurityGate()
 
@@ -240,6 +258,36 @@ export function FileTreeView({
       }
     }
   })
+  const capacity = useDownloadCapacity()
+  const cachedSnapshot = useQuery({
+    queryKey: ['cache-snapshot', kind, repoId, revision.resolvedCommit],
+    queryFn: () =>
+      invoke('cache:snapshot', {
+        kind,
+        repoId,
+        commit: revision.resolvedCommit
+      }),
+    staleTime: 30_000
+  })
+  const cachedSizes = useMemo(
+    () => new Map((cachedSnapshot.data?.files ?? []).map((file) => [file.path, file.size])),
+    [cachedSnapshot.data?.files]
+  )
+  const selectedRequiredBytes =
+    selected?.type === 'file'
+      ? estimatedWriteBytes(
+          missingFileBytes([{ path: selected.path, size: selected.size }], cachedSizes),
+          capacity.data
+        )
+      : undefined
+  const selectedBlocked = downloadBlockedByCapacity(selectedRequiredBytes, capacity.data)
+  const checkedFiles = [...checked].map(([filePath, size]) => ({ path: filePath, size }))
+  const checkedRequiredBytes =
+    checkedFiles.length > 0
+      ? estimatedWriteBytes(missingFileBytes(checkedFiles, cachedSizes), capacity.data)
+      : undefined
+  const checkedBlocked = downloadBlockedByCapacity(checkedRequiredBytes, capacity.data)
+
   const targets = useQuery({
     queryKey: ['export-targets'],
     queryFn: () => invoke('export:targets', undefined),
@@ -280,7 +328,13 @@ export function FileTreeView({
       })
     },
     onSuccess: () => push(t('detail:downloadStarted'), 'success'),
-    onError: (err) => push(t('detail:downloadFailed', { error: err.message }), 'error')
+    onError: (error) =>
+      push(
+        isDiskCapacityError(error)
+          ? t('downloads:capacity.insufficient')
+          : t('detail:downloadFailed', { error: error.message }),
+        'error'
+      )
   })
   const exportRun = useMutation({
     mutationFn: async (args: { tool: ExportTool; filePath: string }) => {
@@ -320,7 +374,7 @@ export function FileTreeView({
           file: selected.path.split('/').at(-1) ?? selected.path
         }),
         icon: ArrowDownToLine,
-        disabled: download.isPending,
+        disabled: download.isPending || selectedBlocked,
         run: async () => {
           await download.mutateAsync([selected.path])
         }
@@ -340,17 +394,18 @@ export function FileTreeView({
       })
     }
     return commands
-  }, [activeExport, download, exportRun, kind, repoId, selected, t, targets.data])
+  }, [activeExport, download, exportRun, kind, repoId, selected, selectedBlocked, t, targets.data])
   useCommandActions('file-tree', fileCommands)
 
   const crumbs = path ? path.split('/') : []
   const treeEntries = tree.data?.entries
   const files = treeEntries?.filter((entry) => entry.type === 'file') ?? []
-  const toggleChecked = (filePath: string): void => {
+  const toggleChecked = (entry: FileTreeEntry): void => {
+    if (entry.type !== 'file') return
     setChecked((prev) => {
-      const next = new Set(prev)
-      if (next.has(filePath)) next.delete(filePath)
-      else next.add(filePath)
+      const next = new Map(prev)
+      if (next.has(entry.path)) next.delete(entry.path)
+      else next.set(entry.path, entry.size)
       return next
     })
   }
@@ -405,6 +460,13 @@ export function FileTreeView({
               </button>
             </span>
           ))}
+          <span className="nums ml-auto text-[11px] text-ink-faint">
+            {capacity.data?.availableBytes === undefined
+              ? t('downloads:capacity.availableUnknown')
+              : t('downloads:capacity.available', {
+                  size: formatBytes(capacity.data.availableBytes)
+                })}
+          </span>
         </div>
         {activeExport && (
           <div className="flex flex-col gap-1 border-b bg-panel px-3 py-2 text-[11px]">
@@ -431,21 +493,24 @@ export function FileTreeView({
         )}
         {checked.size > 0 && (
           <div className="flex items-center gap-2 border-b px-3 py-1.5">
-            <span className="text-[11.5px] text-ink-muted">
+            <span className={cn('text-[11.5px]', checkedBlocked ? 'text-error' : 'text-ink-muted')}>
               {t('detail:files.selected', { count: checked.size })}
+              {checkedRequiredBytes !== undefined ? ` · ${formatBytes(checkedRequiredBytes)}` : ''}
             </span>
             <Button
               variant="secondary"
               size="sm"
               loading={download.isPending}
+              disabled={checkedBlocked}
+              title={checkedBlocked ? t('downloads:capacity.insufficient') : undefined}
               onClick={() =>
-                download.mutate([...checked], { onSuccess: () => setChecked(new Set()) })
+                download.mutate([...checked.keys()], { onSuccess: () => setChecked(new Map()) })
               }
             >
               <ArrowDownToLine className="size-3.5" aria-hidden />
               {t('detail:files.downloadSelected')}
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setChecked(new Set())}>
+            <Button variant="ghost" size="sm" onClick={() => setChecked(new Map())}>
               {t('detail:files.clearSelection')}
             </Button>
           </div>
@@ -506,7 +571,7 @@ export function FileTreeView({
                       className="mt-0.5 size-3.5 shrink-0 accent-select"
                       checked={checked.has(entry.path)}
                       aria-label={t('detail:files.selectFile', { file: name })}
-                      onChange={() => toggleChecked(entry.path)}
+                      onChange={() => toggleChecked(entry)}
                     />
                     <button
                       type="button"
@@ -588,7 +653,28 @@ export function FileTreeView({
                             'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100'
                         )}
                         aria-label={t('detail:files.download')}
+                        title={
+                          downloadBlockedByCapacity(
+                            estimatedWriteBytes(
+                              missingFileBytes(
+                                [{ path: entry.path, size: entry.size }],
+                                cachedSizes
+                              ),
+                              capacity.data
+                            ),
+                            capacity.data
+                          )
+                            ? t('downloads:capacity.insufficient')
+                            : undefined
+                        }
                         loading={download.isPending}
+                        disabled={downloadBlockedByCapacity(
+                          estimatedWriteBytes(
+                            missingFileBytes([{ path: entry.path, size: entry.size }], cachedSizes),
+                            capacity.data
+                          ),
+                          capacity.data
+                        )}
                         onClick={() => download.mutate([entry.path])}
                       >
                         <ArrowDownToLine className="size-3.5" aria-hidden />
@@ -643,7 +729,18 @@ export function FileTreeView({
             repoId={repoId}
             revision={revision}
             entry={selected}
-            onDownload={() => download.mutate([selected.path])}
+            onDownload={() => {
+              if (selectedBlocked) {
+                push(t('downloads:capacity.insufficient'), 'error', {
+                  action: {
+                    label: t('downloads:capacity.openSettings'),
+                    onClick: () => openSettings('downloads')
+                  }
+                })
+                return
+              }
+              download.mutate([selected.path])
+            }}
             downloading={download.isPending}
           />
         </div>

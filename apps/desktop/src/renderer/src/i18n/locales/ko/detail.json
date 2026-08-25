@@ -292,6 +292,15 @@
     "exportQueued": "Download started — export will run when it finishes",
     "hint": "Pick the GGUF quant or weight file your local tool can load, instead of fetching the whole repository.",
     "quant": "Weight file",
-    "title": "Get this model"
+    "title": "Get this model",
+    "recommended": "추천",
+    "estimated": "예상",
+    "estimateDetails": "예상 시스템 메모리 {{memory}} · 전용 GPU 오프로딩 {{gpu}}. 로컬 실행 전에 정확한 적합성을 다시 확인합니다.",
+    "fit": {
+      "comfortable": "여유 있음",
+      "tight": "빠듯함",
+      "unlikely": "실행 어려움",
+      "unknown": "알 수 없음"
+    }
   }
 }

@@ -46,5 +46,14 @@
   },
   "title": "Descargas",
   "verified": "sha256 verificado",
-  "checksumsVerified": "sumas de comprobación verificadas"
+  "checksumsVerified": "sumas de comprobación verificadas",
+  "capacity": {
+    "available": "{{size}} disponibles para nuevas descargas",
+    "availableUnknown": "Se desconoce el espacio disponible para descargas",
+    "selected": "Descarga seleccionada: {{size}}",
+    "all": "Repositorio completo: {{size}}",
+    "unknown": "tamaño desconocido",
+    "insufficient": "No hay suficiente espacio en la caché. Limpia la caché o elige otro directorio.",
+    "openSettings": "Abrir ajustes de descarga"
+  }
 }

@@ -1,12 +1,21 @@
 import { randomUUID } from 'node:crypto'
-import { lstatSync, mkdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { lstat, readdir, realpath, rm } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
+import { lstat, readdir, realpath, rm, statfs } from 'node:fs/promises'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { app } from 'electron'
 import { computeSpeedShare, downloadPostActionSchema } from '@oh-my-huggingface/shared'
 import type {
   DownloadAutoExport,
+  DownloadCapacity,
   DownloadFileState,
   DownloadPostAction,
   DownloadPostActionStatus,
@@ -40,9 +49,100 @@ interface WorkerMessage {
 const PROGRESS_BROADCAST_MS = 400
 const PROGRESS_PERSIST_MS = 3000
 const DOWNLOAD_ENVIRONMENT_VERSION = 1
+export const DOWNLOAD_SPACE_RESERVE_BYTES = 1024 ** 3
+
+interface CapacityStats {
+  bavail: number | bigint
+  bsize: number | bigint
+}
+
+export interface DownloadStorageDeps {
+  platform: NodeJS.Platform
+  statfs: (path: string) => Promise<CapacityStats>
+}
+
+const DEFAULT_STORAGE_DEPS: DownloadStorageDeps = {
+  platform: process.platform,
+  statfs: (path) => statfs(path)
+}
 
 function isMissingPath(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
+}
+
+function safeAddBytes(total: number, value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return total
+  return Math.min(Number.MAX_SAFE_INTEGER, total + value)
+}
+
+function writeMultiplierFor(platform: NodeJS.Platform): 1 | 2 {
+  return platform === 'win32' ? 2 : 1
+}
+
+function regularFileSize(path: string): number | undefined {
+  try {
+    const entry = lstatSync(path)
+    return entry.isFile() && !entry.isSymbolicLink() ? entry.size : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function nearestExistingPath(path: string): string {
+  let current = resolve(path)
+  while (!existsSync(current)) {
+    const parent = dirname(current)
+    if (parent === current) break
+    current = parent
+  }
+  return current
+}
+
+async function probeFreeBytes(
+  cacheDir: string,
+  deps: DownloadStorageDeps
+): Promise<number | undefined> {
+  try {
+    const stats = await deps.statfs(nearestExistingPath(cacheDir))
+    const bytes = Number(stats.bavail) * Number(stats.bsize)
+    if (!Number.isFinite(bytes) || bytes < 0) return undefined
+    return Math.min(Number.MAX_SAFE_INTEGER, Math.floor(bytes))
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Conservative future writes for one exact download. Existing verified-size
+ * blobs are reused; Windows also reserves room for the snapshot copy fallback.
+ */
+export function estimateRequiredDownloadBytes(
+  cacheDir: string,
+  kind: DownloadTask['kind'],
+  repoId: string,
+  resolvedCommit: string,
+  files: DownloadFileState[],
+  platform: NodeJS.Platform = process.platform
+): number {
+  const paths = repoCachePaths(cacheDir, kind, repoId)
+  const multiplier = writeMultiplierFor(platform)
+  let required = 0
+
+  for (const file of files) {
+    if (!isSafeRepoFilePath(file.path) || file.size <= 0) continue
+    const snapshotPath = join(paths.snapshotsDir, resolvedCommit, file.path)
+    if (regularFileSize(snapshotPath) === file.size) continue
+
+    const blobKey = file.sha256 ?? file.gitBlobOid
+    const validBlobKey = blobKey && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(blobKey)
+    const blobSize = validBlobKey ? regularFileSize(join(paths.blobsDir, blobKey.toLowerCase())) : 0
+    if (blobSize === file.size) {
+      required = safeAddBytes(required, platform === 'win32' ? file.size : 0)
+    } else {
+      required = safeAddBytes(required, file.size * multiplier)
+    }
+  }
+  return required
 }
 
 function safeExistingDirectory(path: string, parentRealPath?: string): string {
@@ -76,7 +176,12 @@ const COMMIT_RE = /^[0-9a-f]{40}$/
 type ResolvedCommit = string & { readonly __resolvedCommit: unique symbol }
 
 type DownloadErrorCode =
-  'legacy-task' | 'environment-mismatch' | 'commit-mismatch' | 'network' | 'integrity'
+  | 'legacy-task'
+  | 'environment-mismatch'
+  | 'commit-mismatch'
+  | 'network'
+  | 'integrity'
+  | 'disk-space'
 
 interface DownloadEnvironment {
   endpoint: string
@@ -163,6 +268,7 @@ function normalizeErrorCode(value: string | null): DownloadErrorCode | undefined
     case 'commit-mismatch':
     case 'network':
     case 'integrity':
+    case 'disk-space':
       return value
     default:
       return undefined
@@ -219,8 +325,11 @@ function parseStoredPostAction(value: string | null): StoredPostAction | undefin
   return legacy.success ? { version: 1, request: legacy.data, status: 'pending' } : undefined
 }
 
-function classifyDownloadError(message: string | undefined): DownloadErrorCode {
+export function classifyDownloadError(message: string | undefined): DownloadErrorCode {
   if (message === 'commit-mismatch') return 'commit-mismatch'
+  if (message && /ENOSPC|no space left|disk full|download\.diskInsufficient/i.test(message)) {
+    return 'disk-space'
+  }
   if (
     message &&
     /checksum|sha1|sha256|etag|incomplete download|unsafe-cache-layout|unsafe download cache|escapes its/i.test(
@@ -260,7 +369,8 @@ export class DownloadManager {
         revision: string
         resolvedCommit: string
       }
-    ) => Promise<void>
+    ) => Promise<void>,
+    private readonly storageDeps: DownloadStorageDeps = DEFAULT_STORAGE_DEPS
   ) {
     this.loadPersisted()
   }
@@ -442,6 +552,41 @@ export class DownloadManager {
             : undefined
         }
       })
+  }
+
+  private reservedBytes(cacheDir: string, multiplier: 1 | 2): number {
+    const root = resolve(cacheDir)
+    let reserved = 0
+    for (const task of this.tasks.values()) {
+      if (!task.environment || resolve(task.environment.cacheDir) !== root) continue
+      if (task.status !== 'queued' && task.status !== 'running' && task.status !== 'paused')
+        continue
+      if (!this.canResume(task)) continue
+      reserved = safeAddBytes(
+        reserved,
+        Math.max(0, task.totalBytes - task.receivedBytes) * multiplier
+      )
+    }
+    return reserved
+  }
+
+  async getCapacity(cacheDir?: string): Promise<DownloadCapacity> {
+    const root = resolve(cacheDir ?? this.settings.get().hfCacheDir ?? defaultCacheDir())
+    const writeMultiplier = writeMultiplierFor(this.storageDeps.platform)
+    const freeBytes = await probeFreeBytes(root, this.storageDeps)
+    const reservedBytes = this.reservedBytes(root, writeMultiplier)
+    return {
+      cacheDir: root,
+      freeBytes,
+      reservedBytes,
+      safetyReserveBytes: DOWNLOAD_SPACE_RESERVE_BYTES,
+      availableBytes:
+        freeBytes === undefined
+          ? undefined
+          : Math.max(0, freeBytes - reservedBytes - DOWNLOAD_SPACE_RESERVE_BYTES),
+      writeMultiplier,
+      checkedAt: new Date().toISOString()
+    }
   }
 
   /**
@@ -659,6 +804,19 @@ export class DownloadManager {
         }
       }
       return this.list()
+    }
+
+    const requiredBytes = estimateRequiredDownloadBytes(
+      environment.cacheDir,
+      request.kind,
+      request.repoId,
+      resolvedCommit,
+      newFiles,
+      this.storageDeps.platform
+    )
+    const capacity = await this.getCapacity(environment.cacheDir)
+    if (capacity.availableBytes !== undefined && requiredBytes > capacity.availableBytes) {
+      throw new Error(`download.diskInsufficient:${requiredBytes}:${capacity.availableBytes}`)
     }
 
     const task: ManagedDownloadTask = {

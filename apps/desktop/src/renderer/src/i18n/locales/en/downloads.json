@@ -46,5 +46,14 @@
   },
   "title": "Downloads",
   "verified": "sha256 verified",
-  "checksumsVerified": "checksums verified"
+  "checksumsVerified": "checksums verified",
+  "capacity": {
+    "available": "{{size}} available for new downloads",
+    "availableUnknown": "Available download space is unknown",
+    "selected": "Selected download: {{size}}",
+    "all": "Whole repository: {{size}}",
+    "unknown": "unknown size",
+    "insufficient": "Not enough cache disk space. Clean the cache or choose another cache directory.",
+    "openSettings": "Open download settings"
+  }
 }

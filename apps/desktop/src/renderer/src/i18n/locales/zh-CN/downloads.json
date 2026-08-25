@@ -45,5 +45,14 @@
   },
   "title": "下载",
   "verified": "sha256 校验通过",
-  "checksumsVerified": "校验和验证通过"
+  "checksumsVerified": "校验和验证通过",
+  "capacity": {
+    "available": "{{size}} 可用于新下载",
+    "availableUnknown": "可用下载空间未知",
+    "selected": "所选下载：{{size}}",
+    "all": "整个仓库：{{size}}",
+    "unknown": "大小未知",
+    "insufficient": "缓存磁盘空间不足。请清理缓存或更换缓存目录。",
+    "openSettings": "打开下载设置"
+  }
 }

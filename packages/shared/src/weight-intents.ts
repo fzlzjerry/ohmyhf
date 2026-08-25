@@ -3,7 +3,7 @@
  * (Hub `siblings` or a recursive tree). The picker is a filename convention
  * reader — it never opens the blobs.
  */
-import type { ExportTool } from './types'
+import type { ExportTool, MachineProfile, ModelFitLevel } from './types'
 
 export type WeightFormat = 'gguf' | 'safetensors' | 'ckpt' | 'pt' | 'pth' | 'bin'
 
@@ -14,6 +14,19 @@ export interface WeightFile {
   /** e.g. Q4_K_M, Q5_K_S, F16 — GGUF / quantised checkpoints only. */
   quant?: string
   label: string
+}
+
+export interface WeightFitEstimate {
+  path: string
+  level: ModelFitLevel
+  estimatedSystemMemoryBytes: number
+  estimatedGpuBytes: number
+  requiredDiskBytes: number
+}
+
+export interface WeightRecommendation {
+  recommendedPath?: string
+  estimates: WeightFitEstimate[]
 }
 
 const FORMAT_EXT: Record<string, WeightFormat> = {
@@ -28,6 +41,11 @@ const FORMAT_EXT: Record<string, WeightFormat> = {
 const SKIP_NAME = /(?:^|[._-])(optimizer|training_args|scheduler|rng_state)(?:[._-]|$)/i
 
 const PREFERRED_QUANTS = ['Q4_K_M', 'Q5_K_M', 'Q4_K_S', 'Q4_0', 'Q5_0', 'Q8_0', 'Q6_K']
+
+const GIB = 1024 ** 3
+const AUXILIARY_GGUF_NAME =
+  /(?:^|[._ -])(?:mmproj|projector|vision|clip|embedding|embedder|reranker|rerank)(?:$|[._ -])/i
+const SPLIT_GGUF_NAME = /-\d{5}-of-\d{5}\.gguf$/i
 
 /** Hub paths are attacker-controlled; only a basename prefix is a quant label. */
 const MAX_QUANT_SCAN = 256
@@ -143,4 +161,63 @@ export function preferredWeightFile(files: WeightFile[]): WeightFile | undefined
     return (file.size ?? 0) > (best.size ?? 0) ? file : best
   }, undefined)
   return largest ?? files[0]
+}
+
+function isRecommendationCandidate(file: WeightFile): boolean {
+  if (file.format !== 'gguf' || !file.size || file.size <= 0) return false
+  const name = file.path.split('/').at(-1) ?? file.path
+  return !AUXILIARY_GGUF_NAME.test(name) && !SPLIT_GGUF_NAME.test(name)
+}
+
+/**
+ * Approximate pre-download fit from file size and the current machine profile.
+ * Exact GGUF metadata remains the source of truth in the local-run workflow.
+ */
+export function recommendWeightFileForProfile(
+  files: WeightFile[],
+  profile: MachineProfile,
+  availableDiskBytes?: number
+): WeightRecommendation {
+  const osReserve = Math.max(2 * GIB, Math.ceil(profile.totalMemoryBytes * 0.1))
+  const availableMemoryBytes = Math.max(0, profile.freeMemoryBytes - osReserve)
+  const discreteGpuMemory = profile.accelerators
+    .filter((accelerator) => accelerator.unifiedMemory !== true)
+    .reduce(
+      (sum, accelerator) =>
+        sum + (accelerator.freeMemoryBytes ?? accelerator.totalMemoryBytes ?? 0),
+      0
+    )
+
+  const estimates = files.filter(isRecommendationCandidate).map((file): WeightFitEstimate => {
+    const fileSize = file.size!
+    const estimatedGpuBytes = Math.min(fileSize, Math.floor(discreteGpuMemory * 0.9))
+    const estimatedKvBytes = Math.ceil(Math.min(2 * GIB, fileSize * 0.2))
+    const estimatedRuntimeBytes = Math.max(512 * 1024 ** 2, Math.ceil(fileSize * 0.12))
+    const estimatedSystemMemoryBytes =
+      fileSize - estimatedGpuBytes + estimatedKvBytes + estimatedRuntimeBytes
+
+    let level: ModelFitLevel
+    if (availableDiskBytes !== undefined && availableDiskBytes < fileSize) level = 'unlikely'
+    else if (availableMemoryBytes >= estimatedSystemMemoryBytes * 1.2) level = 'comfortable'
+    else if (availableMemoryBytes >= estimatedSystemMemoryBytes) level = 'tight'
+    else level = 'unlikely'
+
+    return {
+      path: file.path,
+      level,
+      estimatedSystemMemoryBytes,
+      estimatedGpuBytes,
+      requiredDiskBytes: fileSize
+    }
+  })
+
+  const bySizeDescending = [...estimates].sort((a, b) => {
+    const sizeDiff = b.requiredDiskBytes - a.requiredDiskBytes
+    return sizeDiff !== 0 ? sizeDiff : a.path.localeCompare(b.path)
+  })
+  const recommended =
+    bySizeDescending.find((estimate) => estimate.level === 'comfortable') ??
+    bySizeDescending.find((estimate) => estimate.level === 'tight')
+
+  return { recommendedPath: recommended?.path, estimates }
 }

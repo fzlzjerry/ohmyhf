@@ -45,5 +45,14 @@
   },
   "title": "ダウンロード",
   "verified": "sha256検証済み",
-  "checksumsVerified": "チェックサム検証済み"
+  "checksumsVerified": "チェックサム検証済み",
+  "capacity": {
+    "available": "新しいダウンロードに {{size}} 使用可能",
+    "availableUnknown": "ダウンロード可能な空き容量は不明です",
+    "selected": "選択したダウンロード：{{size}}",
+    "all": "リポジトリ全体：{{size}}",
+    "unknown": "サイズ不明",
+    "insufficient": "キャッシュの空き容量が不足しています。キャッシュを整理するか、別の保存先を選択してください。",
+    "openSettings": "ダウンロード設定を開く"
+  }
 }

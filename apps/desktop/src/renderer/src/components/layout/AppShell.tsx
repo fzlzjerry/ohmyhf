@@ -38,6 +38,7 @@ export function AppShell(): React.JSX.Element {
   const lastUpdateToast = useRef<string | null>(null)
   const integrationToastIds = useRef(new Map<string, number>())
   const integrationUpdates = useRef(new Map<string, string>())
+  const lastCapacityRefresh = useRef(0)
   const updateQuery = useQuery({
     queryKey: APP_UPDATE_QUERY_KEY,
     queryFn: () => invoke('updater:getState', undefined),
@@ -73,7 +74,17 @@ export function AppShell(): React.JSX.Element {
   )
   useIpcEvent(
     'evt:downloads',
-    useCallback((tasks) => queryClient.setQueryData(['downloads'], tasks), [queryClient])
+    useCallback(
+      (tasks) => {
+        queryClient.setQueryData(['downloads'], tasks)
+        const now = Date.now()
+        if (now - lastCapacityRefresh.current >= 5_000) {
+          lastCapacityRefresh.current = now
+          void queryClient.invalidateQueries({ queryKey: ['download-capacity'] })
+        }
+      },
+      [queryClient]
+    )
   )
   useIpcEvent(
     'evt:integrationTasks',

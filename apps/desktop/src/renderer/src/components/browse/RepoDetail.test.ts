@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.stubGlobal('window', {
   matchMedia: () => ({ matches: false, addEventListener: () => {} })
 })
-const { chatCompletionCapable } = await import('./RepoDetail')
+const { chatCompletionCapable, exactRevisionSelection } = await import('./RepoDetail')
 
 describe('chatCompletionCapable', () => {
   it('accepts conversational text-generation and image-text-to-text models', () => {
@@ -32,5 +32,24 @@ describe('chatCompletionCapable', () => {
   it('stays permissive while task metadata is unknown', () => {
     expect(chatCompletionCapable(undefined)).toBe(true)
     expect(chatCompletionCapable({ tags: ['conversational'] })).toBe(true)
+  })
+})
+
+describe('exactRevisionSelection', () => {
+  it('turns a full commit into an immediate read-only selection', () => {
+    const commit = '0123456789ABCDEF0123456789ABCDEF01234567'
+    expect(exactRevisionSelection(commit)).toEqual({
+      requested: commit.toLowerCase(),
+      resolvedCommit: commit.toLowerCase(),
+      type: 'commit',
+      isDefault: false,
+      readOnly: true
+    })
+  })
+
+  it('leaves symbolic and invalid revisions for Hub resolution', () => {
+    expect(exactRevisionSelection('main')).toBeUndefined()
+    expect(exactRevisionSelection('../main')).toBeUndefined()
+    expect(exactRevisionSelection(null)).toBeUndefined()
   })
 })

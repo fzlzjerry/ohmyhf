@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  ArrowUpRight,
   Boxes,
   ChevronRight,
   Database,
@@ -23,6 +25,7 @@ import type {
   RepoKind
 } from '@oh-my-huggingface/shared'
 import { describeError } from '@/lib/errors'
+import { repoAppPath } from '@/lib/repo-open'
 import { invoke } from '@/lib/ipc'
 import { cn, formatBytes, formatRelativeTime } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -51,6 +54,7 @@ export function CachePage(): React.JSX.Element {
   const appInfo = useAppStore((s) => s.appInfo)
   const locale = resolveLocale(settings, appInfo)
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const push = useToasts((s) => s.push)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [pending, setPending] = useState<PendingDelete | null>(null)
@@ -165,6 +169,7 @@ export function CachePage(): React.JSX.Element {
       }),
     onSuccess: (next, args) => {
       queryClient.setQueryData(['cache'], next)
+      void queryClient.invalidateQueries({ queryKey: ['download-capacity'] })
       push(t('cache:deleted', { size: formatBytes(args.size) }), 'success')
       setPending(null)
     },
@@ -179,6 +184,7 @@ export function CachePage(): React.JSX.Element {
       invoke('cache:cleanPartials', { kind: repo.kind, repoId: repo.id }),
     onSuccess: (next, repo) => {
       queryClient.setQueryData(['cache'], next)
+      void queryClient.invalidateQueries({ queryKey: ['download-capacity'] })
       push(t('cache:deleted', { size: formatBytes(repo.partialSize ?? 0) }), 'success')
     },
     onError: (err) => push(describeError(t, err), 'error')
@@ -516,6 +522,17 @@ export function CachePage(): React.JSX.Element {
                           <span className="nums ml-auto font-mono text-[12px] text-ink-faint">
                             {formatBytes(rev.sizeOnDisk)}
                           </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={t('cache:openRevision')}
+                            title={t('cache:openRevision')}
+                            onClick={() =>
+                              void navigate(repoAppPath(repo.kind, repo.id, rev.commitHash))
+                            }
+                          >
+                            <ArrowUpRight className="size-3.5" aria-hidden />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"

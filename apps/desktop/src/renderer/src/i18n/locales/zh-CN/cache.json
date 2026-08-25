@@ -25,5 +25,6 @@
   "totalOnDisk": "磁盘占用 {{size}}",
   "pinned": "已固定",
   "partialData": "{{size}} 未完成的下载数据",
-  "cleanPartials": "清理"
+  "cleanPartials": "清理",
+  "openRevision": "在应用中打开此版本"
 }

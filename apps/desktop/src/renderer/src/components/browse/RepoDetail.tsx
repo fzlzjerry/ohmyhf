@@ -15,16 +15,24 @@ import {
   Star
 } from 'lucide-react'
 import {
+  classifyRevision,
   hubRepoUrl,
   normalizeHubEndpoint,
+  normalizeResolvedCommit,
   type RepoKind,
   type RepoSummary,
   type SecurityPreflightRequest
 } from '@oh-my-huggingface/shared'
 import { invoke, openExternal } from '@/lib/ipc'
-import { cn, formatCount } from '@/lib/utils'
+import { cn, formatBytes, formatCount } from '@/lib/utils'
 import { useSettledValue } from '@/hooks/use-settled-value'
 import { useCommandActions } from '@/hooks/use-command-actions'
+import {
+  downloadBlockedByCapacity,
+  estimatedWriteBytes,
+  isDiskCapacityError,
+  useDownloadCapacity
+} from '@/hooks/use-download-capacity'
 import { taskHue, taskIcon } from '@/lib/tag-colors'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -57,6 +65,19 @@ import { UserLink } from '@/components/profile/UserLink'
 import { resolveLocale, useAppStore } from '@/stores/app'
 import { useSecurityGate } from '@/hooks/use-security-gate'
 
+function missingRepoBytes(
+  siblings: Array<{ rfilename: string; size?: number }> | undefined,
+  cachedSizes: ReadonlyMap<string, number>
+): number | undefined {
+  if (!siblings || siblings.length === 0) return undefined
+  let total = 0
+  for (const file of siblings) {
+    if (file.size === undefined) return undefined
+    if (cachedSizes.get(file.rfilename) !== file.size) total += file.size
+  }
+  return total
+}
+
 /** Pipeline tags whose models the Hub can serve through chat completion. */
 const CHAT_PIPELINE_TAGS = new Set(['text-generation', 'image-text-to-text'])
 
@@ -67,6 +88,12 @@ const CHAT_PIPELINE_TAGS = new Set(['text-generation', 'image-text-to-text'])
  * provider. Without task metadata this stays permissive so the provider-based
  * availability check alone decides.
  */
+export function exactRevisionSelection(revision: string | null) {
+  if (!revision) return undefined
+  const commit = normalizeResolvedCommit(revision)
+  return commit ? classifyRevision(commit, commit) : undefined
+}
+
 export function chatCompletionCapable(detail?: { pipelineTag?: string; tags: string[] }): boolean {
   if (detail?.pipelineTag === undefined) return true
   return CHAT_PIPELINE_TAGS.has(detail.pipelineTag) && detail.tags.includes('conversational')
@@ -104,7 +131,9 @@ export function RepoDetail({
     retry: false
   })
   const revisionParam = searchParams.get('revision')
-  const requestedRevision = revisionParam ?? refs.data?.defaultBranch ?? ''
+  const exactSelection = useMemo(() => exactRevisionSelection(revisionParam), [revisionParam])
+  const exactCommit = exactSelection?.resolvedCommit ?? null
+  const requestedRevision = exactCommit ?? revisionParam ?? refs.data?.defaultBranch ?? ''
   const commits = useQuery({
     queryKey: ['repo-commits', endpointKey, kind, settledRepoId],
     queryFn: () => invoke('hub:repoCommits', { kind, repoId: settledRepoId, limit: 20 }),
@@ -120,7 +149,12 @@ export function RepoDetail({
         revision: requestedRevision
       }),
     enabled:
-      queriesEnabled && requestedRevision.length > 0 && (revisionParam !== null || !refs.isPending),
+      !exactSelection &&
+      queriesEnabled &&
+      requestedRevision.length > 0 &&
+      (revisionParam !== null || !refs.isPending),
+    initialData: exactSelection,
+    staleTime: exactSelection ? Infinity : undefined,
     retry: false
   })
   const resolvedCommit = revisionSelection.data?.resolvedCommit
@@ -212,6 +246,25 @@ export function RepoDetail({
   const readmeData = settledRepoId === repoId ? readme.data : undefined
   const readmeError = settledRepoId === repoId && readme.isError
   const readmeMarkdown = readmeData?.markdown
+  const capacity = useDownloadCapacity()
+  const cachedSnapshot = useQuery({
+    queryKey: ['cache-snapshot', kind, repoId, resolvedCommit],
+    queryFn: () =>
+      invoke('cache:snapshot', {
+        kind,
+        repoId,
+        commit: resolvedCommit!
+      }),
+    enabled: Boolean(resolvedCommit),
+    staleTime: 30_000
+  })
+  const cachedSizes = useMemo(
+    () => new Map((cachedSnapshot.data?.files ?? []).map((file) => [file.path, file.size])),
+    [cachedSnapshot.data?.files]
+  )
+  const wholeRepoSourceBytes = missingRepoBytes(detailData?.siblings, cachedSizes)
+  const wholeRepoRequiredBytes = estimatedWriteBytes(wholeRepoSourceBytes, capacity.data)
+  const wholeRepoBlocked = downloadBlockedByCapacity(wholeRepoRequiredBytes, capacity.data)
 
   // Record browse history once the summary is known.
   useEffect(() => {
@@ -287,7 +340,13 @@ export function RepoDetail({
       })
     },
     onSuccess: () => push(t('detail:downloadStarted'), 'success'),
-    onError: (err) => push(t('detail:downloadFailed', { error: err.message }), 'error')
+    onError: (error) =>
+      push(
+        isDiskCapacityError(error)
+          ? t('downloads:capacity.insufficient')
+          : t('detail:downloadFailed', { error: error.message }),
+        'error'
+      )
   })
   const pins = useQuery({
     queryKey: ['cache-pins', appInfo?.hfCacheDir ?? 'unknown', kind, repoId],
@@ -372,13 +431,17 @@ export function RepoDetail({
         id: `download-repo:${kind}:${repoId}`,
         label: t('downloads:commands.downloadCurrentRepository', { repo: repoId }),
         icon: ArrowDownToLine,
-        disabled: download.isPending,
+        disabled:
+          download.isPending ||
+          (wholeRepoRequiredBytes !== undefined &&
+            capacity.data?.availableBytes !== undefined &&
+            wholeRepoRequiredBytes > capacity.data.availableBytes),
         run: async () => {
           await download.mutateAsync()
         }
       }
     ],
-    [download, kind, repoId, t]
+    [capacity.data?.availableBytes, download, kind, repoId, t, wholeRepoRequiredBytes]
   )
   useCommandActions('repo-detail', repoCommands)
 
@@ -694,15 +757,36 @@ export function RepoDetail({
               </TooltipTrigger>
               <TooltipContent>{t('common:openOnHub')}</TooltipContent>
             </Tooltip>
-            <Button
-              variant="cta"
-              size="md"
-              loading={download.isPending}
-              onClick={() => download.mutate()}
-            >
-              <ArrowDownToLine className="size-3.5" aria-hidden />
-              {t('detail:actions.download')}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <Button
+                    variant="cta"
+                    size="md"
+                    loading={download.isPending}
+                    disabled={wholeRepoBlocked}
+                    onClick={() => download.mutate()}
+                  >
+                    <ArrowDownToLine className="size-3.5" aria-hidden />
+                    {t('detail:actions.download')}
+                    {wholeRepoRequiredBytes !== undefined && (
+                      <span className="nums text-[11px] opacity-75">
+                        {formatBytes(wholeRepoRequiredBytes)}
+                      </span>
+                    )}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {wholeRepoBlocked
+                  ? t('downloads:capacity.insufficient')
+                  : capacity.data?.availableBytes === undefined
+                    ? t('downloads:capacity.availableUnknown')
+                    : t('downloads:capacity.available', {
+                        size: formatBytes(capacity.data.availableBytes)
+                      })}
+              </TooltipContent>
+            </Tooltip>
           </div>
         </header>
 
@@ -738,6 +822,7 @@ export function RepoDetail({
           <TabsContent value="card" className="min-h-0 flex-1 overflow-y-auto p-4">
             {kind === 'model' && (
               <DownloadIntentPanel
+                key={revisionSelection.data.resolvedCommit}
                 kind={kind}
                 repoId={repoId}
                 detail={detailData}

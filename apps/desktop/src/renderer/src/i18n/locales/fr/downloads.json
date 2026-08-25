@@ -46,5 +46,14 @@
   },
   "title": "Téléchargements",
   "verified": "sha256 vérifié",
-  "checksumsVerified": "sommes de contrôle vérifiées"
+  "checksumsVerified": "sommes de contrôle vérifiées",
+  "capacity": {
+    "available": "{{size}} disponibles pour de nouveaux téléchargements",
+    "availableUnknown": "L’espace disponible pour les téléchargements est inconnu",
+    "selected": "Téléchargement sélectionné : {{size}}",
+    "all": "Dépôt complet : {{size}}",
+    "unknown": "taille inconnue",
+    "insufficient": "Espace de cache insuffisant. Nettoyez le cache ou choisissez un autre dossier.",
+    "openSettings": "Ouvrir les réglages de téléchargement"
+  }
 }

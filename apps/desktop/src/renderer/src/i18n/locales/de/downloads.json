@@ -46,5 +46,14 @@
   },
   "title": "Downloads",
   "verified": "sha256 verifiziert",
-  "checksumsVerified": "Prüfsummen verifiziert"
+  "checksumsVerified": "Prüfsummen verifiziert",
+  "capacity": {
+    "available": "{{size}} für neue Downloads verfügbar",
+    "availableUnknown": "Der verfügbare Download-Speicher ist unbekannt",
+    "selected": "Ausgewählter Download: {{size}}",
+    "all": "Gesamtes Repository: {{size}}",
+    "unknown": "unbekannte Größe",
+    "insufficient": "Nicht genügend Cache-Speicher. Bereinige den Cache oder wähle ein anderes Cache-Verzeichnis.",
+    "openSettings": "Download-Einstellungen öffnen"
+  }
 }

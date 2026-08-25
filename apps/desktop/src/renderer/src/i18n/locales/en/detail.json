@@ -33,7 +33,16 @@
     "exportQueued": "Download started — export will run when it finishes",
     "hint": "Pick the GGUF quant or weight file your local tool can load, instead of fetching the whole repository.",
     "quant": "Weight file",
-    "title": "Get this model"
+    "title": "Get this model",
+    "recommended": "Recommended",
+    "estimated": "Estimated",
+    "estimateDetails": "Estimated system memory {{memory}} · discrete GPU offload {{gpu}}. Exact fit is checked again before local run.",
+    "fit": {
+      "comfortable": "comfortable",
+      "tight": "tight fit",
+      "unlikely": "unlikely to run",
+      "unknown": "unknown"
+    }
   },
   "datasetPreview": {
     "config": "Config",

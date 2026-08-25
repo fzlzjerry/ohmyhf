@@ -28,6 +28,7 @@ import type {
   DiscussionType,
   CanPostResult,
   DownloadRequest,
+  DownloadCapacity,
   DownloadTask,
   ExportStartRequest,
   HubProfileSettings,
@@ -583,6 +584,7 @@ export interface IpcInvokeContract {
   'history:clear': { req: void; res: void }
 
   'downloads:list': { req: void; res: DownloadTask[] }
+  'downloads:getCapacity': { req: void; res: DownloadCapacity }
   'downloads:start': { req: { request: DownloadRequest }; res: DownloadTask[] }
   'downloads:pause': { req: { id: string }; res: DownloadTask[] }
   'downloads:resume': { req: { id: string }; res: DownloadTask[] }
@@ -871,6 +873,7 @@ export const IPC_INVOKE_CHANNELS = [
   'history:record',
   'history:clear',
   'downloads:list',
+  'downloads:getCapacity',
   'downloads:start',
   'downloads:pause',
   'downloads:resume',

@@ -29,5 +29,6 @@
   "totalOnDisk": "{{size}} sur le disque",
   "pinned": "épinglé",
   "partialData": "{{size}} de données de téléchargement incomplètes",
-  "cleanPartials": "Nettoyer"
+  "cleanPartials": "Nettoyer",
+  "openRevision": "Ouvrir cette révision dans l’application"
 }

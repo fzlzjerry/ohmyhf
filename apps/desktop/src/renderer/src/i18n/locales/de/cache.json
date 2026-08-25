@@ -29,5 +29,6 @@
   "totalOnDisk": "{{size}} auf der Festplatte",
   "pinned": "angeheftet",
   "partialData": "{{size}} unvollständige Downloaddaten",
-  "cleanPartials": "Bereinigen"
+  "cleanPartials": "Bereinigen",
+  "openRevision": "Diese Revision in der App öffnen"
 }

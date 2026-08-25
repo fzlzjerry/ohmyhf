@@ -292,6 +292,15 @@
     "exportQueued": "已开始下载 — 完成后会自动导出",
     "hint": "选择本地工具能加载的 GGUF 量化或权重文件，而不必拉取整个仓库。",
     "quant": "权重文件",
-    "title": "获取这个模型"
+    "title": "获取这个模型",
+    "recommended": "推荐",
+    "estimated": "估算",
+    "estimateDetails": "预计系统内存 {{memory}} · 独立显存卸载 {{gpu}}。下载后运行时会再次精确检查。",
+    "fit": {
+      "comfortable": "适合",
+      "tight": "勉强",
+      "unlikely": "可能无法运行",
+      "unknown": "未知"
+    }
   }
 }

@@ -710,6 +710,7 @@ export function registerIpcHandlers(ctx: AppContext): void {
 
   // --- downloads -------------------------------------------------------------------
   handle('downloads:list', () => ctx.downloads.list())
+  handle('downloads:getCapacity', () => ctx.downloads.getCapacity())
   handle('downloads:start', async ({ request }) => {
     if (request.autoExport && request.postAction) throw new Error('download.conflictingPostActions')
     const { requestedRevision, resolvedCommit } = await resolveActionRevision(

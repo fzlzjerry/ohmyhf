@@ -45,5 +45,14 @@
   },
   "title": "下載項目",
   "verified": "已驗證 sha256",
-  "checksumsVerified": "已驗證校驗碼"
+  "checksumsVerified": "已驗證校驗碼",
+  "capacity": {
+    "available": "{{size}} 可用於新下載",
+    "availableUnknown": "可用下載空間未知",
+    "selected": "所選下載：{{size}}",
+    "all": "整個儲存庫：{{size}}",
+    "unknown": "大小未知",
+    "insufficient": "快取磁碟空間不足。請清理快取或選擇其他快取目錄。",
+    "openSettings": "開啟下載設定"
+  }
 }

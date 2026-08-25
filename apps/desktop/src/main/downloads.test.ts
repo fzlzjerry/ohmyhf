@@ -15,8 +15,11 @@ import { computeSpeedShare } from '@oh-my-huggingface/shared'
 vi.mock('electron', () => ({ app: { getVersion: () => '0.0.0-test' } }))
 
 import {
+  DOWNLOAD_SPACE_RESERVE_BYTES,
   DownloadManager,
   buildFrozenResolveUrl,
+  classifyDownloadError,
+  estimateRequiredDownloadBytes,
   isResolvedCommit,
   isSafeRepoFilePath
 } from './downloads'
@@ -104,7 +107,8 @@ function createManager(
   db: FakeDatabase,
   hub = createHub(),
   settings = createSettings(),
-  onPostAction?: ConstructorParameters<typeof DownloadManager>[7]
+  onPostAction?: ConstructorParameters<typeof DownloadManager>[7],
+  storageDeps?: ConstructorParameters<typeof DownloadManager>[8]
 ): DownloadManager {
   return new DownloadManager(
     db as never,
@@ -114,7 +118,8 @@ function createManager(
     () => 'hf_test',
     vi.fn(),
     undefined,
-    onPostAction
+    onPostAction,
+    storageDeps
   )
 }
 
@@ -819,5 +824,125 @@ describe('computeSpeedShare', () => {
   it('treats zero workers as one and floors at 1 B/s', () => {
     expect(computeSpeedShare(500, 0)).toBe(500)
     expect(computeSpeedShare(2, 4)).toBe(1)
+  })
+})
+
+describe('DownloadManager disk capacity', () => {
+  function storage(freeBytes: number, platform: NodeJS.Platform = 'darwin') {
+    return {
+      platform,
+      statfs: vi.fn().mockResolvedValue({ bavail: freeBytes, bsize: 1 })
+    }
+  }
+
+  it('queues only when the new writes fit after the safety reserve', async () => {
+    vi.useFakeTimers()
+    const enoughDb = new FakeDatabase()
+    const enough = createManager(
+      enoughDb,
+      createHub(),
+      createSettings(),
+      undefined,
+      storage(DOWNLOAD_SPACE_RESERVE_BYTES + 42)
+    )
+    await expect(enough.start({ repoId: 'org/repo', kind: 'model' })).resolves.toHaveLength(1)
+    expect(enoughDb.writes).toHaveLength(1)
+    enough.shutdown()
+
+    const blockedDb = new FakeDatabase()
+    const blocked = createManager(
+      blockedDb,
+      createHub(),
+      createSettings(),
+      undefined,
+      storage(DOWNLOAD_SPACE_RESERVE_BYTES + 41)
+    )
+    await expect(blocked.start({ repoId: 'org/repo', kind: 'model' })).rejects.toThrow(
+      'download.diskInsufficient'
+    )
+    expect(blockedDb.writes).toHaveLength(0)
+    blocked.shutdown()
+  })
+
+  it('subtracts bytes reserved by an existing queued task', async () => {
+    vi.useFakeTimers()
+    const manager = createManager(
+      new FakeDatabase(),
+      createHub(),
+      createSettings(),
+      undefined,
+      storage(DOWNLOAD_SPACE_RESERVE_BYTES + 83)
+    )
+    await manager.start({ repoId: 'org/first', kind: 'model' })
+
+    await expect(manager.start({ repoId: 'org/second', kind: 'model' })).rejects.toThrow(
+      'download.diskInsufficient'
+    )
+    expect(manager.list()).toHaveLength(1)
+    expect((await manager.getCapacity()).reservedBytes).toBe(42)
+    manager.shutdown()
+  })
+
+  it('allows the download when filesystem capacity cannot be read', async () => {
+    vi.useFakeTimers()
+    const manager = createManager(new FakeDatabase(), createHub(), createSettings(), undefined, {
+      platform: 'darwin',
+      statfs: vi.fn().mockRejectedValue(new Error('unsupported'))
+    })
+
+    await expect(manager.start({ repoId: 'org/repo', kind: 'model' })).resolves.toHaveLength(1)
+    expect((await manager.getCapacity()).availableBytes).toBeUndefined()
+    manager.shutdown()
+  })
+
+  it('does not reserve an existing same-size blob on POSIX', async () => {
+    vi.useFakeTimers()
+    const cacheDir = mkdtempSync(join(tmpdir(), 'omh-download-capacity-blob-'))
+    const { blobsDir } = repoCachePaths(cacheDir, 'model', 'org/repo')
+    mkdirSync(blobsDir, { recursive: true })
+    writeFileSync(join(blobsDir, 'f'.repeat(64)), Buffer.alloc(42))
+    const manager = createManager(
+      new FakeDatabase(),
+      createHub(),
+      createSettings({ hfCacheDir: cacheDir }),
+      undefined,
+      storage(DOWNLOAD_SPACE_RESERVE_BYTES)
+    )
+
+    await expect(manager.start({ repoId: 'org/repo', kind: 'model' })).resolves.toHaveLength(1)
+    manager.shutdown()
+  })
+
+  it('uses conservative Windows snapshot-copy accounting', () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), 'omh-download-capacity-win-'))
+    const files = [
+      {
+        path: 'weights.bin',
+        size: 42,
+        receivedBytes: 0,
+        status: 'queued' as const,
+        sha256: 'f'.repeat(64)
+      }
+    ]
+    expect(
+      estimateRequiredDownloadBytes(cacheDir, 'model', 'org/repo', COMMIT_A, files, 'win32')
+    ).toBe(84)
+
+    const { blobsDir } = repoCachePaths(cacheDir, 'model', 'org/repo')
+    mkdirSync(blobsDir, { recursive: true })
+    writeFileSync(join(blobsDir, 'f'.repeat(64)), Buffer.alloc(42))
+    expect(
+      estimateRequiredDownloadBytes(cacheDir, 'model', 'org/repo', COMMIT_A, files, 'win32')
+    ).toBe(42)
+    expect(
+      estimateRequiredDownloadBytes(cacheDir, 'model', 'org/repo', COMMIT_A, files, 'darwin')
+    ).toBe(0)
+  })
+
+  it('classifies preflight and worker no-space errors consistently', () => {
+    expect(classifyDownloadError('download.diskInsufficient:42:41')).toBe('disk-space')
+    expect(classifyDownloadError('write failed: ENOSPC: no space left on device')).toBe(
+      'disk-space'
+    )
   })
 })

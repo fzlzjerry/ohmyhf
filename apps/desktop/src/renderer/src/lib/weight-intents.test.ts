@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import type { MachineProfile } from '@oh-my-huggingface/shared'
 import {
   exportToolsForFormat,
   listWeightFiles,
   parseQuantLabel,
-  preferredWeightFile
+  preferredWeightFile,
+  recommendWeightFileForProfile
 } from '@oh-my-huggingface/shared'
 
 describe('parseQuantLabel', () => {
@@ -69,5 +71,106 @@ describe('preferredWeightFile', () => {
       { path: 'big.safetensors', size: 20 }
     ])
     expect(preferredWeightFile(files)?.path).toBe('big.safetensors')
+  })
+})
+
+const GIB = 1024 ** 3
+
+function profile(overrides: Partial<MachineProfile> = {}): MachineProfile {
+  return {
+    platform: 'darwin',
+    arch: 'arm64',
+    cpuModel: 'Test CPU',
+    cpuCount: 8,
+    totalMemoryBytes: 32 * GIB,
+    freeMemoryBytes: 24 * GIB,
+    cacheFreeBytes: 100 * GIB,
+    accelerators: [],
+    probedAt: '2026-08-25T00:00:00.000Z',
+    ...overrides
+  }
+}
+
+describe('recommendWeightFileForProfile', () => {
+  it('chooses the largest comfortable GGUF before a larger tight fit', () => {
+    const files = listWeightFiles([
+      { path: 'model-Q4_K_M.gguf', size: 8 * GIB },
+      { path: 'model-Q8_0.gguf', size: 16 * GIB },
+      { path: 'model-Q5_K_M.gguf', size: 6 * GIB }
+    ])
+    const result = recommendWeightFileForProfile(files, profile())
+
+    expect(result.recommendedPath).toBe('model-Q4_K_M.gguf')
+    expect(result.estimates.find((item) => item.path === 'model-Q4_K_M.gguf')?.level).toBe(
+      'comfortable'
+    )
+    expect(result.estimates.find((item) => item.path === 'model-Q8_0.gguf')?.level).toBe('tight')
+  })
+
+  it('falls back to the largest tight fit when none are comfortable', () => {
+    const files = listWeightFiles([
+      { path: 'model-Q4_K_M.gguf', size: 5 * GIB },
+      { path: 'model-Q5_K_M.gguf', size: 6 * GIB }
+    ])
+    const result = recommendWeightFileForProfile(
+      files,
+      profile({ totalMemoryBytes: 16 * GIB, freeMemoryBytes: 9 * GIB })
+    )
+
+    expect(result.recommendedPath).toBe('model-Q4_K_M.gguf')
+    expect(result.estimates.find((item) => item.path === 'model-Q4_K_M.gguf')?.level).toBe('tight')
+  })
+
+  it('does not recommend files that cannot fit memory or disk', () => {
+    const files = listWeightFiles([
+      { path: 'model-Q4_K_M.gguf', size: 5 * GIB },
+      { path: 'model-Q5_K_M.gguf', size: 6 * GIB }
+    ])
+    expect(
+      recommendWeightFileForProfile(
+        files,
+        profile({ totalMemoryBytes: 16 * GIB, freeMemoryBytes: 3 * GIB }),
+        4 * GIB
+      ).recommendedPath
+    ).toBeUndefined()
+  })
+
+  it('keeps auxiliary, split, unknown-size, and non-GGUF files selectable but unranked', () => {
+    const files = listWeightFiles([
+      { path: 'model-mmproj-F16.gguf', size: 2 * GIB },
+      { path: 'model-Q4_K_M-00001-of-00002.gguf', size: 3 * GIB },
+      { path: 'model-Q5_K_M.gguf' },
+      { path: 'model.safetensors', size: 4 * GIB }
+    ])
+    const result = recommendWeightFileForProfile(files, profile())
+
+    expect(files).toHaveLength(4)
+    expect(result).toEqual({ recommendedPath: undefined, estimates: [] })
+  })
+
+  it('uses discrete free VRAM but not unified memory as a second memory pool', () => {
+    const files = listWeightFiles([{ path: 'model-Q8_0.gguf', size: 12 * GIB }])
+    const withoutGpu = recommendWeightFileForProfile(
+      files,
+      profile({ totalMemoryBytes: 16 * GIB, freeMemoryBytes: 10 * GIB })
+    )
+    const withDiscreteGpu = recommendWeightFileForProfile(
+      files,
+      profile({
+        totalMemoryBytes: 16 * GIB,
+        freeMemoryBytes: 10 * GIB,
+        accelerators: [
+          {
+            vendor: 'nvidia',
+            name: 'Test GPU',
+            freeMemoryBytes: 10 * GIB,
+            unifiedMemory: false
+          }
+        ]
+      })
+    )
+
+    expect(withoutGpu.recommendedPath).toBeUndefined()
+    expect(withDiscreteGpu.recommendedPath).toBe('model-Q8_0.gguf')
   })
 })

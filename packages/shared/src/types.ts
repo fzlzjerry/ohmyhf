@@ -475,7 +475,13 @@ export interface DownloadTask {
   revision: string
   /** Immutable 40-hex commit resolved before the task was queued. */
   resolvedCommit?: string
-  errorCode?: 'legacy-task' | 'environment-mismatch' | 'commit-mismatch' | 'network' | 'integrity'
+  errorCode?:
+    | 'legacy-task'
+    | 'environment-mismatch'
+    | 'commit-mismatch'
+    | 'network'
+    | 'integrity'
+    | 'disk-space'
   /** False when continuing the task could mix endpoint/cache environments. */
   resumable: boolean
   status: DownloadStatus
@@ -489,6 +495,22 @@ export interface DownloadTask {
   postAction?: DownloadPostActionSummary
   createdAt: string
   completedAt?: string
+}
+
+/** Current cache-volume capacity after reserving space for resumable downloads. */
+export interface DownloadCapacity {
+  cacheDir: string
+  /** Filesystem-reported free bytes. Missing when the platform probe failed. */
+  freeBytes?: number
+  /** Remaining bytes expected from queued/running/paused tasks on this cache root. */
+  reservedBytes: number
+  /** Space intentionally kept free so a successful download does not fill the volume. */
+  safetyReserveBytes: number
+  /** `freeBytes - reservedBytes - safetyReserveBytes`, clamped to zero. */
+  availableBytes?: number
+  /** Conservative snapshot write multiplier (Windows may copy instead of symlink). */
+  writeMultiplier: 1 | 2
+  checkedAt: string
 }
 
 export interface DownloadAutoExport {

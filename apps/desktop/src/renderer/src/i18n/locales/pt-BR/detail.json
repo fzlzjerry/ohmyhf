@@ -292,6 +292,15 @@
     "exportQueued": "Download started — export will run when it finishes",
     "hint": "Pick the GGUF quant or weight file your local tool can load, instead of fetching the whole repository.",
     "quant": "Weight file",
-    "title": "Get this model"
+    "title": "Get this model",
+    "recommended": "Recomendado",
+    "estimated": "Estimado",
+    "estimateDetails": "Memória do sistema estimada {{memory}} · offload para GPU dedicada {{gpu}}. O ajuste exato é verificado novamente antes da execução local.",
+    "fit": {
+      "comfortable": "adequado",
+      "tight": "apertado",
+      "unlikely": "improvável de executar",
+      "unknown": "desconhecido"
+    }
   }
 }

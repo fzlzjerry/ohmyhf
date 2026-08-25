@@ -45,5 +45,14 @@
   },
   "title": "다운로드",
   "verified": "sha256 확인됨",
-  "checksumsVerified": "체크섬 확인됨"
+  "checksumsVerified": "체크섬 확인됨",
+  "capacity": {
+    "available": "새 다운로드에 {{size}} 사용 가능",
+    "availableUnknown": "사용 가능한 다운로드 공간을 확인할 수 없음",
+    "selected": "선택한 다운로드: {{size}}",
+    "all": "전체 저장소: {{size}}",
+    "unknown": "크기 알 수 없음",
+    "insufficient": "캐시 디스크 공간이 부족합니다. 캐시를 정리하거나 다른 캐시 폴더를 선택하세요.",
+    "openSettings": "다운로드 설정 열기"
+  }
 }

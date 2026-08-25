@@ -292,6 +292,15 @@
     "exportQueued": "已開始下載 — 完成後會自動匯出",
     "hint": "選擇本機工具能載入的 GGUF 量化或權重檔，而不必拉取整個倉庫。",
     "quant": "權重檔",
-    "title": "取得這個模型"
+    "title": "取得這個模型",
+    "recommended": "推薦",
+    "estimated": "估算",
+    "estimateDetails": "預估系統記憶體 {{memory}} · 獨立顯示卡卸載 {{gpu}}。本機執行前會再次精確檢查。",
+    "fit": {
+      "comfortable": "適合",
+      "tight": "勉強",
+      "unlikely": "可能無法執行",
+      "unknown": "未知"
+    }
   }
 }

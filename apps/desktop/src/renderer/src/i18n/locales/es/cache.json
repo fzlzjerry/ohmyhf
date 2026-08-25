@@ -29,5 +29,6 @@
   "totalOnDisk": "{{size}} en disco",
   "pinned": "fijado",
   "partialData": "{{size}} de datos de descarga incompletos",
-  "cleanPartials": "Limpiar"
+  "cleanPartials": "Limpiar",
+  "openRevision": "Abrir esta revisión en la aplicación"
 }

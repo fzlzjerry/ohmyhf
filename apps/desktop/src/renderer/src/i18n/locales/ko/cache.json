@@ -25,5 +25,6 @@
   "totalOnDisk": "디스크에서 {{size}}",
   "pinned": "고정됨",
   "partialData": "미완료 다운로드 데이터 {{size}}",
-  "cleanPartials": "정리"
+  "cleanPartials": "정리",
+  "openRevision": "이 리비전을 앱에서 열기"
 }

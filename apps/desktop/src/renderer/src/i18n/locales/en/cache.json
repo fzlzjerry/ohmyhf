@@ -29,5 +29,6 @@
   "totalOnDisk": "{{size}} on disk",
   "pinned": "pinned",
   "partialData": "{{size}} of incomplete download data",
-  "cleanPartials": "Clean up"
+  "cleanPartials": "Clean up",
+  "openRevision": "Open this revision in the app"
 }

@@ -25,5 +25,6 @@
   "totalOnDisk": "ディスク使用量 {{size}}",
   "pinned": "固定済み",
   "partialData": "未完了のダウンロードデータ {{size}}",
-  "cleanPartials": "クリーンアップ"
+  "cleanPartials": "クリーンアップ",
+  "openRevision": "このリビジョンをアプリで開く"
 }
