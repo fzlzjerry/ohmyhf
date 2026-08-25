@@ -474,7 +474,7 @@ describe('TelemetryService', () => {
     expect(values.has(INSTALLATION_ID_KEY)).toBe(false)
   })
 
-  it('contains settings persistence failures so startup can continue', () => {
+  it('contains settings persistence failures so startup can continue', async () => {
     const backing = createKvDb({
       [CONSENT_PROMPT_KEY]: JSON.stringify({
         version: 2,
@@ -490,13 +490,22 @@ describe('TelemetryService', () => {
         throw new Error('sqlite readonly')
       }
     }
-    const { service } = makeService({
+    const { service, fetchImpl, immediateCalls } = makeService({
       db: backing.db,
-      enabled: () => true
+      enabled: () => settings.get().telemetryEnabled
     })
 
     expect(() => applyExplicitTelemetryDecline(settings, service)).not.toThrow()
-    expect(backing.values.get(INSTALLATION_ID_KEY)).toBe(INSTALL_ID_1)
+    expect(settings.get().telemetryEnabled).toBe(true)
+    expect(service.hasExplicitDecline()).toBe(true)
+    expect(service.getStatus().enabled).toBe(false)
+    expect(service.claimConsentPrompt()).toBe(false)
+    expect(backing.values.has(INSTALLATION_ID_KEY)).toBe(false)
+
+    await expect(service.capture('app_launched')).resolves.toEqual({ status: 'skipped' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(immediateCalls()).toBe(0)
+    expect(backing.values.has(INSTALLATION_ID_KEY)).toBe(false)
   })
 
   it('does not create consent state when the build is unconfigured', () => {

@@ -301,11 +301,20 @@ export class TelemetryService {
     return this.endpoint !== null && this.apiKey !== '' && this.fetchImpl !== null
   }
 
+  /**
+   * Whether the collector may send. A stored decline always wins over a stale
+   * enabled setting: `settings.set({ telemetryEnabled: false })` can fail after
+   * the decline is recorded, and capture must not keep sending in that state.
+   */
+  private isTransportEnabled(): boolean {
+    return this.enabled() === true && !this.hasExplicitDecline()
+  }
+
   /** Local-only view for Settings. Never includes the installation identifier. */
   getStatus(): TelemetryStatus {
     return {
       configured: this.isConfigured(),
-      enabled: this.enabled() === true,
+      enabled: this.isTransportEnabled(),
       lastCapture: this.lastCapture
     }
   }
@@ -316,13 +325,14 @@ export class TelemetryService {
    * explicit keep/decline resolves it; reserving creates no installation
    * identity and emits no event. An enabled setting is not a decision: the
    * opt-out default can send events before this card is resolved. A disabled
-   * setting is not disclosed: the card states that telemetry is on, and a
-   * stored-off preference must stay off unless the user re-enables it.
+   * setting or stored decline is not disclosed: the card states that telemetry
+   * is on, and a stored-off preference must stay off unless the user
+   * re-enables it.
    */
   claimConsentPrompt(): ConsentPromptClaim {
     try {
       if (!this.isConfigured()) return false
-      if (this.enabled() !== true) return false
+      if (!this.isTransportEnabled()) return false
 
       const transaction = this.db.transaction((): ConsentPromptClaim => {
         const row = this.db
@@ -517,7 +527,7 @@ export class TelemetryService {
         !this.endpoint ||
         !this.apiKey ||
         !this.fetchImpl ||
-        this.enabled() !== true
+        !this.isTransportEnabled()
       ) {
         return { status: 'skipped' }
       }
@@ -678,8 +688,14 @@ export function applyExplicitTelemetryDecline(
 ): void {
   try {
     if (!telemetry.hasExplicitDecline()) return
-    if (settings.get().telemetryEnabled === true) {
-      settings.set({ telemetryEnabled: false })
+    try {
+      if (settings.get().telemetryEnabled === true) {
+        settings.set({ telemetryEnabled: false })
+      }
+    } catch {
+      // Settings writes are best-effort. Capture and the disclosure already
+      // treat a stored decline as disabled, so a full or read-only profile
+      // must not keep the installation identifier or take down startup.
     }
     telemetry.clearIdentity()
   } catch {
