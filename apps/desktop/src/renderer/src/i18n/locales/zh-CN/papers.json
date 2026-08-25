@@ -1,16 +1,66 @@
 {
+  "aiSummary": "AI 摘要",
   "authors": "作者",
   "comment": {
     "placeholder": "写下评论（支持 Markdown）…",
     "posted": "评论已发布"
   },
-  "empty": "暂无论文。",
-  "listError": "无法加载每日论文",
+  "comments": {
+    "empty": "暂无评论。",
+    "heading": "评论",
+    "loadError": "无法加载评论"
+  },
   "detailError": "无法加载此论文",
-  "retryMore": "重试加载更多",
+  "empty": "暂无论文。",
+  "emptyHint": "试试换个标题、作者或 arXiv 编号。",
+  "emptySearch": "没有匹配的论文。",
+  "listError": "无法加载每日论文",
+  "loadMore": "加载更多论文",
+  "noAbstract": "这篇论文没有摘要。",
+  "noAiSummary": "没有可用的 AI 摘要。",
+  "openGithub": "打开 GitHub",
+  "openProject": "项目主页",
+  "period": {
+    "daily": "每日",
+    "monthly": "每月",
+    "weekly": "每周"
+  },
   "published": "发布于 {{time}}",
+  "readHere": "在此阅读",
   "readOnArxiv": "在 arXiv 阅读",
   "readOnHub": "在 Hub 打开",
+  "reader": {
+    "loadingMarkdown": "正在加载论文 Markdown…",
+    "loadingPdf": "正在加载 PDF…",
+    "markdownError": "无法加载论文 Markdown。",
+    "noMarkdown": "这篇论文没有 Markdown 版本。",
+    "noPdf": "这篇论文没有 PDF。",
+    "pdfError": "无法加载 PDF。",
+    "pdfTooLarge": "这份 PDF 超过 32 MiB，无法在此预览。"
+  },
+  "refresh": "刷新论文",
+  "related": "Hub 上的相关资源",
+  "relatedDatasets": "数据集",
+  "relatedEmpty": "这个 arXiv 编号还没有关联的 Hub 资源。",
+  "relatedError": "无法加载相关资源。",
+  "relatedModels": "模型",
+  "relatedSpaces": "空间",
+  "retryMore": "重试加载更多",
+  "search": "搜索论文",
+  "select": "选择一篇论文。",
+  "selectHint": "每日论文来自 Hugging Face。打开一篇即可阅读摘要、Markdown 或 PDF。",
+  "sort": {
+    "published": "最新",
+    "trending": "热门"
+  },
+  "submittedBy": "由 {{name}} 提交",
+  "subtitle": "Hugging Face 每日论文，可在应用内阅读。",
+  "tabs": {
+    "abstract": "摘要",
+    "comments": "评论",
+    "paper": "正文",
+    "pdf": "PDF"
+  },
   "title": "每日论文",
   "upvote": {
     "add": "赞同",
@@ -19,10 +69,5 @@
     "remove": "取消赞同",
     "sessionExpired": "Hub 网页会话已过期。请在 设置 → 账户 中重新连接后再在应用内赞同。"
   },
-  "upvotes": "赞同",
-  "comments": {
-    "heading": "评论",
-    "empty": "暂无评论。",
-    "loadError": "无法加载评论"
-  }
+  "upvotes": "赞同"
 }

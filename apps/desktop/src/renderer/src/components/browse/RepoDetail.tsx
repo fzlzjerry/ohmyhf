@@ -581,9 +581,7 @@ export function RepoDetail({
                   ) : (
                     <ShieldQuestion className="size-3" aria-hidden />
                   )}
-                  {securityOverview.data.report.overall === 'unknown'
-                    ? t('common:repro.general.unknownNoConclusion')
-                    : securityOverview.data.decision}
+                  {t(`common:repro.security.decision.${securityOverview.data.decision}`)}
                 </Badge>
               )}
               {/* Signed in, the interactive LikeButton in the actions row shows the count. */}

@@ -163,7 +163,20 @@
       "checked": "Checked",
       "reasons": "Reasons",
       "evidence": "Evidence",
-      "confirmAction": "Confirm this action"
+      "confirmAction": "Confirm this action",
+      "status": {
+        "safe": "安全",
+        "malicious": "悪意あり",
+        "warning": "警告",
+        "pending": "スキャン中",
+        "error": "スキャンエラー",
+        "unknown": "不明"
+      },
+      "decision": {
+        "allow": "許可",
+        "confirm": "確認が必要",
+        "block": "ブロック"
+      }
     },
     "space": {
       "liveWarning": "This Run tab shows the current live deployment and may differ from selected commit {{commit}}.",

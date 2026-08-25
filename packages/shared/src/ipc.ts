@@ -59,8 +59,12 @@ import type {
   ModelFitAssessment,
   MyRepoEntry,
   NotificationsPage,
+  DailyPapersQuery,
   Page,
+  PaperDocument,
+  PaperRelated,
   PaperSummary,
+  TelemetryStatus,
   PostSummary,
   RepoAccessGate,
   RepoCommitFile,
@@ -125,6 +129,8 @@ export interface IpcInvokeContract {
       | { accepted: false; newlyResolved: false }
       | { accepted: true; newlyResolved: boolean; decision: 'decline' }
   }
+  /** Local configuration and last capture result. Never creates an identity or sends an event. */
+  'telemetry:status': { req: void; res: TelemetryStatus }
 
   /** Claims a rate-limited GitHub Star reminder after meaningful local use. */
   'starReminder:claim': {
@@ -191,9 +197,14 @@ export interface IpcInvokeContract {
   }
 
   'hub:search': { req: { query: SearchQuery }; res: Page<RepoSummary> }
-  'hub:papers': { req: { cursor?: string }; res: Page<PaperSummary> }
+  'hub:papers': { req: DailyPapersQuery | undefined; res: Page<PaperSummary> }
   /** Single paper lookup for deep links outside the daily feed. */
   'hub:paper': { req: { paperId: string }; res: PaperSummary }
+  'hub:paperRelated': { req: { paperId: string }; res: PaperRelated }
+  'hub:paperDocument': {
+    req: { paperId: string; format: 'markdown' | 'pdf' }
+    res: PaperDocument
+  }
   'hub:repoDetail': {
     req: { kind: RepoKind; repoId: string; revision?: string }
     res: RepoDetail
@@ -744,6 +755,7 @@ export const IPC_INVOKE_CHANNELS = [
   'telemetry:claimConsentPrompt',
   'telemetry:acknowledgeConsentPrompt',
   'telemetry:resolveConsentPrompt',
+  'telemetry:status',
   'starReminder:claim',
   'starReminder:acknowledgeShown',
   'starReminder:respond',
@@ -754,6 +766,8 @@ export const IPC_INVOKE_CHANNELS = [
   'hub:search',
   'hub:papers',
   'hub:paper',
+  'hub:paperRelated',
+  'hub:paperDocument',
   'hub:repoDetail',
   'hub:repoRefs',
   'hub:repoCommits',

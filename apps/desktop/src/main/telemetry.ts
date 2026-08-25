@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { TelemetryStatus } from '@oh-my-huggingface/shared'
 import type { AppDatabase } from './db'
 
 /**
@@ -278,6 +279,7 @@ export class TelemetryService {
   private readonly createConsentClaimId: () => string
   private readonly timeoutMs: number
   private installationId: string | null = null
+  private lastCapture: TelemetryStatus['lastCapture']
 
   constructor(options: TelemetryOptions) {
     this.db = options.db
@@ -297,6 +299,15 @@ export class TelemetryService {
   /** Whether this build has a valid HTTPS collector and public ingestion key. */
   isConfigured(): boolean {
     return this.endpoint !== null && this.apiKey !== '' && this.fetchImpl !== null
+  }
+
+  /** Local-only view for Settings. Never includes the installation identifier. */
+  getStatus(): TelemetryStatus {
+    return {
+      configured: this.isConfigured(),
+      enabled: this.enabled() === true,
+      lastCapture: this.lastCapture
+    }
   }
 
   /**
@@ -485,6 +496,16 @@ export class TelemetryService {
     event: E,
     ...args: CaptureArguments<E>
   ): Promise<TelemetryCaptureResult> {
+    const remember = (result: TelemetryCaptureResult): TelemetryCaptureResult => {
+      if (isTelemetryEvent(event)) {
+        this.lastCapture = {
+          event,
+          status: result.status,
+          at: new Date().toISOString()
+        }
+      }
+      return result
+    }
     try {
       if (
         !isTelemetryEvent(event) ||
@@ -496,9 +517,9 @@ export class TelemetryService {
         return { status: 'skipped' }
       }
       const eventProperties = starPromptProperties(event, args[0])
-      if (eventProperties === null) return { status: 'skipped' }
+      if (eventProperties === null) return remember({ status: 'skipped' })
       const distinctId = this.getInstallationId()
-      if (!distinctId) return { status: 'failed', reason: 'internal' }
+      if (!distinctId) return remember({ status: 'failed', reason: 'internal' })
 
       const payload: PostHogPayload = {
         api_key: this.apiKey,
@@ -543,10 +564,10 @@ export class TelemetryService {
       })
       const result = await Promise.race([request, deadline])
       if (timeout) clearTimeout(timeout)
-      return result
+      return remember(result)
     } catch {
       // Telemetry must never affect application behavior.
-      return { status: 'failed', reason: 'internal' }
+      return remember({ status: 'failed', reason: 'internal' })
     }
   }
 

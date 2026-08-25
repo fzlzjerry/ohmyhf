@@ -107,7 +107,8 @@
     "clearSelection": "Clear",
     "downloadSelected": "Download selected",
     "selectFile": "Select {{file}}",
-    "selected": "{{count}} selected"
+    "selected": "{{count}} selected",
+    "resize": "Redimensionner la liste de fichiers"
   },
   "gate": {
     "ask": "Ce dépôt est à accès contrôlé — demandez l'accès pour le télécharger et le prévisualiser.",

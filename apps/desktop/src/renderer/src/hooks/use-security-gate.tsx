@@ -104,7 +104,7 @@ export function useSecurityGate(): {
               <dt className="text-ink-faint">{t('repro.security.commit')}</dt>
               <dd className="font-mono">{result.report.resolvedCommit}</dd>
               <dt className="text-ink-faint">{t('repro.security.hubConclusion')}</dt>
-              <dd className="font-medium">{result.report.overall}</dd>
+              <dd className="font-medium">{t(`repro.security.status.${result.report.overall}`)}</dd>
               <dt className="text-ink-faint">{t('repro.security.checked')}</dt>
               <dd>{result.report.checkedAt}</dd>
             </dl>
@@ -121,7 +121,9 @@ export function useSecurityGate(): {
               <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2 font-mono text-[11px]">
                 {result.report.evidence.map((evidence, index) => (
                   <li key={`${evidence.source}:${evidence.filePath ?? ''}:${index}`}>
-                    <span className="font-semibold">{evidence.status}</span>
+                    <span className="font-semibold">
+                      {t(`repro.security.status.${evidence.status}`)}
+                    </span>
                     {' · '}
                     {evidence.source}
                     {evidence.filePath ? ` · ${evidence.filePath}` : ''}

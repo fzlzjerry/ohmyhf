@@ -6,7 +6,7 @@ import { TELEMETRY_DOCUMENTATION_URL } from '@oh-my-huggingface/shared'
 import { BarChart3, Download, FolderOpen, HardDrive, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { invoke } from '@/lib/ipc'
 import { changeLanguage } from '@/i18n'
-import { formatBytes } from '@/lib/utils'
+import { formatBytes, formatRelativeTime } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -45,9 +45,11 @@ export function PrivacySection(): React.JSX.Element {
   const updateSettings = useAppStore((s) => s.updateSettings)
   const closeSettings = useAppStore((s) => s.closeSettings)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [telemetryError, setTelemetryError] = useState<string | null>(null)
   const [signOutAlso, setSignOutAlso] = useState(false)
   const [categories, setCategories] = useState(DEFAULT_CLEAR)
 
+  const locale = resolveLocale(settings, appInfo)
   const cachePath = settings.hfCacheDir ?? appInfo?.hfCacheDir ?? '—'
   const anyCategory = CLEAR_CATEGORIES.some((key) => categories[key])
 
@@ -56,6 +58,23 @@ export function PrivacySection(): React.JSX.Element {
     queryFn: () => invoke('cache:scan', undefined),
     staleTime: 5 * 60_000
   })
+  const [statusPollStartedAt, setStatusPollStartedAt] = useState<number | null>(null)
+  const telemetryStatus = useQuery({
+    queryKey: ['telemetry-status'],
+    queryFn: () => invoke('telemetry:status', undefined),
+    refetchInterval: (query) => {
+      if (statusPollStartedAt === null) return false
+      if (Date.now() >= statusPollStartedAt + 10_000) return false
+      const capturedAt = Date.parse(query.state.data?.lastCapture?.at ?? '')
+      if (!Number.isNaN(capturedAt) && capturedAt >= statusPollStartedAt) return false
+      return 400
+    }
+  })
+  const statusReady = telemetryStatus.isSuccess
+  const telemetryConfigured = telemetryStatus.data?.configured === true
+  const lastCapture = telemetryStatus.data?.lastCapture
+  const canEnableTelemetry = telemetryConfigured
+  const canDisableTelemetry = settings.telemetryEnabled === true
 
   const clearLocal = useMutation({
     mutationFn: () =>
@@ -122,21 +141,50 @@ export function PrivacySection(): React.JSX.Element {
             </span>
             <span className="text-[12px] text-ink-muted">
               {t(
-                settings.telemetryEnabled
-                  ? 'settings:privacy.telemetry.enabledHint'
-                  : 'settings:privacy.telemetry.disabledHint'
+                !statusReady
+                  ? settings.telemetryEnabled
+                    ? 'settings:privacy.telemetry.enabledHint'
+                    : 'settings:privacy.telemetry.disabledHint'
+                  : !telemetryConfigured && settings.telemetryEnabled
+                    ? 'settings:privacy.telemetry.optedInUnconfiguredHint'
+                    : !telemetryConfigured
+                      ? 'settings:privacy.telemetry.unconfiguredHint'
+                      : settings.telemetryEnabled
+                        ? 'settings:privacy.telemetry.enabledHint'
+                        : 'settings:privacy.telemetry.disabledHint'
               )}
             </span>
           </div>
           <Switch
             checked={settings.telemetryEnabled}
+            disabled={!canEnableTelemetry && !canDisableTelemetry}
             onCheckedChange={(telemetryEnabled) => {
-              void updateSettings({ telemetryEnabled }).catch((error: unknown) =>
-                push(error instanceof Error ? error.message : t('common:error.generic'), 'error')
-              )
+              setTelemetryError(null)
+              if (telemetryEnabled) setStatusPollStartedAt(Date.now())
+              void updateSettings({ telemetryEnabled })
+                .then(() => telemetryStatus.refetch())
+                .catch((error: unknown) => {
+                  const message = error instanceof Error ? error.message : t('common:error.generic')
+                  setTelemetryError(message)
+                  push(message, 'error')
+                })
             }}
           />
         </label>
+        {telemetryError && (
+          <p role="alert" className="text-[12px] text-error">
+            {telemetryError}
+          </p>
+        )}
+        {telemetryConfigured && settings.telemetryEnabled && lastCapture && (
+          <p className="text-[12px] text-ink-muted">
+            {t('settings:privacy.telemetry.lastCapture', {
+              event: lastCapture.event,
+              status: t(`settings:privacy.telemetry.captureStatus.${lastCapture.status}`),
+              time: formatRelativeTime(lastCapture.at, locale)
+            })}
+          </p>
+        )}
         <div>
           <Button
             variant="ghost"

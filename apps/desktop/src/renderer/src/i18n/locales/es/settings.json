@@ -235,7 +235,15 @@
       "description": "PostHog recibe solo siete eventos fijos con un identificador de instalación aleatorio que solo persiste entre inicios de la aplicación mientras la telemetría está activada, versión, plataforma, arquitectura, idioma y, en los avisos de Star, número y acción. Al desactivar la telemetría se elimina el identificador; si vuelves a aceptarla más adelante, se crea uno nuevo. PostHog puede ver la IP de origen durante el transporte. El proyecto de PostHog usado para la versión debe configurarse para descartar los datos de IP; $geoip_disable solo desactiva el enriquecimiento GeoIP. No se envían cuentas, tokens, repositorios, rutas, nombres de archivo, búsquedas, descargas ni contenido.",
       "enabled": "Compartir uso seudónimo",
       "enabledHint": "Activado. Se envían eventos fijos a PostHog; puedes desactivarlo de inmediato cuando quieras.",
-      "disabledHint": "Desactivado de forma predeterminada. No se envía nada hasta que lo actives."
+      "disabledHint": "Desactivado de forma predeterminada. No se envía nada hasta que lo actives.",
+      "unconfiguredHint": "Esta compilación local o sin firmar no puede enviar telemetría. Las versiones empaquetadas con una clave de proyecto de PostHog sí pueden.",
+      "optedInUnconfiguredHint": "Esta compilación no puede enviar telemetría, pero la preferencia guardada sigue activa. Desactívela para retirar el consentimiento y evitar que una versión empaquetada posterior reanude el envío.",
+      "lastCapture": "Último evento: {{event}} · {{status}} · {{time}}",
+      "captureStatus": {
+        "sent": "enviado",
+        "skipped": "omitido",
+        "failed": "fallido"
+      }
     }
   },
   "profile": {

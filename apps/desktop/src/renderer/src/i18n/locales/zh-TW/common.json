@@ -163,7 +163,20 @@
       "checked": "检查时间",
       "reasons": "原因",
       "evidence": "证据",
-      "confirmAction": "确认执行此动作"
+      "confirmAction": "确认执行此动作",
+      "status": {
+        "safe": "安全",
+        "malicious": "惡意",
+        "warning": "警告",
+        "pending": "掃描中",
+        "error": "掃描失敗",
+        "unknown": "未知"
+      },
+      "decision": {
+        "allow": "允許",
+        "confirm": "需確認",
+        "block": "已攔截"
+      }
     },
     "space": {
       "liveWarning": "此 Run 标签显示当前线上部署，可能与所选提交 {{commit}} 不同。",

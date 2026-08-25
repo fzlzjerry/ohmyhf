@@ -375,8 +375,31 @@ export const ipcRequestSchemas: Partial<Record<IpcInvokeChannel, z.ZodTypeAny>> 
   // No hf_ prefix check: fine-grained/org tokens and mirror deployments vary.
   'auth:signInWithToken': z.object({ token: z.string().trim().min(1).max(512) }),
   'hub:search': z.object({ query: searchQuery }),
-  'hub:papers': z.object({ cursor: z.string().max(4096).optional() }).optional(),
+  'hub:papers': z
+    .object({
+      cursor: z.string().max(4096).optional(),
+      period: z.enum(['daily', 'weekly', 'monthly']).optional(),
+      date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/)
+        .optional(),
+      week: z
+        .string()
+        .regex(/^\d{4}-W\d{2}$/)
+        .optional(),
+      month: z
+        .string()
+        .regex(/^\d{4}-\d{2}$/)
+        .optional(),
+      sort: z.enum(['publishedAt', 'trending']).optional()
+    })
+    .optional(),
   'hub:paper': z.object({ paperId: z.string().min(1).max(128) }),
+  'hub:paperRelated': z.object({ paperId: z.string().min(1).max(128) }),
+  'hub:paperDocument': z.object({
+    paperId: z.string().min(1).max(128),
+    format: z.enum(['markdown', 'pdf'])
+  }),
   'hub:repoDetail': z.object({ kind: repoKind, repoId, revision: revision.optional() }).strict(),
   'hub:repoRefs': z.object({ kind: repoKind, repoId }).strict(),
   'hub:repoCommits': z

@@ -107,7 +107,8 @@
     "clearSelection": "清除",
     "downloadSelected": "下载所选",
     "selectFile": "选择 {{file}}",
-    "selected": "已选 {{count}} 个"
+    "selected": "已选 {{count}} 个",
+    "resize": "调整文件列表宽度"
   },
   "gate": {
     "ask": "该仓库需要申请访问——申请通过后才能下载和预览。",

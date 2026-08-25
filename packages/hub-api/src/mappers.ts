@@ -226,31 +226,31 @@ function array(value: unknown): unknown[] {
 
 function securityStatusFrom(value: unknown, source = ''): SecurityEvidenceStatus {
   if (typeof value === 'boolean') {
-    if (/infected|malware|malicious|virus|unsafe|danger/i.test(source)) {
+    // Exact field names only — `/virus/` would match VirusTotal report URLs.
+    if (/virusFound|infected|malware|malicious/i.test(source)) {
       return value ? 'malicious' : 'safe'
     }
+    if (/scansDone|scans_done/i.test(source)) return 'unknown'
     if (/pending/i.test(source)) return value ? 'pending' : 'safe'
     if (/error|failed/i.test(source)) return value ? 'error' : 'safe'
-    if (/pickle|secret|custom.?code|remote.?code/i.test(source)) {
+    if (/pickle|unsafe|danger|secret|custom.?code|remote.?code/i.test(source)) {
       return value ? 'warning' : 'safe'
     }
     return value ? 'safe' : 'warning'
   }
   const normalized = stringValue(value)?.toLowerCase().replaceAll('_', '-').replaceAll(' ', '-')
   if (!normalized) return 'unknown'
-  // Pickle import scanners use "dangerous" for risky callable imports. That
-  // is a warning requiring confirmation, not by itself a malware verdict.
-  if (/pickle/i.test(source) && (normalized === 'dangerous' || normalized === 'suspicious')) {
+  // Pickle / format risk is confirmation, not a malware verdict. Hugging Face
+  // uses `unsafe` on the file envelope for that case (`safe = status === "safe"`).
+  if (
+    normalized === 'unsafe' ||
+    normalized === 'dangerous' ||
+    normalized === 'suspicious' ||
+    normalized === 'warning'
+  ) {
     return 'warning'
   }
-  if (
-    normalized.includes('malicious') ||
-    normalized.includes('infected') ||
-    normalized.includes('virus') ||
-    normalized === 'unsafe' ||
-    normalized === 'dangerous'
-  )
-    return 'malicious'
+  if (normalized === 'malicious' || normalized === 'infected') return 'malicious'
   if (
     normalized === 'safe' ||
     normalized === 'clean' ||
@@ -259,14 +259,9 @@ function securityStatusFrom(value: unknown, source = ''): SecurityEvidenceStatus
     normalized === 'innocuous'
   )
     return 'safe'
-  if (normalized.includes('pending') || normalized.includes('scan-in-progress')) return 'pending'
-  if (normalized.includes('error') || normalized.includes('failed')) return 'error'
-  if (
-    normalized.includes('warning') ||
-    normalized.includes('suspicious') ||
-    normalized.includes('dangerous')
-  )
-    return 'warning'
+  if (normalized === 'pending' || normalized === 'scan-in-progress') return 'pending'
+  if (normalized === 'error' || normalized === 'failed') return 'error'
+  if (normalized === 'unscanned') return 'unknown'
   return 'unknown'
 }
 
@@ -293,14 +288,32 @@ function mapFileSecurity(value: unknown): FileTreeEntry['security'] {
   const raw = object(envelope.hf) ?? envelope
   const evidence = evidenceFromObject(raw, undefined, 'hub-file-scan')
   if (evidence.length === 0) return undefined
+  const envelopeStatus =
+    raw.status !== undefined
+      ? securityStatusFrom(raw.status, 'hub-file-scan.status')
+      : raw.safe !== undefined
+        ? securityStatusFrom(raw.safe, 'hub-file-scan.safe')
+        : undefined
+  const contradicting = evidence.some(
+    (item) => item.status === 'malicious' || item.status === 'warning'
+  )
+  // Hub's official file verdict is `status === "safe"`. Nested `unscanned`
+  // scanners and leftover URLs must not override that unless a known scanner
+  // reports malware or pickle risk.
+  const status =
+    envelopeStatus === 'safe' && !contradicting
+      ? 'safe'
+      : envelopeStatus === 'warning' && !evidence.some((item) => item.status === 'malicious')
+        ? 'warning'
+        : aggregateSecurityStatus(evidence)
   const message = evidence.map((item) => item.message).find(Boolean)
   return {
-    status: aggregateSecurityStatus(evidence),
+    status,
     scanners: [...new Set(evidence.map((item) => item.source))],
     message,
-    evidence: evidence.map(({ source, status, message: itemMessage, checkedAt }) => ({
+    evidence: evidence.map(({ source, status: itemStatus, message: itemMessage, checkedAt }) => ({
       source,
-      status,
+      status: itemStatus,
       message: itemMessage,
       checkedAt
     }))
@@ -393,6 +406,71 @@ export function mapRepoCommits(value: unknown): RepoCommitSummary[] {
   })
 }
 
+const SECURITY_METADATA_KEYS = new Set([
+  'status',
+  'state',
+  'result',
+  'verdict',
+  'conclusion',
+  'virusFound',
+  'virusNames',
+  'highestSafetyLevel',
+  'safe',
+  'checkedAt',
+  'checked_at',
+  'scannedAt',
+  'scanned_at',
+  'updatedAt',
+  'updated_at',
+  'timestamp',
+  'message',
+  'detail',
+  'reason',
+  'error',
+  'scanner',
+  'source',
+  'name',
+  'blobId',
+  'indexed',
+  'imports',
+  'reportLink',
+  'report_link',
+  'version',
+  'pickleImports',
+  'pickle_imports',
+  'scansDone',
+  'scans_done',
+  'filesWithIssues',
+  'files_with_issues',
+  'path',
+  'filePath',
+  'level'
+])
+
+const KNOWN_SCANNER_KEYS = new Set([
+  'avScan',
+  'av_scan',
+  'virusTotalScan',
+  'virus_total_scan',
+  'protectAiScan',
+  'protect_ai_scan',
+  'jFrogScan',
+  'jfrog_scan',
+  'pickleImportScan',
+  'pickle_import_scan',
+  'malware'
+])
+
+function isEnvelopeRoot(prefix: string): boolean {
+  return prefix === '' || prefix === 'hub-file-scan'
+}
+
+function skipInconclusiveStatus(status: SecurityEvidenceStatus, value: unknown): boolean {
+  if (status !== 'unknown') return false
+  const normalized = stringValue(value)?.toLowerCase().replaceAll('_', '-').replaceAll(' ', '-')
+  return normalized === 'unscanned'
+}
+
 function evidenceFromObject(
   raw: Record<string, unknown>,
   filePath?: string,
@@ -414,6 +492,23 @@ function evidenceFromObject(
     stringValue(raw.error)
   const declaredSource =
     stringValue(raw.scanner) ?? stringValue(raw.source) ?? stringValue(raw.name) ?? prefix
+
+  for (const item of array(raw.filesWithIssues ?? raw.files_with_issues)) {
+    const issue = object(item)
+    if (!issue) continue
+    const path = stringValue(issue.path) ?? stringValue(issue.filePath) ?? filePath
+    const level = issue.level ?? issue.status ?? issue.result
+    const status = securityStatusFrom(level, 'filesWithIssues.level')
+    if (skipInconclusiveStatus(status, level)) continue
+    evidence.push({
+      source: prefix ? `${prefix}.filesWithIssues` : 'filesWithIssues',
+      status,
+      filePath: path,
+      message: stringValue(issue.message) ?? message,
+      checkedAt
+    })
+  }
+
   const statusCandidates: Array<[string, unknown]> = [
     ['status', raw.status],
     ['state', raw.state],
@@ -428,63 +523,32 @@ function evidenceFromObject(
   if (explicit) {
     const [key, candidate] = explicit
     const source = declaredSource || 'hub'
-    evidence.push({
-      source,
-      status: securityStatusFrom(candidate, `${source}.${key}`),
-      filePath,
-      message,
-      checkedAt
-    })
+    const status = securityStatusFrom(candidate, `${source}.${key}`)
+    if (!skipInconclusiveStatus(status, candidate)) {
+      evidence.push({
+        source,
+        status,
+        filePath,
+        message,
+        checkedAt
+      })
+    }
   }
 
-  const metadataKeys = new Set([
-    'status',
-    'state',
-    'result',
-    'verdict',
-    'conclusion',
-    'virusFound',
-    'virusNames',
-    'highestSafetyLevel',
-    'safe',
-    'checkedAt',
-    'checked_at',
-    'scannedAt',
-    'scanned_at',
-    'updatedAt',
-    'updated_at',
-    'timestamp',
-    'message',
-    'detail',
-    'reason',
-    'error',
-    'scanner',
-    'source',
-    'name',
-    'blobId',
-    'indexed',
-    'imports'
-  ])
   for (const [key, value] of Object.entries(raw)) {
-    if (metadataKeys.has(key)) continue
+    if (SECURITY_METADATA_KEYS.has(key)) continue
     const source = prefix ? `${prefix}.${key}` : key
     if (typeof value === 'boolean' || typeof value === 'string') {
+      if (!KNOWN_SCANNER_KEYS.has(key)) continue
       const status = securityStatusFrom(value, source)
-      // Ignore descriptive strings that carry no scanner status.
-      if (status !== 'unknown' || /scan|virus|malware|pickle|safe|security/i.test(source)) {
-        evidence.push({ source, status, filePath })
-      }
+      if (skipInconclusiveStatus(status, value)) continue
+      evidence.push({ source, status, filePath, checkedAt })
       continue
     }
     const nested = object(value)
-    if (nested) evidence.push(...evidenceFromObject(nested, filePath, source))
-    if (Array.isArray(value)) {
-      for (const [index, item] of value.entries()) {
-        const nestedItem = object(item)
-        if (nestedItem) {
-          evidence.push(...evidenceFromObject(nestedItem, filePath, `${source}[${index}]`))
-        }
-      }
+    if (nested) {
+      if (isEnvelopeRoot(prefix) && !KNOWN_SCANNER_KEYS.has(key)) continue
+      evidence.push(...evidenceFromObject(nested, filePath, source))
     }
   }
   return evidence
@@ -808,34 +872,75 @@ export function mapLeaderboardPage(
   return { datasetId, entries, nextCursor }
 }
 
-interface RawDailyPaper {
-  paper?: {
-    id?: string
-    title?: string
-    summary?: string
-    upvotes?: number
-    publishedAt?: string
-    authors?: Array<{ name?: string }>
-    thumbnail?: string
-    numComments?: number
-  }
+interface RawPaperAuthor {
+  name?: string
+  user?: { name?: string } | string
+  username?: string
+}
+
+interface RawPaperFields {
+  id?: string
   title?: string
+  summary?: string
+  upvotes?: number
   publishedAt?: string
+  authors?: RawPaperAuthor[]
   thumbnail?: string
   numComments?: number
+  githubRepo?: string
+  github_repo?: string
+  projectPage?: string
+  project_page?: string
+  ai_summary?: string
+  aiSummary?: string
+  submittedOnDailyAt?: string
+}
+
+interface RawDailyPaper extends RawPaperFields {
+  paper?: RawPaperFields
+  submittedBy?: { name?: string } | string
+  submittedOnDailyAt?: string
+}
+
+function paperAuthorName(author: RawPaperAuthor): string {
+  return stringValue(author.name) ?? ''
+}
+
+function paperAuthorUsername(author: RawPaperAuthor): string | undefined {
+  if (typeof author.user === 'string') return stringValue(author.user)
+  return stringValue(object(author.user)?.name) ?? stringValue(author.username)
+}
+
+function submittedByName(value: RawDailyPaper['submittedBy']): string | undefined {
+  if (typeof value === 'string') return stringValue(value)
+  return stringValue(object(value)?.name)
 }
 
 export function mapPaper(raw: RawDailyPaper): PaperSummary {
-  const p = raw.paper ?? {}
+  const p = raw.paper ?? raw
+  const authorProfiles = (p.authors ?? [])
+    .map((author) => {
+      const name = paperAuthorName(author)
+      if (!name) return undefined
+      const username = paperAuthorUsername(author)
+      return username ? { name, username } : { name }
+    })
+    .filter((author): author is NonNullable<typeof author> => Boolean(author))
   return {
-    id: p.id ?? '',
-    title: p.title ?? raw.title ?? '',
-    summary: p.summary ?? '',
-    publishedAt: p.publishedAt ?? raw.publishedAt,
+    id: stringValue(p.id) ?? '',
+    title: stringValue(p.title) ?? stringValue(raw.title) ?? '',
+    summary: stringValue(p.summary) ?? '',
+    publishedAt: stringValue(p.publishedAt) ?? stringValue(raw.publishedAt),
     upvotes: p.upvotes ?? 0,
-    authors: (p.authors ?? []).map((a) => a.name ?? '').filter(Boolean),
-    thumbnail: p.thumbnail ?? raw.thumbnail,
-    numComments: p.numComments ?? raw.numComments
+    authors: authorProfiles.map((author) => author.name),
+    authorProfiles,
+    thumbnail: stringValue(p.thumbnail) ?? stringValue(raw.thumbnail),
+    numComments: p.numComments ?? raw.numComments,
+    githubRepo: stringValue(p.githubRepo) ?? stringValue(p.github_repo),
+    projectPage: stringValue(p.projectPage) ?? stringValue(p.project_page),
+    submittedBy: submittedByName(raw.submittedBy),
+    submittedOnDailyAt: stringValue(p.submittedOnDailyAt) ?? stringValue(raw.submittedOnDailyAt),
+    aiSummary: stringValue(p.aiSummary) ?? stringValue(p.ai_summary)
   }
 }
 

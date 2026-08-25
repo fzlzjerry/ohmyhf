@@ -441,11 +441,27 @@ describe('TelemetryService', () => {
     await expect(service.capture('app_launched')).resolves.toEqual({ status: 'skipped' })
     expect(fetchImpl).not.toHaveBeenCalled()
     expect(values.size).toBe(0)
+    expect(service.getStatus().lastCapture).toBeUndefined()
 
     enabled = true
     await expect(service.capture('app_launched')).resolves.toEqual({ status: 'sent' })
     expect(fetchImpl).toHaveBeenCalledOnce()
     expect(values.get('telemetry.installation-id.v1')).toBe(INSTALL_ID_1)
+    expect(service.getStatus()).toMatchObject({
+      configured: true,
+      enabled: true,
+      lastCapture: { event: 'app_launched', status: 'sent' }
+    })
+    expect(service.getStatus().lastCapture).not.toHaveProperty('distinct_id')
+  })
+
+  it('exposes an unconfigured status without creating an identity', () => {
+    const { service, values } = makeService({ apiKey: '', enabled: () => false })
+    expect(service.getStatus()).toEqual({
+      configured: false,
+      enabled: false
+    })
+    expect(values.size).toBe(0)
   })
 
   it('requires a literal boolean true even when persisted settings are malformed', async () => {

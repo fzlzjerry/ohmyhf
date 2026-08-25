@@ -107,7 +107,8 @@
     "clearSelection": "清除",
     "downloadSelected": "下載所選",
     "selectFile": "選擇 {{file}}",
-    "selected": "已選 {{count}} 個"
+    "selected": "已選 {{count}} 個",
+    "resize": "調整檔案列表寬度"
   },
   "gate": {
     "ask": "此儲存庫受到限制——請求存取權限以下載並預覽內容。",

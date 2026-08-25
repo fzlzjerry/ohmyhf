@@ -1,16 +1,66 @@
 {
+  "aiSummary": "KI-Zusammenfassung",
   "authors": "Autoren",
   "comment": {
     "placeholder": "Einen Kommentar schreiben (Markdown wird unterstützt)…",
     "posted": "Kommentar veröffentlicht"
   },
-  "empty": "Noch keine Paper geladen.",
-  "listError": "Daily Papers konnten nicht geladen werden",
+  "comments": {
+    "empty": "Noch keine Kommentare.",
+    "heading": "Kommentare",
+    "loadError": "Kommentare konnten nicht geladen werden"
+  },
   "detailError": "Dieses Paper konnte nicht geladen werden",
-  "retryMore": "Erneut mehr laden",
+  "empty": "Noch keine Paper geladen.",
+  "emptyHint": "Versuchen Sie einen anderen Titel, Autor oder eine andere arXiv-ID.",
+  "emptySearch": "Keine Paper entsprechen Ihrer Suche.",
+  "listError": "Daily Papers konnten nicht geladen werden",
+  "loadMore": "Weitere Paper laden",
+  "noAbstract": "Für dieses Paper ist keine Zusammenfassung verfügbar.",
+  "noAiSummary": "Keine KI-Zusammenfassung verfügbar.",
+  "openGithub": "GitHub öffnen",
+  "openProject": "Projektseite",
+  "period": {
+    "daily": "Täglich",
+    "monthly": "Monatlich",
+    "weekly": "Wöchentlich"
+  },
   "published": "Veröffentlicht {{time}}",
+  "readHere": "Hier lesen",
   "readOnArxiv": "Auf arXiv lesen",
   "readOnHub": "Im Hub öffnen",
+  "reader": {
+    "loadingMarkdown": "Paper-Markdown wird geladen…",
+    "loadingPdf": "PDF wird geladen…",
+    "markdownError": "Das Paper-Markdown konnte nicht geladen werden.",
+    "noMarkdown": "Für dieses Paper ist keine Markdown-Version verfügbar.",
+    "noPdf": "Für dieses Paper ist kein PDF verfügbar.",
+    "pdfError": "Das PDF konnte nicht geladen werden.",
+    "pdfTooLarge": "Dieses PDF ist größer als 32 MiB und kann hier nicht angezeigt werden."
+  },
+  "refresh": "Paper aktualisieren",
+  "related": "Verwandt im Hub",
+  "relatedDatasets": "Datensätze",
+  "relatedEmpty": "Für diese arXiv-ID gibt es noch keine verwandten Hub-Artefakte.",
+  "relatedError": "Verwandte Artefakte konnten nicht geladen werden.",
+  "relatedModels": "Modelle",
+  "relatedSpaces": "Spaces",
+  "retryMore": "Erneut mehr laden",
+  "search": "Paper suchen",
+  "select": "Wählen Sie ein Paper aus.",
+  "selectHint": "Daily Papers kommen von Hugging Face. Öffnen Sie eines, um Zusammenfassung, Markdown oder PDF zu lesen.",
+  "sort": {
+    "published": "Neueste",
+    "trending": "Im Trend"
+  },
+  "submittedBy": "Eingereicht von {{name}}",
+  "subtitle": "Hugging Face Daily Papers mit integriertem Reader.",
+  "tabs": {
+    "abstract": "Zusammenfassung",
+    "comments": "Kommentare",
+    "paper": "Paper",
+    "pdf": "PDF"
+  },
   "title": "Daily Papers",
   "upvote": {
     "add": "Upvote",
@@ -19,10 +69,5 @@
     "remove": "Upvote entfernen",
     "sessionExpired": "Ihre Hub-Websitzung ist abgelaufen. Verbinden Sie sie erneut unter Einstellungen → Konto, um aus der App zu upvoten."
   },
-  "upvotes": "Upvotes",
-  "comments": {
-    "heading": "Kommentare",
-    "empty": "Noch keine Kommentare.",
-    "loadError": "Kommentare konnten nicht geladen werden"
-  }
+  "upvotes": "Upvotes"
 }

@@ -1,16 +1,66 @@
 {
+  "aiSummary": "AI 요약",
   "authors": "저자",
   "comment": {
     "placeholder": "댓글을 작성하세요 (Markdown 지원)…",
     "posted": "댓글이 게시되었습니다"
   },
-  "empty": "아직 불러온 논문이 없습니다.",
-  "listError": "Daily Papers를 불러올 수 없습니다",
+  "comments": {
+    "empty": "아직 댓글이 없습니다.",
+    "heading": "댓글",
+    "loadError": "댓글을 불러올 수 없습니다"
+  },
   "detailError": "이 논문을 불러올 수 없습니다",
-  "retryMore": "더 불러오기 재시도",
+  "empty": "아직 불러온 논문이 없습니다.",
+  "emptyHint": "다른 제목, 저자 또는 arXiv ID를 시도해 보세요.",
+  "emptySearch": "검색과 일치하는 논문이 없습니다.",
+  "listError": "Daily Papers를 불러올 수 없습니다",
+  "loadMore": "논문 더 불러오기",
+  "noAbstract": "이 논문에는 초록이 없습니다.",
+  "noAiSummary": "사용할 수 있는 AI 요약이 없습니다.",
+  "openGithub": "GitHub 열기",
+  "openProject": "프로젝트 페이지",
+  "period": {
+    "daily": "일간",
+    "monthly": "월간",
+    "weekly": "주간"
+  },
   "published": "{{time}} 게시됨",
+  "readHere": "여기서 읽기",
   "readOnArxiv": "arXiv에서 읽기",
   "readOnHub": "Hub에서 열기",
+  "reader": {
+    "loadingMarkdown": "논문 Markdown을 불러오는 중…",
+    "loadingPdf": "PDF를 불러오는 중…",
+    "markdownError": "논문 Markdown을 불러올 수 없습니다.",
+    "noMarkdown": "이 논문에는 Markdown 버전이 없습니다.",
+    "noPdf": "이 논문에는 PDF가 없습니다.",
+    "pdfError": "PDF를 불러올 수 없습니다.",
+    "pdfTooLarge": "이 PDF는 32MiB보다 커서 여기서 미리볼 수 없습니다."
+  },
+  "refresh": "논문 새로고침",
+  "related": "Hub의 관련 리소스",
+  "relatedDatasets": "데이터셋",
+  "relatedEmpty": "이 arXiv ID에 연결된 Hub 리소스가 아직 없습니다.",
+  "relatedError": "관련 리소스를 불러올 수 없습니다.",
+  "relatedModels": "모델",
+  "relatedSpaces": "스페이스",
+  "retryMore": "더 불러오기 재시도",
+  "search": "논문 검색",
+  "select": "논문을 선택하세요.",
+  "selectHint": "Daily Papers는 Hugging Face에서 가져옵니다. 열면 초록, Markdown, PDF를 읽을 수 있습니다.",
+  "sort": {
+    "published": "최신",
+    "trending": "인기"
+  },
+  "submittedBy": "{{name}} 님이 제출",
+  "subtitle": "Hugging Face Daily Papers를 앱에서 읽을 수 있습니다.",
+  "tabs": {
+    "abstract": "초록",
+    "comments": "댓글",
+    "paper": "본문",
+    "pdf": "PDF"
+  },
   "title": "Daily Papers",
   "upvote": {
     "add": "추천",
@@ -19,10 +69,5 @@
     "remove": "추천 취소",
     "sessionExpired": "Hub 웹 세션이 만료되었습니다. 앱에서 추천하려면 설정 → 계정에서 다시 연결하세요."
   },
-  "upvotes": "추천 수",
-  "comments": {
-    "heading": "댓글",
-    "empty": "아직 댓글이 없습니다.",
-    "loadError": "댓글을 불러올 수 없습니다"
-  }
+  "upvotes": "추천 수"
 }

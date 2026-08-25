@@ -163,7 +163,20 @@
       "checked": "Checked",
       "reasons": "Reasons",
       "evidence": "Evidence",
-      "confirmAction": "Confirm this action"
+      "confirmAction": "Confirm this action",
+      "status": {
+        "safe": "Sûr",
+        "malicious": "Malveillant",
+        "warning": "Avertissement",
+        "pending": "Analyse en cours",
+        "error": "Erreur d’analyse",
+        "unknown": "Inconnu"
+      },
+      "decision": {
+        "allow": "Autoriser",
+        "confirm": "Confirmation requise",
+        "block": "Bloqué"
+      }
     },
     "space": {
       "liveWarning": "This Run tab shows the current live deployment and may differ from selected commit {{commit}}.",

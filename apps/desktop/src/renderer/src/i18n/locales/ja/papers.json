@@ -1,16 +1,66 @@
 {
+  "aiSummary": "AI要約",
   "authors": "著者",
   "comment": {
     "placeholder": "コメントを入力(Markdown対応)…",
     "posted": "コメントを投稿しました"
   },
-  "empty": "まだ論文が読み込まれていません。",
-  "listError": "Daily Papersを読み込めませんでした",
+  "comments": {
+    "empty": "まだコメントはありません。",
+    "heading": "コメント",
+    "loadError": "コメントを読み込めませんでした"
+  },
   "detailError": "この論文を読み込めませんでした",
-  "retryMore": "さらに読み込むを再試行",
+  "empty": "まだ論文が読み込まれていません。",
+  "emptyHint": "別のタイトル、著者、またはarXiv IDを試してください。",
+  "emptySearch": "条件に一致する論文はありません。",
+  "listError": "Daily Papersを読み込めませんでした",
+  "loadMore": "さらに論文を読み込む",
+  "noAbstract": "この論文には要旨がありません。",
+  "noAiSummary": "利用できるAI要約はありません。",
+  "openGithub": "GitHubを開く",
+  "openProject": "プロジェクトページ",
+  "period": {
+    "daily": "日次",
+    "monthly": "月次",
+    "weekly": "週次"
+  },
   "published": "{{time}}に公開",
+  "readHere": "ここで読む",
   "readOnArxiv": "arXivで読む",
   "readOnHub": "Hubで開く",
+  "reader": {
+    "loadingMarkdown": "論文のMarkdownを読み込んでいます…",
+    "loadingPdf": "PDFを読み込んでいます…",
+    "markdownError": "論文のMarkdownを読み込めませんでした。",
+    "noMarkdown": "この論文にはMarkdown版がありません。",
+    "noPdf": "この論文にはPDFがありません。",
+    "pdfError": "PDFを読み込めませんでした。",
+    "pdfTooLarge": "このPDFは32MiBを超えるため、ここではプレビューできません。"
+  },
+  "refresh": "論文を更新",
+  "related": "Hub上の関連リソース",
+  "relatedDatasets": "データセット",
+  "relatedEmpty": "このarXiv IDに関連するHubリソースはまだありません。",
+  "relatedError": "関連リソースを読み込めませんでした。",
+  "relatedModels": "モデル",
+  "relatedSpaces": "スペース",
+  "retryMore": "さらに読み込むを再試行",
+  "search": "論文を検索",
+  "select": "論文を選択してください。",
+  "selectHint": "Daily PapersはHugging Faceから届きます。開くと要旨、Markdown、PDFを読めます。",
+  "sort": {
+    "published": "最新",
+    "trending": "トレンド"
+  },
+  "submittedBy": "{{name}}が投稿",
+  "subtitle": "Hugging FaceのDaily Papersをアプリ内で読めます。",
+  "tabs": {
+    "abstract": "要旨",
+    "comments": "コメント",
+    "paper": "本文",
+    "pdf": "PDF"
+  },
   "title": "Daily Papers",
   "upvote": {
     "add": "アップボート",
@@ -19,10 +69,5 @@
     "remove": "アップボートを取り消す",
     "sessionExpired": "Hub Webセッションの有効期限が切れました。アプリからアップボートするには、設定 → アカウントで再接続してください。"
   },
-  "upvotes": "アップボート数",
-  "comments": {
-    "heading": "コメント",
-    "empty": "まだコメントはありません。",
-    "loadError": "コメントを読み込めませんでした"
-  }
+  "upvotes": "アップボート数"
 }
