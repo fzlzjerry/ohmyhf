@@ -233,9 +233,11 @@ describe('TelemetryService', () => {
     })
     expect(values.has(INSTALLATION_ID_KEY)).toBe(false)
     expect(fetchImpl).not.toHaveBeenCalled()
-    // Invalid UUIDs are rejected before SQLite; every other operation is an
-    // IMMEDIATE transaction so competing renderers cannot resolve twice.
-    expect(immediateCalls()).toBe(8)
+    // Invalid UUIDs are rejected before SQLite. After a stored decline, a later
+    // claim is a read-only status check and does not open a write transaction.
+    // Every other operation is an IMMEDIATE transaction so competing renderers
+    // cannot resolve twice.
+    expect(immediateCalls()).toBe(7)
   })
 
   it('records explicit acceptance locally and recovers a corrupt consent row', () => {
