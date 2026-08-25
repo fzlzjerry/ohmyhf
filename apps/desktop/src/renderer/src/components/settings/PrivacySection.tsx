@@ -58,13 +58,15 @@ export function PrivacySection(): React.JSX.Element {
     queryFn: () => invoke('cache:scan', undefined),
     staleTime: 5 * 60_000
   })
-  const [statusPollUntil, setStatusPollUntil] = useState<number | null>(null)
+  const [statusPollStartedAt, setStatusPollStartedAt] = useState<number | null>(null)
   const telemetryStatus = useQuery({
     queryKey: ['telemetry-status'],
     queryFn: () => invoke('telemetry:status', undefined),
     refetchInterval: (query) => {
-      if (statusPollUntil === null || Date.now() >= statusPollUntil) return false
-      if (query.state.data?.lastCapture) return false
+      if (statusPollStartedAt === null) return false
+      if (Date.now() >= statusPollStartedAt + 10_000) return false
+      const capturedAt = Date.parse(query.state.data?.lastCapture?.at ?? '')
+      if (!Number.isNaN(capturedAt) && capturedAt >= statusPollStartedAt) return false
       return 400
     }
   })
@@ -158,7 +160,7 @@ export function PrivacySection(): React.JSX.Element {
             disabled={!canEnableTelemetry && !canDisableTelemetry}
             onCheckedChange={(telemetryEnabled) => {
               setTelemetryError(null)
-              if (telemetryEnabled) setStatusPollUntil(Date.now() + 10_000)
+              if (telemetryEnabled) setStatusPollStartedAt(Date.now())
               void updateSettings({ telemetryEnabled })
                 .then(() => telemetryStatus.refetch())
                 .catch((error: unknown) => {
