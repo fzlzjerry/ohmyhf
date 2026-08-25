@@ -1,6 +1,6 @@
 {
   "name": "oh-my-huggingface",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "private": true,
   "description": "Unofficial cross-platform desktop client for the Hugging Face Hub",
   "license": "Apache-2.0",
