@@ -36,7 +36,7 @@ import { applyAppProxy } from './proxy'
 import { SettingsStore } from './settings'
 import { SecurityGate } from './security-gate'
 import { StarReminderService } from './star-reminder'
-import { DEFAULT_POSTHOG_HOST, TelemetryService } from './telemetry'
+import { applyExplicitTelemetryDecline, DEFAULT_POSTHOG_HOST, TelemetryService } from './telemetry'
 import { TrayManager } from './tray'
 import { resolveUpdateClient, UpdateManager } from './updater'
 
@@ -214,6 +214,13 @@ if (!gotLock) {
       // The getter is evaluated per event so Settings changes apply immediately.
       fetchImpl: createFailClosedDynamicProxiedFetch(() => settings.get().proxyUrl)
     })
+    try {
+      applyExplicitTelemetryDecline(settings, telemetry)
+    } catch {
+      // Honor a stored decline without blocking window creation if SQLite is
+      // read-only or full. The helper also fails closed; this is a last guard.
+      console.error('[telemetry] failed to honor a stored telemetry decline')
+    }
     const starReminder = new StarReminderService({
       db,
       hasMeaningfulActivity: () => {

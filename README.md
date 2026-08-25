@@ -9,16 +9,16 @@
 An open-source, cross-platform (macOS / Windows / Linux) desktop client for browsing the Hugging
 Face Hub, managing large model downloads, and plugging models into your local AI toolchain.
 
-**Privacy-first by default.** Optional pseudonymous usage telemetry is off by default and starts
-only after you explicitly opt in. If enabled, seven fixed events go to PostHog with a random
-installation ID that persists across launches while telemetry stays enabled, plus the app version,
-platform, architecture, and locale. Turning telemetry off deletes that ID; a later opt-in creates
-a new one. PostHog may see the source IP during network transport; the project must disable IP
-capture in PostHog, while the client's `$geoip_disable` field disables only geographic enrichment.
-No account details, tokens, repository or search data, local paths, or file names are sent, and you
-can turn telemetry off at any time. Your access token is encrypted with your OS keychain (Electron
-`safeStorage`) and stored in `~/.oh_my_hf/credentials.json` with owner-only permissions. See the
-complete [telemetry contract](docs/telemetry.md).
+**Privacy-first, telemetry opt-out.** Optional pseudonymous usage telemetry is on by default in
+packaged releases and can be turned off at any time from **Settings → Privacy & data**. When
+enabled, seven fixed events go to PostHog with a random installation ID that persists across
+launches while telemetry stays enabled, plus the app version, platform, architecture, and locale.
+Turning telemetry off deletes that ID; turning it back on later creates a new one. PostHog may see
+the source IP during network transport; the project must disable IP capture in PostHog, while the
+client's `$geoip_disable` field disables only geographic enrichment. No account details, tokens,
+repository or search data, local paths, or file names are sent. Your access token is encrypted with
+your OS keychain (Electron `safeStorage`) and stored in `~/.oh_my_hf/credentials.json` with
+owner-only permissions. See the complete [telemetry contract](docs/telemetry.md).
 
 ![Three-pane browse view: model list with a live detail pane](docs/screenshots/browse.png)
 

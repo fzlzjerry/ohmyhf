@@ -3,7 +3,7 @@
     "disclaimer": "Cette application n'est ni affiliée à, ni approuvée par, ni sponsorisée par Hugging Face, Inc. « Hugging Face » est une marque de Hugging Face, Inc., utilisée ici uniquement pour désigner le service auquel cette application se connecte.",
     "github": "Code source sur GitHub",
     "license": "Distribué sous licence Apache-2.0",
-    "privacy": "Vos données restent sur cet appareil sauf si vous activez explicitement la télémétrie d’utilisation facultative dans Confidentialité et données. Avec votre accord, sept événements PostHog fixes sont envoyés avec un identifiant d’installation aléatoire qui ne persiste d’un lancement à l’autre que tant que la télémétrie reste activée, ainsi que la version, la plateforme, l’architecture et la langue. La désactivation de la télémétrie supprime cet identifiant ; une nouvelle activation ultérieure en crée un nouveau. PostHog peut voir votre IP pendant le transport. Le projet PostHog utilisé pour la version doit être configuré pour supprimer les données IP ; $geoip_disable désactive uniquement l’enrichissement GeoIP. Aucun compte, jeton, dépôt, chemin, nom de fichier, recherche, téléchargement ou contenu n’est envoyé. Désactivation possible à tout moment. Votre jeton d’accès reste chiffré par le trousseau du système d’exploitation et stocké uniquement sur cet appareil.",
+    "privacy": "Vos données restent sur cet appareil, à l’exception de la télémétrie d’utilisation facultative, activée par défaut dans Confidentialité et données et désactivable à tout moment. Lorsqu’elle est activée, sept événements PostHog fixes sont envoyés avec un identifiant d’installation aléatoire qui ne persiste d’un lancement à l’autre que tant que la télémétrie reste activée, ainsi que la version, la plateforme, l’architecture et la langue. La désactivation de la télémétrie supprime cet identifiant ; une nouvelle activation ultérieure en crée un nouveau. PostHog peut voir votre IP pendant le transport. Le projet PostHog utilisé pour la version doit être configuré pour supprimer les données IP ; $geoip_disable désactive uniquement l’enrichissement GeoIP. Aucun compte, jeton, dépôt, chemin, nom de fichier, recherche, téléchargement ou contenu n’est envoyé. Votre jeton d’accès reste chiffré par le trousseau du système d’exploitation et stocké uniquement sur cet appareil.",
     "title": "À propos",
     "unofficialTitle": "NON OFFICIEL",
     "updates": {
@@ -41,10 +41,10 @@
   },
   "community": {
     "telemetry": {
-      "title": "Télémétrie d’utilisation facultative",
-      "body": "Avec votre accord, sept événements PostHog fixes sont envoyés avec un identifiant d’installation aléatoire qui ne persiste d’un lancement à l’autre que tant que la télémétrie reste activée, ainsi que la version, la plateforme, l’architecture et la langue. La désactivation de la télémétrie supprime cet identifiant ; une nouvelle activation ultérieure en crée un nouveau. PostHog peut voir votre IP pendant le transport. Le projet PostHog utilisé pour la version doit être configuré pour supprimer les données IP ; $geoip_disable désactive uniquement l’enrichissement GeoIP. Aucun compte, jeton, dépôt, chemin, nom de fichier, recherche, téléchargement ou contenu n’est envoyé. Désactivation possible à tout moment.",
-      "accept": "Activer la télémétrie",
-      "decline": "Non merci",
+      "title": "La télémétrie d’utilisation est activée",
+      "body": "Cette application envoie sept événements PostHog fixes avec un identifiant d’installation aléatoire qui ne persiste d’un lancement à l’autre que tant que la télémétrie reste activée, ainsi que la version, la plateforme, l’architecture et la langue. La désactivation de la télémétrie supprime cet identifiant ; une nouvelle activation ultérieure en crée un nouveau. PostHog peut voir votre IP pendant le transport. Le projet PostHog utilisé pour la version doit être configuré pour supprimer les données IP ; $geoip_disable désactive uniquement l’enrichissement GeoIP. Aucun compte, jeton, dépôt, chemin, nom de fichier, recherche, téléchargement ou contenu n’est envoyé. Désactivation possible à tout moment.",
+      "accept": "J’ai compris",
+      "decline": "Désactiver",
       "details": "Détails de la télémétrie"
     },
     "star": {
@@ -231,13 +231,13 @@
       "title": "Transfert des paramètres"
     },
     "telemetry": {
-      "title": "Télémétrie d’utilisation facultative",
-      "description": "PostHog reçoit uniquement sept événements fixes avec un identifiant d’installation aléatoire qui ne persiste d’un lancement à l’autre que tant que la télémétrie reste activée, la version, la plateforme, l’architecture, la langue et, pour les rappels Star, leur numéro et l’action. La désactivation de la télémétrie supprime cet identifiant ; une nouvelle activation ultérieure en crée un nouveau. PostHog peut voir l’IP source pendant le transport. Le projet PostHog utilisé pour la version doit être configuré pour supprimer les données IP ; $geoip_disable désactive uniquement l’enrichissement GeoIP. Aucun compte, jeton, dépôt, chemin, nom de fichier, recherche, téléchargement ou contenu n’est envoyé.",
+      "title": "Télémétrie d’utilisation",
+      "description": "PostHog reçoit uniquement sept événements fixes avec un identifiant d’installation aléatoire qui ne persiste d’un lancement à l’autre que tant que la télémétrie reste activée, la version, la plateforme, l’architecture, la langue et, pour les rappels Star, leur numéro et l’action. La télémétrie est activée par défaut. La désactivation de la télémétrie supprime cet identifiant ; une nouvelle activation ultérieure en crée un nouveau. PostHog peut voir l’IP source pendant le transport. Le projet PostHog utilisé pour la version doit être configuré pour supprimer les données IP ; $geoip_disable désactive uniquement l’enrichissement GeoIP. Aucun compte, jeton, dépôt, chemin, nom de fichier, recherche, téléchargement ou contenu n’est envoyé.",
       "enabled": "Partager une utilisation pseudonyme",
       "enabledHint": "Activée. Des événements fixes sont envoyés à PostHog ; vous pouvez la désactiver immédiatement à tout moment.",
-      "disabledHint": "Désactivée par défaut. Rien n’est envoyé avant votre activation.",
+      "disabledHint": "Désactivée. Rien n’est envoyé. Vous pouvez la réactiver à tout moment.",
       "unconfiguredHint": "Cette version locale ou non signée ne peut pas envoyer de télémétrie. Les versions empaquetées avec une clé de projet PostHog le peuvent.",
-      "optedInUnconfiguredHint": "Cette version ne peut pas envoyer de télémétrie, mais le réglage enregistré est encore activé. Désactivez-le pour retirer le consentement, afin qu’une version empaquetée ultérieure ne reprenne pas l’envoi.",
+      "optedInUnconfiguredHint": "Cette version ne peut pas envoyer de télémétrie, mais le réglage enregistré est encore activé. Désactivez-le pour refuser, afin qu’une version empaquetée ultérieure ne commence pas l’envoi.",
       "lastCapture": "Dernier événement : {{event}} · {{status}} · {{time}}",
       "captureStatus": {
         "sent": "envoyé",

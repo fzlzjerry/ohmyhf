@@ -161,6 +161,9 @@ test('packaged application boots with an isolated profile', async () => {
       })
       expect(state.claimId).toEqual(expect.stringMatching(UUID_V4_RE))
       expect(readKv(db, 'telemetry.installation-id.v1')).toBeUndefined()
+      expect(
+        (readKv(db, 'settings') as { telemetryEnabled?: boolean } | undefined)?.telemetryEnabled
+      ).toBe(false)
     } finally {
       db.close()
     }
@@ -173,7 +176,7 @@ test('publishable package migrates an unresolved v0.0.11 consent display', async
   await initializeProfile(userDataDir)
 
   const db = openFixtureDatabase(userDataDir)
-  writeKv(db, 'settings', { telemetryEnabled: false })
+  writeKv(db, 'settings', { telemetryEnabled: true })
   writeKv(db, 'telemetry.consent-prompt.v1', {
     version: 1,
     claimId: CONSENT_CLAIM_ID,

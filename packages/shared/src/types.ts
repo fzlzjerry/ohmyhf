@@ -981,7 +981,7 @@ export interface AppSettings {
   repoOpenTarget: RepoOpenTarget
   /** Max local history rows retained. */
   historyLimit: HistoryLimit
-  /** Pseudonymous, low-cardinality product telemetry. Disabled until the user opts in. */
+  /** Pseudonymous, low-cardinality product telemetry. On by default; the user can opt out. */
   telemetryEnabled: boolean
   /** Canonical executable selected by main; never renderer-writable. */
   ollamaBinaryPath: string | null
@@ -1031,7 +1031,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   browsePageSize: 30,
   repoOpenTarget: 'app',
   historyLimit: 200,
-  telemetryEnabled: false,
+  telemetryEnabled: true,
   ollamaBinaryPath: null,
   llamaServerBinaryPath: null,
   ollamaPort: 11434

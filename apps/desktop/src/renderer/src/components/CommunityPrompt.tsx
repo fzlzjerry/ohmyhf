@@ -42,9 +42,10 @@ function isForeground(): boolean {
 }
 
 /**
- * One quiet community card per app session. Telemetry is always offered before
- * the later Star reminder so users never receive two asks at once. A Star claim
- * is only consumed after this foreground renderer acknowledges the visible card.
+ * One quiet community card per app session. The telemetry opt-out disclosure
+ * is always offered before the later Star reminder so users never receive two
+ * asks at once. A Star claim is only consumed after this foreground renderer
+ * acknowledges the visible card.
  */
 export function CommunityPrompt(): React.JSX.Element {
   const { t } = useTranslation(['settings', 'common'])
@@ -66,16 +67,26 @@ export function CommunityPrompt(): React.JSX.Element {
   const consentAcksInFlight = useRef(new Set<string>())
   const starAcksInFlight = useRef(new Set<string>())
   const announcedPrompt = useRef<string | null>(null)
+  const telemetryEnabledWhenShown = useRef<boolean | null>(null)
   const dismissPrompt = useCallback((): void => {
     announcedPrompt.current = null
     setAnnouncement('')
     setPrompt(null)
   }, [])
 
-  // Settings can resolve the same consent while the card is temporarily hidden.
-  // Do not resurrect a now-obsolete disabled-state card when Settings closes.
+  // Settings can resolve the same disclosure while the card is temporarily
+  // hidden. Dismiss only when the persisted preference changes; an enabled
+  // opt-out default must not hide the first-run notice by itself.
   useEffect(() => {
-    if (!telemetryEnabled || prompt?.kind !== 'telemetry') return
+    if (prompt?.kind !== 'telemetry') {
+      telemetryEnabledWhenShown.current = null
+      return
+    }
+    if (telemetryEnabledWhenShown.current === null) {
+      telemetryEnabledWhenShown.current = telemetryEnabled
+      return
+    }
+    if (telemetryEnabled === telemetryEnabledWhenShown.current) return
     let canceled = false
     window.queueMicrotask(() => {
       if (!canceled) dismissPrompt()
@@ -298,6 +309,8 @@ export function CommunityPrompt(): React.JSX.Element {
         push(t('common:error.generic'), 'error')
         return
       }
+      const settings = await invoke('settings:set', { patch: { telemetryEnabled: false } })
+      setSettings(settings)
       dismissPrompt()
     } catch (error) {
       // Keep the choice visible until main confirms the explicit local decision.
@@ -305,7 +318,7 @@ export function CommunityPrompt(): React.JSX.Element {
     } finally {
       setPending(false)
     }
-  }, [dismissPrompt, pending, prompt, push, t])
+  }, [dismissPrompt, pending, prompt, push, setSettings, t])
 
   useEffect(() => {
     if (!prompt || promptSuppressed) return
@@ -337,8 +350,10 @@ export function CommunityPrompt(): React.JSX.Element {
       if (pending) return
       setPending(true)
       try {
-        const settings = await invoke('settings:set', { patch: { telemetryEnabled: true } })
-        setSettings(settings)
+        if (telemetryEnabled) {
+          const settings = await invoke('settings:set', { patch: { telemetryEnabled: true } })
+          setSettings(settings)
+        }
         dismissPrompt()
       } catch (error) {
         push(error instanceof Error ? error.message : t('common:error.generic'), 'error')

@@ -261,7 +261,7 @@ function resolvedConsentPromptState(
 }
 
 /**
- * Minimal, opt-in PostHog transport owned by the main process. Callers can choose
+ * Minimal, opt-out PostHog transport owned by the main process. Callers can choose
  * only a fixed event name; no account, repository, path, search, or arbitrary
  * property can enter the payload.
  */
@@ -301,25 +301,38 @@ export class TelemetryService {
     return this.endpoint !== null && this.apiKey !== '' && this.fetchImpl !== null
   }
 
+  /**
+   * Whether the collector may send. A stored decline always wins over a stale
+   * enabled setting: `settings.set({ telemetryEnabled: false })` can fail after
+   * the decline is recorded, and capture must not keep sending in that state.
+   */
+  private isTransportEnabled(): boolean {
+    return this.enabled() === true && !this.hasExplicitDecline()
+  }
+
   /** Local-only view for Settings. Never includes the installation identifier. */
   getStatus(): TelemetryStatus {
     return {
       configured: this.isConfigured(),
-      enabled: this.enabled() === true,
+      enabled: this.isTransportEnabled(),
       lastCapture: this.lastCapture
     }
   }
 
   /**
-   * Atomically reserves the consent explanation. A renderer crash, reload, or
+   * Atomically reserves the opt-out disclosure. A renderer crash, reload, or
    * acknowledgement without a decision receives the same claim again. Only an
-   * explicit accept/decline resolves it; reserving creates no installation
-   * identity and emits no event.
+   * explicit keep/decline resolves it; reserving creates no installation
+   * identity and emits no event. An enabled setting is not a decision: the
+   * opt-out default can send events before this card is resolved. A disabled
+   * setting or stored decline is not disclosed: the card states that telemetry
+   * is on, and a stored-off preference must stay off unless the user
+   * re-enables it.
    */
   claimConsentPrompt(): ConsentPromptClaim {
     try {
       if (!this.isConfigured()) return false
-      const telemetryEnabled = this.enabled() === true
+      if (!this.isTransportEnabled()) return false
 
       const transaction = this.db.transaction((): ConsentPromptClaim => {
         const row = this.db
@@ -332,15 +345,6 @@ export class TelemetryService {
           if (!storedState) return false
           const state = migrateConsentPromptState(storedState)
 
-          // A literal enabled setting records the user's earlier explicit
-          // acceptance. This also upgrades v0.0.11 rows without prompting.
-          if (telemetryEnabled) {
-            if (state.status !== 'resolved' || state.resolution !== 'accepted') {
-              this.writeConsentPromptState(resolvedConsentPromptState(state.claimId, 'accepted'))
-            }
-            return false
-          }
-
           if (storedState.version !== CONSENT_PROMPT_STATE_VERSION) {
             this.writeConsentPromptState(state)
           }
@@ -350,10 +354,6 @@ export class TelemetryService {
 
         const claimId = this.safeCreateConsentClaimId()
         if (!claimId) return false
-        if (telemetryEnabled) {
-          this.writeConsentPromptState(resolvedConsentPromptState(claimId, 'accepted'))
-          return false
-        }
 
         this.writeConsentPromptState({
           version: CONSENT_PROMPT_STATE_VERSION,
@@ -364,6 +364,21 @@ export class TelemetryService {
         return { claimId }
       })
       return transaction.immediate()
+    } catch {
+      return false
+    }
+  }
+
+  /** Whether this installation already recorded an explicit telemetry opt-out. */
+  hasExplicitDecline(): boolean {
+    try {
+      const row = this.db.prepare('SELECT value FROM kv WHERE key = ?').get(CONSENT_PROMPT_KEY) as
+        KvRow | undefined
+      if (!row) return false
+      const storedState = parseConsentPromptState(row.value)
+      if (!storedState) return false
+      const state = migrateConsentPromptState(storedState)
+      return state.status === 'resolved' && state.resolution === 'declined'
     } catch {
       return false
     }
@@ -453,7 +468,7 @@ export class TelemetryService {
   }
 
   /**
-   * Records a successful settings opt-in as the explicit acceptance decision.
+   * Records a successful settings confirmation as the explicit keep decision.
    * This local state contains no installation identity and sends no event.
    */
   recordExplicitConsentAcceptance(): boolean {
@@ -512,7 +527,7 @@ export class TelemetryService {
         !this.endpoint ||
         !this.apiKey ||
         !this.fetchImpl ||
-        this.enabled() !== true
+        !this.isTransportEnabled()
       ) {
         return { status: 'skipped' }
       }
@@ -572,7 +587,7 @@ export class TelemetryService {
   }
 
   /**
-   * Creates and persists a fresh identity for an explicit opt-in. This rotates
+   * Creates and persists a fresh identity for an explicit re-enable. This rotates
    * any stale row even if a previous best-effort opt-out deletion encountered
    * a storage error; no event can reuse the previous lifecycle's identifier.
    */
@@ -654,5 +669,36 @@ export class TelemetryService {
     } catch {
       return null
     }
+  }
+}
+
+/**
+ * A stored decline must win over the opt-out default. Older builds recorded
+ * "No thanks" without writing settings, so an upgrade would otherwise start
+ * sending events from a user who already refused. Persistence failures are
+ * swallowed so this optional migration cannot prevent launch; the next start
+ * retries.
+ */
+export function applyExplicitTelemetryDecline(
+  settings: {
+    get(): { telemetryEnabled: boolean }
+    set(patch: { telemetryEnabled: boolean }): unknown
+  },
+  telemetry: Pick<TelemetryService, 'hasExplicitDecline' | 'clearIdentity'>
+): void {
+  try {
+    if (!telemetry.hasExplicitDecline()) return
+    try {
+      if (settings.get().telemetryEnabled === true) {
+        settings.set({ telemetryEnabled: false })
+      }
+    } catch {
+      // Settings writes are best-effort. Capture and the disclosure already
+      // treat a stored decline as disabled, so a full or read-only profile
+      // must not keep the installation identifier or take down startup.
+    }
+    telemetry.clearIdentity()
+  } catch {
+    // Optional telemetry migration must never take down startup.
   }
 }

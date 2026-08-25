@@ -113,7 +113,9 @@ async function applySettingsPatch(
 ): Promise<AppSettings> {
   const prev = ctx.settings.get()
   const telemetryWasEnabled = prev.telemetryEnabled === true
-  const explicitTelemetryOptIn = !telemetryWasEnabled && patch.telemetryEnabled === true
+  const enablingTelemetry = patch.telemetryEnabled === true
+  const disablingTelemetry = patch.telemetryEnabled === false
+  const explicitTelemetryOptIn = !telemetryWasEnabled && enablingTelemetry
   if (explicitTelemetryOptIn) {
     if (!ctx.telemetry.isConfigured()) {
       throw new Error('Telemetry is not configured in this build')
@@ -130,10 +132,11 @@ async function applySettingsPatch(
     if (explicitTelemetryOptIn) ctx.telemetry.clearIdentity()
     throw error
   }
-  const telemetryIsEnabled = next.telemetryEnabled === true
-  if (telemetryWasEnabled && !telemetryIsEnabled) {
+  if (disablingTelemetry) {
     // Stop and erase the pseudonymous identity before any unrelated, fallible
-    // network or desktop side effect can interrupt the opt-out path.
+    // network or desktop side effect can interrupt the opt-out path. Persist
+    // the decline even when the setting was already off so an older "No thanks"
+    // plus the new default cannot resume sending.
     ctx.telemetry.clearIdentity()
     ctx.telemetry.recordExplicitConsentDecline()
   }
@@ -142,13 +145,15 @@ async function applySettingsPatch(
     ctx.i18n.setLocale(locale)
     ctx.rebuildMenu()
   }
-  if (!telemetryWasEnabled && telemetryIsEnabled) {
-    // The persisted true setting is the explicit acceptance decision. Resolve
-    // the local prompt state before any unrelated asynchronous side effect.
+  if (enablingTelemetry && next.telemetryEnabled === true) {
+    // Confirming the opt-out default, or turning telemetry back on, is the
+    // explicit keep decision. Resolve the local prompt before unrelated work.
     ctx.telemetry.recordExplicitConsentAcceptance()
-    // Queue the consent event before an unrelated combined proxy patch can
-    // fail. The transport itself reads the already-persisted current proxy.
-    void ctx.telemetry.capture('telemetry_enabled')
+    if (!telemetryWasEnabled) {
+      // Queue the consent event before an unrelated combined proxy patch can
+      // fail. The transport itself reads the already-persisted current proxy.
+      void ctx.telemetry.capture('telemetry_enabled')
+    }
   }
   await ctx.applyNetworkSettings(
     { hubEndpoint: next.hubEndpoint, proxyUrl: next.proxyUrl },
@@ -388,6 +393,8 @@ export function registerIpcHandlers(ctx: AppContext): void {
     }
     const parsed = settingsExportFileSchema.safeParse(raw)
     if (!parsed.success) throw new Error('Invalid settings file')
+    // Import must not write telemetryEnabled: applySettingsPatch treats that
+    // field as an explicit keep/decline and would resolve the disclosure.
     const next = await applySettingsPatch(
       ctx,
       settingsFromImport(ctx.settings.get(), parsed.data.settings)
