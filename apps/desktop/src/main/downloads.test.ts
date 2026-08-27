@@ -487,6 +487,62 @@ describe('DownloadManager frozen environment', () => {
     manager.shutdown()
   })
 
+  it('waits for shutdown workers to exit before pumping resumeAfterShutdown', async () => {
+    vi.useFakeTimers()
+    const db = new FakeDatabase()
+    const settings = createSettings()
+    const manager = createManager(db, createHub(), settings)
+    await manager.start({ repoId: 'org/repo', kind: 'model', revision: 'main' })
+    const internals = manager as unknown as {
+      tasks: Map<
+        string,
+        {
+          id: string
+          status: string
+          files: Array<{ path: string; status: string }>
+        }
+      >
+      workers: Map<
+        string,
+        {
+          postMessage: ReturnType<typeof vi.fn>
+          removeAllListeners: ReturnType<typeof vi.fn>
+          terminate: ReturnType<typeof vi.fn>
+        }
+      >
+      stoppingTasks: Map<string, Promise<unknown>>
+    }
+    const task = [...internals.tasks.values()][0]!
+    const file = task.files[0]!
+    task.status = 'running'
+    file.status = 'running'
+    let finishTermination!: () => void
+    const terminated = new Promise<void>((resolve) => {
+      finishTermination = resolve
+    })
+    const worker = {
+      postMessage: vi.fn(),
+      removeAllListeners: vi.fn(),
+      terminate: vi.fn(() => terminated)
+    }
+    internals.workers.set(`${task.id} ${file.path}`, worker)
+    settings.get().downloadConcurrency = 1
+
+    manager.shutdown()
+    manager.resumeAfterShutdown()
+
+    expect(worker.terminate).toHaveBeenCalledOnce()
+    expect(internals.stoppingTasks.has(task.id)).toBe(true)
+    expect(internals.workers.size).toBe(0)
+    expect(file.status).toBe('queued')
+    const stopping = internals.stoppingTasks.get(task.id)!
+    settings.get().downloadConcurrency = 0
+    finishTermination()
+    await stopping
+    expect(internals.stoppingTasks.has(task.id)).toBe(false)
+    manager.shutdown()
+  })
+
   it('publishes the revision ref only after every file completes', async () => {
     vi.useFakeTimers()
     const cacheDir = mkdtempSync(join(tmpdir(), 'omh-download-ref-'))

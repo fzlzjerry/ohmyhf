@@ -1468,13 +1468,11 @@ export class DownloadManager {
       clearTimeout(this.broadcastTimer)
       this.broadcastTimer = null
     }
-    for (const [, worker] of this.workers) {
-      worker.removeAllListeners()
-      worker.postMessage({ type: 'abort' })
-      void worker.terminate()
+    // Track terminate the same way pause/resume does so a later
+    // resumeAfterShutdown cannot spawn a writer onto a still-open blob.
+    for (const task of this.tasks.values()) {
+      void this.abortTaskWorkers(task)
     }
-    this.workers.clear()
-    this.stoppingTasks.clear()
     const idsToFlush = new Set(this.dirtyTaskIds)
     for (const task of this.tasks.values()) {
       if (task.status === 'running' || task.status === 'queued') idsToFlush.add(task.id)
