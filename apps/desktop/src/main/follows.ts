@@ -21,6 +21,7 @@ export class FollowsPoller {
   private polling = false
   /** Interval the running timer was built with, so unrelated settings changes don't reset it. */
   private scheduledMinutes: number | null = null
+  private settingsBound = false
 
   constructor(
     private readonly library: Library,
@@ -34,6 +35,8 @@ export class FollowsPoller {
     this.schedule()
     // First check fires right away; the interval only governs the cadence after it.
     void this.poll()
+    if (this.settingsBound) return
+    this.settingsBound = true
     this.settings.onChange(() => this.schedule())
   }
 

@@ -78,4 +78,7 @@ manifest and all files it references in the same release; preflight rejects miss
 mismatches.
 
 The application checks only published releases. Update discovery, download, and restart-install are
-separate user actions, and development builds do not load the updater.
+separate user actions, and development builds do not load the updater. On macOS the downloaded zip
+is staged with Squirrel.Mac after download; Restart must quit the process (not only close windows)
+and relaunch so ShipIt can apply the staged update. If the native handshake never relaunches, the
+app relaunches itself.

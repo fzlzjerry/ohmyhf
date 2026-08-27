@@ -59,8 +59,18 @@ interface UpdateManagerOptions {
   currentVersion: string
   isPackaged: boolean
   autoInstallSupported?: boolean
+  /**
+   * Passed through to electron-updater. Keep false on Windows/Linux so a
+   * normal quit does not spawn the installer. On macOS MacUpdater does not
+   * install on quit — the flag only tells Squirrel.Mac to stage the zip
+   * after download, which quitAndInstall needs to relaunch instead of just
+   * closing windows.
+   */
+  autoInstallOnAppQuit?: boolean
   loadUpdater: () => Promise<UpdateClient>
   onStateChange: (state: AppUpdateState) => void
+  /** Awaited before quitAndInstall so close-to-tray / before-quit can let the process die. */
+  prepareInstall?: () => void | Promise<void>
   scheduleInstall?: (task: () => void) => void
   logger?: Pick<Console, 'warn'>
   /** How long to wait for quitAndInstall to actually quit the app before treating it as failed. */
@@ -106,8 +116,10 @@ export class UpdateManager {
   private readonly currentVersion: string
   private readonly isPackaged: boolean
   private readonly autoInstallSupported: boolean
+  private readonly autoInstallOnAppQuit: boolean
   private readonly loadUpdater: () => Promise<UpdateClient>
   private readonly onStateChange: (state: AppUpdateState) => void
+  private readonly prepareInstall: () => Promise<void>
   private readonly scheduleInstall: (task: () => void) => void
   private readonly logger: Pick<Console, 'warn'>
   private readonly installTimeoutMs: number
@@ -123,8 +135,12 @@ export class UpdateManager {
     this.currentVersion = options.currentVersion
     this.isPackaged = options.isPackaged
     this.autoInstallSupported = options.autoInstallSupported ?? true
+    this.autoInstallOnAppQuit = options.autoInstallOnAppQuit ?? false
     this.loadUpdater = options.loadUpdater
     this.onStateChange = options.onStateChange
+    this.prepareInstall = async () => {
+      await options.prepareInstall?.()
+    }
     this.scheduleInstall = options.scheduleInstall ?? ((task) => setImmediate(task))
     this.logger = options.logger ?? console
     this.installTimeoutMs = options.installTimeoutMs ?? 45_000
@@ -171,15 +187,16 @@ export class UpdateManager {
     this.installScheduled = true
     try {
       const client = await this.getClient()
+      await this.prepareInstall()
       this.scheduleInstall(() => {
         try {
           client.quitAndInstall(false, true)
           // quitAndInstall is expected to quit the app almost immediately, at which
           // point no further JS runs. If we're still alive after this fires, the
           // native install/relaunch handshake silently never completed (observed on
-          // macOS) and the user is left staring at an app that didn't restart.
-          // installScheduled may already be false here if quitAndInstall reported
-          // its failure synchronously (via the client's 'error' event).
+          // macOS) and the host should force a relaunch. installScheduled may
+          // already be false here if quitAndInstall reported its failure
+          // synchronously (via the client's 'error' event).
           if (this.installScheduled) this.armInstallWatchdog()
         } catch (error) {
           this.installScheduled = false
@@ -271,7 +288,7 @@ export class UpdateManager {
       this.clientPromise = this.loadUpdater()
         .then((client) => {
           client.autoDownload = false
-          client.autoInstallOnAppQuit = false
+          client.autoInstallOnAppQuit = this.autoInstallOnAppQuit
           client.allowPrerelease = false
           client.allowDowngrade = false
           client.disableWebInstaller = true
