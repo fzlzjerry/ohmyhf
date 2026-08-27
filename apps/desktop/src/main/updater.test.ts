@@ -77,6 +77,8 @@ function setup(
   options: {
     packaged?: boolean
     autoInstallSupported?: boolean
+    autoInstallOnAppQuit?: boolean
+    prepareInstall?: () => void | Promise<void>
     client?: FakeUpdateClient
   } = {}
 ): {
@@ -94,6 +96,8 @@ function setup(
     currentVersion: '1.0.0',
     isPackaged: options.packaged ?? true,
     autoInstallSupported: options.autoInstallSupported,
+    autoInstallOnAppQuit: options.autoInstallOnAppQuit,
+    prepareInstall: options.prepareInstall,
     loadUpdater,
     onStateChange: (state) => states.push(state),
     scheduleInstall: (task) => scheduled.push(task),
@@ -211,6 +215,75 @@ describe('UpdateManager', () => {
     expect(client.installCalls).toHaveLength(0)
     scheduled[0]!()
     expect(client.installCalls).toEqual([[false, true]])
+  })
+
+  it('stages the update with Squirrel when autoInstallOnAppQuit is enabled', async () => {
+    const { client, manager } = setup({ autoInstallOnAppQuit: true })
+    client.nextVersion = '1.1.0'
+
+    await manager.checkForUpdates()
+    expect(client.autoInstallOnAppQuit).toBe(true)
+  })
+
+  it('prepares the process for quit before calling quitAndInstall', async () => {
+    const order: string[] = []
+    const { client, manager, scheduled } = setup({
+      prepareInstall: () => {
+        order.push('prepare')
+      }
+    })
+    client.nextVersion = '1.1.0'
+    await manager.checkForUpdates()
+    await manager.downloadUpdate()
+
+    await manager.installUpdate()
+    expect(order).toEqual(['prepare'])
+    expect(client.installCalls).toHaveLength(0)
+    scheduled[0]!()
+    expect(client.installCalls).toEqual([[false, true]])
+  })
+
+  it('waits for async prepareInstall before scheduling quitAndInstall', async () => {
+    const gate = deferred()
+    const { client, manager, scheduled } = setup({
+      prepareInstall: async () => {
+        await gate.promise
+      }
+    })
+    client.nextVersion = '1.1.0'
+    await manager.checkForUpdates()
+    await manager.downloadUpdate()
+
+    const install = manager.installUpdate()
+    await Promise.resolve()
+    expect(scheduled).toHaveLength(0)
+    gate.resolve()
+    await install
+    expect(scheduled).toHaveLength(1)
+  })
+
+  it('fails the install and allows retry if prepareInstall throws', async () => {
+    let shouldFail = true
+    const { client, manager, scheduled } = setup({
+      prepareInstall: () => {
+        if (shouldFail) throw new Error('cleanup failed')
+      }
+    })
+    client.nextVersion = '1.1.0'
+    await manager.checkForUpdates()
+    await manager.downloadUpdate()
+
+    await manager.installUpdate()
+    expect(manager.getState()).toMatchObject({
+      status: 'error',
+      operation: 'install',
+      error: 'unknown'
+    })
+    expect(scheduled).toHaveLength(0)
+
+    shouldFail = false
+    await manager.installUpdate()
+    expect(scheduled).toHaveLength(1)
   })
 
   it('classifies an asynchronous install error and allows retrying the downloaded update', async () => {

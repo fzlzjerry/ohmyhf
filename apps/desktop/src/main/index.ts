@@ -38,6 +38,7 @@ import { SecurityGate } from './security-gate'
 import { StarReminderService } from './star-reminder'
 import { applyExplicitTelemetryDecline, DEFAULT_POSTHOG_HOST, TelemetryService } from './telemetry'
 import { TrayManager } from './tray'
+import { QuitCoordinator } from './quit-coordinator'
 import { resolveUpdateClient, UpdateManager } from './updater'
 
 declare const __OMH_POSTHOG_PROJECT_KEY__: string
@@ -80,6 +81,9 @@ const isDev = !app.isPackaged
 // Installs older than the first self-signed release still fall back to manual
 // because their ad-hoc requirement (cdhash-based) can never match.
 const macAutoInstallEnabled = true
+// Squirrel.Mac sometimes only closes windows. After this delay the process
+// relaunches itself so the user is not left with a windowless dock icon.
+const MAC_INSTALL_RELAUNCH_FALLBACK_MS = 8_000
 
 // Renderer crash / load-failure recovery: reload this many times before asking
 // the user, with a short pause so a persistent crash can't spin a tight loop.
@@ -142,7 +146,8 @@ const gotLock = app.isPackaged ? app.requestSingleInstanceLock() : true
 if (!gotLock) {
   app.quit()
 } else {
-  let isQuitting = false
+  let installingUpdate = false
+  let quit: QuitCoordinator | null = null
 
   registerAppProtocol()
 
@@ -413,25 +418,57 @@ if (!gotLock) {
       (items) => broadcast('evt:inbox', items),
       notifications
     )
-    const updater = new UpdateManager({
-      currentVersion: app.getVersion(),
-      isPackaged: app.isPackaged,
-      autoInstallSupported: process.platform !== 'darwin' || macAutoInstallEnabled,
-      loadUpdater: async () => {
-        const updaterModule = await import('electron-updater')
-        return resolveUpdateClient(updaterModule)
-      },
-      onStateChange: (state) => broadcast('evt:updater', state)
-    })
-
     const tray = new TrayManager(
       () => BrowserWindow.getAllWindows()[0],
       i18n,
       () => {
-        isQuitting = true
+        quit?.markQuitting()
         app.quit()
       }
     )
+    quit = new QuitCoordinator(async () => {
+      downloads.shutdown()
+      integrationTasks.shutdown()
+      follows.stop()
+      tray.destroy()
+      await localRuntime.shutdown()
+    })
+    const updater = new UpdateManager({
+      currentVersion: app.getVersion(),
+      isPackaged: app.isPackaged,
+      autoInstallSupported: process.platform !== 'darwin' || macAutoInstallEnabled,
+      // MacUpdater does not install on quit. true only stages the zip with
+      // Squirrel.Mac after download so Restart can relaunch instead of
+      // closing windows and leaving the process in the dock.
+      autoInstallOnAppQuit: process.platform === 'darwin',
+      loadUpdater: async () => {
+        const updaterModule = await import('electron-updater')
+        return resolveUpdateClient(updaterModule)
+      },
+      prepareInstall: async () => {
+        installingUpdate = true
+        try {
+          await quit?.beginCleanup()
+        } catch (error) {
+          installingUpdate = false
+          throw error
+        }
+      },
+      scheduleInstall: (task) => {
+        setImmediate(() => {
+          task()
+          if (process.platform !== 'darwin') return
+          // Always relaunch if we are still alive: Squirrel may have closed
+          // windows without starting the new process.
+          const timer = setTimeout(() => {
+            app.relaunch()
+            app.exit(0)
+          }, MAC_INSTALL_RELAUNCH_FALLBACK_MS)
+          timer.unref?.()
+        })
+      },
+      onStateChange: (state) => broadcast('evt:updater', state)
+    })
 
     const rebuildMenu = (): void => {
       buildMenu(i18n, navigate)
@@ -568,7 +605,7 @@ if (!gotLock) {
       win.on('ready-to-show', () => win.show())
 
       win.on('close', (event) => {
-        if (isQuitting || !settings.get().closeToTray) return
+        if (quit?.isQuitting() || !settings.get().closeToTray) return
         event.preventDefault()
         win.hide()
         tray.ensure()
@@ -621,7 +658,7 @@ if (!gotLock) {
       // permanently blank window; past the retry bound the user decides.
       let renderFailures = 0
       const recoverRenderer = (reason: string): void => {
-        if (win.isDestroyed() || isQuitting) return
+        if (win.isDestroyed() || quit?.isQuitting()) return
         renderFailures += 1
         console.error(
           `[window] renderer failure (${reason}), recovery ${renderFailures}/${MAX_RENDER_RECOVERIES}`
@@ -701,6 +738,9 @@ if (!gotLock) {
     void auth.init()
 
     app.on('activate', () => {
+      // During update-install the windows are gone on purpose; recreating one
+      // would bring back the old version and cancel the relaunch fallback.
+      if (quit?.isQuitting()) return
       const win = BrowserWindow.getAllWindows()[0]
       if (win) {
         if (win.isMinimized()) win.restore()
@@ -711,25 +751,23 @@ if (!gotLock) {
       }
     })
 
-    let quitCleanupStarted = false
-    let quitCleanupFinished = false
     app.on('before-quit', (event) => {
-      isQuitting = true
-      if (!quitCleanupFinished) event.preventDefault()
-      if (quitCleanupStarted) return
-      quitCleanupStarted = true
-      downloads.shutdown()
-      integrationTasks.shutdown()
-      follows.stop()
-      tray.destroy()
-      void localRuntime.shutdown().finally(() => {
-        quitCleanupFinished = true
+      if (!quit) return
+      quit.markQuitting()
+      if (!quit.canQuit()) event.preventDefault()
+      void quit.beginCleanup().finally(() => {
+        // quitAndInstall / the macOS relaunch fallback owns the exit so we
+        // do not issue a regular quit that skips Squirrel's relaunch.
+        if (installingUpdate) return
         app.quit()
       })
     })
   })
 
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit()
+    // Installing: Squirrel should relaunch; if it only closed windows, the
+    // fallback timer relaunches. Do not quit here or the new process never starts.
+    if (installingUpdate) return
+    if (process.platform !== 'darwin' || quit?.isQuitting()) app.quit()
   })
 }
