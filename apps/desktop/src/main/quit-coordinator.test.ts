@@ -58,4 +58,35 @@ describe('QuitCoordinator', () => {
     expect(quit.isQuitting()).toBe(true)
     expect(quit.canQuit()).toBe(false)
   })
+
+  it('retries cleanup after a failed attempt', async () => {
+    let calls = 0
+    const quit = new QuitCoordinator(() => {
+      calls += 1
+      if (calls === 1) throw new Error('boom')
+    })
+
+    await expect(quit.beginCleanup()).rejects.toThrow('boom')
+    await quit.beginCleanup()
+    expect(calls).toBe(2)
+    expect(quit.isQuitting()).toBe(true)
+    expect(quit.canQuit()).toBe(true)
+  })
+
+  it('reset clears quitting so a failed install can be retried', async () => {
+    let calls = 0
+    const quit = new QuitCoordinator(() => {
+      calls += 1
+    })
+
+    await quit.beginCleanup()
+    quit.reset()
+    expect(quit.isQuitting()).toBe(false)
+    expect(quit.canQuit()).toBe(false)
+
+    await quit.beginCleanup()
+    expect(calls).toBe(2)
+    expect(quit.isQuitting()).toBe(true)
+    expect(quit.canQuit()).toBe(true)
+  })
 })

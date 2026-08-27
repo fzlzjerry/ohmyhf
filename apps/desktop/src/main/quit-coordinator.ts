@@ -30,14 +30,26 @@ export class QuitCoordinator {
     this.quitting = true
   }
 
+  /** Undo a failed update-install attempt so the UI and a later Restart can proceed. */
+  reset(): void {
+    this.quitting = false
+    this.cleanupFinished = false
+    this.cleanupPromise = null
+  }
+
   beginCleanup(): Promise<void> {
     this.quitting = true
     if (this.cleanupPromise) return this.cleanupPromise
-    this.cleanupPromise = Promise.resolve()
+    const attempt = Promise.resolve()
       .then(() => this.runCleanup())
       .finally(() => {
         this.cleanupFinished = true
       })
-    return this.cleanupPromise
+    this.cleanupPromise = attempt
+    // A rejected attempt must not be cached: UpdateManager retries prepareInstall.
+    void attempt.catch(() => {
+      if (this.cleanupPromise === attempt) this.cleanupPromise = null
+    })
+    return attempt
   }
 }

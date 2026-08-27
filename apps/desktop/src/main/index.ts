@@ -148,6 +148,25 @@ if (!gotLock) {
 } else {
   let installingUpdate = false
   let quit: QuitCoordinator | null = null
+  let macInstallRelaunchTimer: ReturnType<typeof setTimeout> | null = null
+
+  const recoverFromFailedInstall = (): void => {
+    if (macInstallRelaunchTimer !== null) {
+      clearTimeout(macInstallRelaunchTimer)
+      macInstallRelaunchTimer = null
+    }
+    installingUpdate = false
+    quit?.reset()
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+      return
+    }
+    // window-all-closed already skipped quit while installingUpdate was set.
+    recreateWindow?.()
+  }
 
   registerAppProtocol()
 
@@ -450,7 +469,7 @@ if (!gotLock) {
         try {
           await quit?.beginCleanup()
         } catch (error) {
-          installingUpdate = false
+          recoverFromFailedInstall()
           throw error
         }
       },
@@ -458,16 +477,27 @@ if (!gotLock) {
         setImmediate(() => {
           task()
           if (process.platform !== 'darwin') return
-          // Always relaunch if we are still alive: Squirrel may have closed
-          // windows without starting the new process.
+          // quitAndInstall failed (throw or sync 'error'): do not force-relaunch.
+          if (!installingUpdate) return
+          // Squirrel may have closed windows without starting the new process.
           const timer = setTimeout(() => {
+            if (macInstallRelaunchTimer === timer) macInstallRelaunchTimer = null
+            if (!installingUpdate) return
+            // Fallback is only for a windowless handshake, not a visible retry.
+            if (BrowserWindow.getAllWindows().length > 0) return
             app.relaunch()
             app.exit(0)
           }, MAC_INSTALL_RELAUNCH_FALLBACK_MS)
           timer.unref?.()
+          macInstallRelaunchTimer = timer
         })
       },
-      onStateChange: (state) => broadcast('evt:updater', state)
+      onStateChange: (state) => {
+        if (state.status === 'error' && state.operation === 'install') {
+          recoverFromFailedInstall()
+        }
+        broadcast('evt:updater', state)
+      }
     })
 
     const rebuildMenu = (): void => {
