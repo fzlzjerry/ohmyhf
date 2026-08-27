@@ -94,4 +94,21 @@ describe('FollowsPoller scheduling', () => {
     vi.advanceTimersByTime(10 * 60 * 1000)
     expect(listFollows).toHaveBeenCalledTimes(4)
   })
+
+  it('resumes polling after stop', () => {
+    const { store, set } = makeSettings({ pollIntervalMinutes: 30, notificationsEnabled: true })
+    poller = makePoller(store)
+    poller.start()
+    poller.stop()
+    vi.advanceTimersByTime(30 * 60 * 1000)
+    expect(listFollows).toHaveBeenCalledTimes(1)
+
+    poller.start()
+    expect(listFollows).toHaveBeenCalledTimes(2)
+    set({ notificationsEnabled: false })
+    vi.advanceTimersByTime(29 * 60 * 1000)
+    expect(listFollows).toHaveBeenCalledTimes(2)
+    vi.advanceTimersByTime(60 * 1000)
+    expect(listFollows).toHaveBeenCalledTimes(3)
+  })
 })

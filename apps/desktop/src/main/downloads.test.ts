@@ -398,6 +398,40 @@ describe('DownloadManager frozen environment', () => {
     manager.shutdown()
   })
 
+  it('resumes pumping after shutdown so a failed install can continue downloads', async () => {
+    const manager = createManager(new FakeDatabase())
+    await manager.start({ repoId: 'org/repo', kind: 'model', revision: 'main' })
+    const internals = manager as unknown as {
+      shuttingDown: boolean
+      tasks: Map<string, { status: string; files: Array<{ status: string }> }>
+      runtimeAuthTokens: Map<string, string | undefined>
+      latestRevisionTasks: Map<string, { taskId: string }>
+    }
+    const task = [...internals.tasks.values()][0]!
+    const taskId = [...internals.tasks.keys()][0]!
+    task.status = 'running'
+    task.files[0]!.status = 'running'
+
+    manager.shutdown()
+    expect(internals.shuttingDown).toBe(true)
+    expect(internals.runtimeAuthTokens.size).toBe(0)
+    expect(internals.latestRevisionTasks.size).toBe(0)
+
+    await manager.start({ repoId: 'org/other', kind: 'model', revision: 'main' })
+    expect(internals.shuttingDown).toBe(true)
+    expect(manager.list().find((item) => item.repoId === 'org/other')?.status).toBe('queued')
+
+    manager.resumeAfterShutdown()
+    expect(internals.shuttingDown).toBe(false)
+    expect(task.files[0]!.status).toBe('queued')
+    expect(internals.runtimeAuthTokens.get(taskId)).toBe('hf_test')
+    expect(internals.latestRevisionTasks.size).toBeGreaterThan(0)
+
+    const after = await manager.start({ repoId: 'org/third', kind: 'model', revision: 'main' })
+    expect(after.some((item) => item.repoId === 'org/third')).toBe(true)
+    manager.shutdown()
+  })
+
   it('waits for an old worker to exit before pumping an immediate resume', async () => {
     vi.useFakeTimers()
     const db = new FakeDatabase()

@@ -149,6 +149,7 @@ if (!gotLock) {
   let installingUpdate = false
   let quit: QuitCoordinator | null = null
   let macInstallRelaunchTimer: ReturnType<typeof setTimeout> | null = null
+  let restoreAfterFailedInstall: (() => void) | null = null
 
   const recoverFromFailedInstall = (): void => {
     if (macInstallRelaunchTimer !== null) {
@@ -157,6 +158,7 @@ if (!gotLock) {
     }
     installingUpdate = false
     quit?.reset()
+    restoreAfterFailedInstall?.()
     const win = BrowserWindow.getAllWindows()[0]
     if (win && !win.isDestroyed()) {
       if (win.isMinimized()) win.restore()
@@ -452,6 +454,11 @@ if (!gotLock) {
       tray.destroy()
       await localRuntime.shutdown()
     })
+    restoreAfterFailedInstall = () => {
+      downloads.resumeAfterShutdown()
+      follows.start()
+      if (settings.get().closeToTray) tray.ensure()
+    }
     const updater = new UpdateManager({
       currentVersion: app.getVersion(),
       isPackaged: app.isPackaged,

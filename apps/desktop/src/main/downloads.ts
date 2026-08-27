@@ -1484,4 +1484,19 @@ export class DownloadManager {
     this.speedWindow.clear()
     this.latestRevisionTasks.clear()
   }
+
+  /** Undo shutdown after a failed update install so queued work can start again. */
+  resumeAfterShutdown(): void {
+    if (!this.shuttingDown) return
+    this.shuttingDown = false
+    for (const task of this.tasks.values()) {
+      this.rememberRevisionTask(task)
+      if (task.status !== 'queued' && task.status !== 'running') continue
+      for (const file of task.files) {
+        if (file.status === 'running') file.status = 'queued'
+      }
+      this.runtimeAuthTokens.set(task.id, this.getAuthToken())
+    }
+    this.pump()
+  }
 }
