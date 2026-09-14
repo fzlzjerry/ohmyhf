@@ -32,6 +32,11 @@
     "body": "Suchen Sie ein Modell, das Ihnen gefällt, und klicken Sie auf Herunterladen — Dateien landen im Standard-HF-Cache, bereit für transformers, llama.cpp und ähnliche Tools.",
     "title": "Noch keine Downloads"
   },
+  "file": {
+    "list": "Download-Dateien",
+    "part": "Teil {{index}} von {{total}}",
+    "unknownFormat": "Unbekanntes Format"
+  },
   "files": "{{done}}/{{total}} Dateien",
   "removed": "Downloadeintrag entfernt",
   "revision": "Revision {{revision}}",
@@ -54,6 +59,7 @@
     "all": "Gesamtes Repository: {{size}}",
     "unknown": "unbekannte Größe",
     "insufficient": "Nicht genügend Cache-Speicher. Bereinige den Cache oder wähle ein anderes Cache-Verzeichnis.",
+    "insufficientAll": "Nicht genügend Cache-Speicher für das gesamte Repository. Wähle eine kleinere Gewichtsauswahl oder gib Cache-Speicher frei.",
     "openSettings": "Download-Einstellungen öffnen"
   }
 }

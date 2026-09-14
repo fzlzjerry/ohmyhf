@@ -32,10 +32,13 @@ owner-only permissions. See the complete [telemetry contract](docs/telemetry.md)
   never stored in plaintext, never in `localStorage`. Settings shows what the token can do
   versus what still needs a Hub web session (likes, posts, profile).
 - **Download manager** — resumable, parallel, queued downloads with speed limiting, SHA-256
-  verification, exact commit identity, and system notifications. Model cards offer a GGUF/quant
-  picker and one-click download + local run or export to a detected Ollama / LM Studio / ComfyUI
-  install. Files land in the **standard HF cache layout**, fully interoperable with
-  `transformers`, `huggingface-cli`, and friends.
+  verification, exact commit identity, and system notifications. Model cards group multipart
+  GGUF quantizations and sharded checkpoints into one selection that queues every part, with
+  readable quantization and part labels in the download list. Incomplete sets are flagged rather
+  than downloaded as partial weights. Selection sizes sum the Hub's file metadata, not Git LFS
+  pointer sizes. Automatic export to a detected Ollama / LM Studio / ComfyUI
+  install is available for single-file weights only. Files land in the **standard HF cache layout**,
+  fully interoperable with `transformers`, `huggingface-cli`, and friends.
 - **Reproducible revisions** — browse branches, tags, commits, and PR refs across Models, Datasets,
   and Spaces. Every preview, download, cache lookup, safety decision, and evaluation is bound to
   an immutable 40-character commit; pin exact snapshots or export/import an `ohmyhf.lock.json`

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { listWeightVariants } from '@oh-my-huggingface/shared'
 import { HubApiError, HubClient } from '../src'
 
 function jsonResponse(body: unknown, init: { status?: number; link?: string } = {}): Response {
@@ -138,26 +139,29 @@ describe('HubClient caching', () => {
 })
 
 describe('HubClient errors and readme', () => {
-  it('resolves repo detail at the requested revision', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          id: 'a/b',
-          author: 'a',
-          sha: '0123456789abcdef0123456789abcdef01234567',
-          tags: []
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
-      )
-    )
+  it('loads actual shard sizes at the requested revision instead of LFS pointer sizes', async () => {
+    const commit = '0123456789abcdef0123456789abcdef01234567'
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input))
+      const selectedRevision = decodeURIComponent(url.pathname).endsWith('/revision/refs/pr/12')
+      return jsonResponse({
+        id: 'a/b',
+        sha: selectedRevision ? commit : 'b'.repeat(40),
+        siblings: [3, 4].map((gib, index) => ({
+          rfilename: `model-Q4_K_M-0000${index + 1}-of-00002.gguf`,
+          ...(url.searchParams.get('blobs') === 'true'
+            ? { size: gib * 1024 ** 3, lfs: { size: gib * 1024 ** 3, pointerSize: 135 } }
+            : {})
+        }))
+      })
+    })
     const client = new HubClient({ fetchImpl, cacheTtlMs: 0, minRequestGapMs: 0 })
 
-    await client.getRepoDetail('model', 'a/b', 'refs/pr/12')
-
-    expect(fetchImpl).toHaveBeenCalledWith(
-      'https://huggingface.co/api/models/a/b/revision/refs%2Fpr%2F12',
-      expect.any(Object)
-    )
+    const detail = await client.getRepoDetail('model', 'a/b', 'refs/pr/12')
+    expect(detail.sha).toBe(commit)
+    expect(listWeightVariants(detail.siblings ?? [])).toMatchObject([
+      { quant: 'Q4_K_M', size: 7 * 1024 ** 3, shardCount: 2, complete: true }
+    ])
   })
 
   it('throws HubApiError with status on failure', async () => {

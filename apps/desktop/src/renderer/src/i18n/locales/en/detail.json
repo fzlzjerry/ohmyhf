@@ -27,12 +27,15 @@
     "title": "Edit {{file}}"
   },
   "intent": {
-    "download": "Download this file",
+    "download": "Download selection",
     "downloadAll": "Download whole repo",
     "downloadExport": "Download and export to {{tool}}",
     "exportQueued": "Download started — export will run when it finishes",
-    "hint": "Pick the GGUF quant or weight file your local tool can load, instead of fetching the whole repository.",
-    "quant": "Weight file",
+    "hint": "Choose a GGUF quantization or weights your local tool can load. Multipart selections include all parts, not the whole repository.",
+    "quant": "Model weights",
+    "parts": "{{count}} parts",
+    "incomplete": "Only {{available}} of {{expected}} parts are available. This selection cannot be downloaded. Use the Files tab to choose individual files.",
+    "multipartExportUnsupported": "Automatic export supports single-file weights only and is unavailable for multipart selections.",
     "title": "Get this model",
     "recommended": "Recommended",
     "estimated": "Estimated",

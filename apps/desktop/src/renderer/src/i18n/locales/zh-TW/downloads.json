@@ -31,6 +31,11 @@
     "body": "找到喜歡的模型後點選下載——檔案會存放在標準的 HF 快取中，可供 transformers、llama.cpp 等工具使用。",
     "title": "尚無下載項目"
   },
+  "file": {
+    "list": "下載檔案",
+    "part": "第 {{index}} / {{total}} 部分",
+    "unknownFormat": "未知格式"
+  },
   "files": "{{done}}/{{total}} 個檔案",
   "removed": "下載項目已移除",
   "revision": "修訂版本 {{revision}}",
@@ -53,6 +58,7 @@
     "all": "整個儲存庫：{{size}}",
     "unknown": "大小未知",
     "insufficient": "快取磁碟空間不足。請清理快取或選擇其他快取目錄。",
+    "insufficientAll": "快取磁碟空間不足以下載整個儲存庫。請選擇較小的權重組合或清理快取空間。",
     "openSettings": "開啟下載設定"
   }
 }

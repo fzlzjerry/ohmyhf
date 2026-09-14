@@ -286,12 +286,15 @@
     "title": "编辑 {{file}}"
   },
   "intent": {
-    "download": "下载此文件",
+    "download": "下载所选权重",
     "downloadAll": "下载整个仓库",
     "downloadExport": "下载并导出到 {{tool}}",
     "exportQueued": "已开始下载 — 完成后会自动导出",
-    "hint": "选择本地工具能加载的 GGUF 量化或权重文件，而不必拉取整个仓库。",
-    "quant": "权重文件",
+    "hint": "选择本地工具能加载的 GGUF 量化版本或模型权重。多分片权重会下载全部分片，无需下载整个仓库。",
+    "quant": "模型权重",
+    "parts": "{{count}} 个分片",
+    "incomplete": "仅有 {{available}} / {{expected}} 个分片可用，无法下载这组选定的权重。可在「文件」标签页手动选择单个文件。",
+    "multipartExportUnsupported": "自动导出目前仅支持单文件权重，不支持多分片权重。",
     "title": "获取这个模型",
     "recommended": "推荐",
     "estimated": "估算",

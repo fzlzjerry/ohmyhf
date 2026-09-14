@@ -32,6 +32,11 @@
     "body": "Encontre um modelo do seu interesse e clique em Baixar — os arquivos vão para o cache padrão do HF, prontos para transformers, llama.cpp e afins.",
     "title": "Nenhum download ainda"
   },
+  "file": {
+    "list": "Arquivos do download",
+    "part": "Parte {{index}} de {{total}}",
+    "unknownFormat": "Formato desconhecido"
+  },
   "files": "{{done}}/{{total}} arquivos",
   "removed": "Entrada de download removida",
   "revision": "Revisão {{revision}}",
@@ -54,6 +59,7 @@
     "all": "Repositório inteiro: {{size}}",
     "unknown": "tamanho desconhecido",
     "insufficient": "Não há espaço suficiente no cache. Limpe o cache ou escolha outro diretório.",
+    "insufficientAll": "Não há espaço suficiente no cache para o repositório inteiro. Selecione um conjunto de pesos menor ou libere espaço no cache.",
     "openSettings": "Abrir configurações de download"
   }
 }

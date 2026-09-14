@@ -32,6 +32,11 @@
     "body": "Find a model you like and hit Download — files land in the standard HF cache, ready for transformers, llama.cpp, and friends.",
     "title": "No downloads yet"
   },
+  "file": {
+    "list": "Download files",
+    "part": "Part {{index}} of {{total}}",
+    "unknownFormat": "Unknown format"
+  },
   "files": "{{done}}/{{total}} files",
   "removed": "Download entry removed",
   "revision": "Revision {{revision}}",
@@ -54,6 +59,7 @@
     "all": "Whole repository: {{size}}",
     "unknown": "unknown size",
     "insufficient": "Not enough cache disk space. Clean the cache or choose another cache directory.",
+    "insufficientAll": "Not enough cache disk space for the whole repository. Choose a smaller weight selection or free cache space.",
     "openSettings": "Open download settings"
   }
 }

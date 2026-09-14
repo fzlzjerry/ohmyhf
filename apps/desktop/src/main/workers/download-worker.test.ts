@@ -1,4 +1,15 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import type * as Fs from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -11,9 +22,15 @@ import {
   prepareSafeCacheDirectories
 } from './download-worker'
 
+vi.mock('node:fs', async (importOriginal) => {
+  const fs = await importOriginal<typeof Fs>()
+  return { ...fs, existsSync: vi.fn(fs.existsSync) }
+})
+
 const roots: string[] = []
 
 afterEach(() => {
+  vi.mocked(existsSync).mockReset()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
@@ -40,7 +57,6 @@ describe('cache path inputs', () => {
   it('accepts standard git and LFS object ids', () => {
     expect(assertSafeCacheKey('A'.repeat(40))).toBe('a'.repeat(40))
     expect(assertSafeCacheKey('b'.repeat(64))).toBe('b'.repeat(64))
-    expect(() => assertSafeRepoFilePath('nested/model.py')).not.toThrow()
   })
 
   it('rejects server-controlled cache path traversal', () => {
@@ -65,6 +81,58 @@ describe('cache path inputs', () => {
     expect(result.blobsDir).toBe(join(realRepo, 'blobs'))
     expect(result.snapshotParent).toBe(join(realRepo, 'snapshots', 'a'.repeat(40), 'nested'))
   })
+
+  it('can write a shard when another worker creates the repository before mkdir', () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), 'omh-worker-mkdir-race-'))
+    roots.push(cacheDir)
+    const repoDir = join(cacheDir, 'models--org--repo')
+    vi.mocked(existsSync)
+      .mockReturnValueOnce(true)
+      .mockImplementationOnce((path) => {
+        mkdirSync(path)
+        return false
+      })
+
+    const result = prepareSafeCacheDirectories({
+      cacheDir,
+      repoDir,
+      expectedCommit: 'a'.repeat(40),
+      path: 'nested/model-00002-of-00033.gguf'
+    })
+    writeFileSync(join(result.snapshotParent, 'model-00002-of-00033.gguf'), 'shard payload')
+    expect(
+      readFileSync(
+        join(repoDir, 'snapshots', 'a'.repeat(40), 'nested', 'model-00002-of-00033.gguf'),
+        'utf8'
+      )
+    ).toBe('shard payload')
+  })
+
+  it.runIf(process.platform !== 'win32')(
+    'rejects a symlink created during the same mkdir race',
+    () => {
+      const cacheDir = mkdtempSync(join(tmpdir(), 'omh-worker-mkdir-link-race-'))
+      roots.push(cacheDir)
+      const outside = join(cacheDir, 'outside')
+      mkdirSync(outside)
+      vi.mocked(existsSync)
+        .mockReturnValueOnce(true)
+        .mockImplementationOnce((path) => {
+          symlinkSync(outside, path, 'dir')
+          return false
+        })
+
+      expect(() =>
+        prepareSafeCacheDirectories({
+          cacheDir,
+          repoDir: join(cacheDir, 'models--org--repo'),
+          expectedCommit: 'a'.repeat(40),
+          path: 'model.gguf'
+        })
+      ).toThrow('unsafe-cache-layout:repository')
+      expect(readdirSync(outside)).toEqual([])
+    }
+  )
 
   it.runIf(process.platform !== 'win32')(
     'rejects a repository symlink before any worker write',

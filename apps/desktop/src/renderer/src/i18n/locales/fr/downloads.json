@@ -32,6 +32,11 @@
     "body": "Trouvez un modèle qui vous plaît et cliquez sur Télécharger — les fichiers arrivent dans le cache HF standard, prêts pour transformers, llama.cpp et compagnie.",
     "title": "Aucun téléchargement pour le moment"
   },
+  "file": {
+    "list": "Fichiers du téléchargement",
+    "part": "Partie {{index}} sur {{total}}",
+    "unknownFormat": "Format inconnu"
+  },
   "files": "{{done}}/{{total}} fichiers",
   "removed": "Entrée de téléchargement supprimée",
   "revision": "Révision {{revision}}",
@@ -54,6 +59,7 @@
     "all": "Dépôt complet : {{size}}",
     "unknown": "taille inconnue",
     "insufficient": "Espace de cache insuffisant. Nettoyez le cache ou choisissez un autre dossier.",
+    "insufficientAll": "Espace de cache insuffisant pour le dépôt complet. Sélectionnez un ensemble de poids plus petit ou libérez de l’espace dans le cache.",
     "openSettings": "Ouvrir les réglages de téléchargement"
   }
 }

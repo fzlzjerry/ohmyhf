@@ -286,12 +286,15 @@
     "title": "Edit {{file}}"
   },
   "intent": {
-    "download": "Download this file",
+    "download": "選択した重みをダウンロード",
     "downloadAll": "Download whole repo",
     "downloadExport": "Download and export to {{tool}}",
     "exportQueued": "Download started — export will run when it finishes",
-    "hint": "Pick the GGUF quant or weight file your local tool can load, instead of fetching the whole repository.",
-    "quant": "Weight file",
+    "hint": "ローカルツールで読み込める GGUF 量子化版またはモデルの重みを選択します。分割された重みはすべてのパートをまとめてダウンロードし、リポジトリ全体は取得しません。",
+    "quant": "モデルの重み",
+    "parts": "{{count}} 分割ファイル",
+    "incomplete": "全 {{expected}} パートのうち {{available}} パートしか利用できないため、この選択はダウンロードできません。「ファイル」タブで個別のファイルを選択できます。",
+    "multipartExportUnsupported": "自動エクスポートは単一ファイルの重みのみに対応しているため、分割された重みでは利用できません。",
     "title": "Get this model",
     "recommended": "推奨",
     "estimated": "推定",

@@ -7,13 +7,13 @@ import type {
   RepoDetail,
   RepoRevisionSelection,
   SecurityAction,
-  WeightFile
+  WeightVariant
 } from '@oh-my-huggingface/shared'
 import {
   exportToolsForFormat,
-  listWeightFiles,
-  preferredWeightFile,
-  recommendWeightFileForProfile
+  listWeightVariants,
+  preferredWeightVariant,
+  recommendWeightVariantForProfile
 } from '@oh-my-huggingface/shared'
 import { describeError } from '@/lib/errors'
 import { invoke } from '@/lib/ipc'
@@ -55,10 +55,6 @@ function missingSourceBytes(
   return total
 }
 
-export function weightsFromDetail(detail: RepoDetail | undefined): WeightFile[] {
-  return listWeightFiles(detail?.siblings ?? [])
-}
-
 export function DownloadIntentPanel({
   kind,
   repoId,
@@ -74,15 +70,15 @@ export function DownloadIntentPanel({
   const push = useToasts((state) => state.push)
   const openSettings = useAppStore((state) => state.openSettings)
   const security = useSecurityGate()
-  const weights = useMemo(() => weightsFromDetail(detail), [detail])
-  const preferred = useMemo(() => preferredWeightFile(weights), [weights])
+  const variants = useMemo(() => listWeightVariants(detail?.siblings ?? []), [detail?.siblings])
+  const preferred = useMemo(() => preferredWeightVariant(variants), [variants])
   const [selectedPath, setSelectedPath] = useState<string | undefined>(undefined)
 
   const capacity = useDownloadCapacity()
   const profile = useQuery({
     queryKey: ['local-runtime-profile'],
     queryFn: () => invoke('localRuntime:profile', undefined),
-    enabled: weights.some((file) => file.format === 'gguf'),
+    enabled: variants.some((variant) => variant.format === 'gguf'),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
     retry: false
@@ -108,23 +104,25 @@ export function DownloadIntentPanel({
   const recommendation = useMemo(
     () =>
       profile.data
-        ? recommendWeightFileForProfile(weights, profile.data, availableSourceBytes)
+        ? recommendWeightVariantForProfile(variants, profile.data, availableSourceBytes)
         : { recommendedPath: undefined, estimates: [] },
-    [availableSourceBytes, profile.data, weights]
+    [availableSourceBytes, profile.data, variants]
   )
-  const automaticPath = recommendation.recommendedPath ?? preferred?.path ?? weights[0]?.path
+  const automaticPath = recommendation.recommendedPath ?? preferred?.path ?? variants[0]?.path
   const effectivePath =
-    selectedPath && weights.some((file) => file.path === selectedPath)
+    selectedPath && variants.some((variant) => variant.path === selectedPath)
       ? selectedPath
       : automaticPath
-  const selected = weights.find((file) => file.path === effectivePath) ?? null
+  const selected = variants.find((variant) => variant.path === effectivePath) ?? null
   const estimateByPath = useMemo(
     () => new Map(recommendation.estimates.map((estimate) => [estimate.path, estimate])),
     [recommendation.estimates]
   )
   const selectedEstimate = selected ? estimateByPath.get(selected.path) : undefined
 
-  const selectedSourceBytes = selected ? missingSourceBytes([selected], cachedSizes) : undefined
+  const selectedSourceBytes = selected?.complete
+    ? missingSourceBytes(selected.files, cachedSizes)
+    : undefined
   const allFiles = useMemo(
     () =>
       (detail?.siblings ?? []).map((file) => ({
@@ -143,11 +141,20 @@ export function DownloadIntentPanel({
     queryKey: ['export-targets'],
     queryFn: () => invoke('export:targets', undefined),
     staleTime: 5 * 60_000,
-    enabled: weights.length > 0
+    enabled: variants.some((variant) => variant.shardCount === undefined)
   })
 
   const download = useMutation({
-    mutationFn: async (files?: string[]) => {
+    mutationFn: async (variant?: WeightVariant) => {
+      if (variant && !variant.complete) {
+        throw new Error(
+          t('detail:intent.incomplete', {
+            available: variant.files.length,
+            expected: variant.shardCount
+          })
+        )
+      }
+      const files = variant?.files.map((file) => file.path)
       const securityGrantId = await security.authorize({
         action: 'download',
         kind,
@@ -178,7 +185,11 @@ export function DownloadIntentPanel({
   })
 
   const downloadExport = useMutation({
-    mutationFn: async (args: { tool: ExportTool; file: WeightFile }) => {
+    mutationFn: async (args: { tool: ExportTool; variant: WeightVariant }) => {
+      if (args.variant.shardCount !== undefined) {
+        throw new Error(t('detail:intent.multipartExportUnsupported'))
+      }
+      const files = args.variant.files.map((file) => file.path)
       const action: SecurityAction = 'export'
       const securityGrantId = await security.authorize({
         action,
@@ -186,7 +197,7 @@ export function DownloadIntentPanel({
         repoId,
         revision: revision.requested,
         resolvedCommit: revision.resolvedCommit,
-        files: [args.file.path]
+        files
       })
       return invoke('downloads:start', {
         request: {
@@ -194,8 +205,8 @@ export function DownloadIntentPanel({
           kind,
           revision: revision.requested,
           resolvedCommit: revision.resolvedCommit,
-          files: [args.file.path],
-          autoExport: { tool: args.tool, filePath: args.file.path },
+          files,
+          autoExport: { tool: args.tool, filePath: args.variant.path },
           securityGrantId
         }
       })
@@ -208,11 +219,14 @@ export function DownloadIntentPanel({
       )
   })
 
-  if (weights.length === 0 || !selected) return null
+  if (variants.length === 0 || !selected) return null
 
   const exportTools = exportToolsForFormat(selected.format)
   const detected =
-    targets.data?.filter((target) => target.detected && exportTools.includes(target.tool)) ?? []
+    selected.shardCount === undefined
+      ? (targets.data?.filter((target) => target.detected && exportTools.includes(target.tool)) ??
+        [])
+      : []
   const fitVariant =
     selectedEstimate?.level === 'comfortable'
       ? 'success'
@@ -272,29 +286,68 @@ export function DownloadIntentPanel({
       )}
       {(selectedBlocked || allBlocked) && (
         <div className="flex flex-wrap items-center gap-2 rounded-md bg-error/10 px-2.5 py-2 text-[12px] text-error">
-          <span>{t('downloads:capacity.insufficient')}</span>
+          <span>
+            {selectedBlocked
+              ? t('downloads:capacity.insufficient')
+              : t('downloads:capacity.insufficientAll')}
+          </span>
           <Button variant="ghost" size="sm" onClick={() => openSettings('downloads')}>
             {t('downloads:capacity.openSettings')}
           </Button>
         </div>
       )}
+      {!selected.complete && (
+        <p
+          role="status"
+          className="rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-[12px] text-ink"
+        >
+          {t('detail:intent.incomplete', {
+            available: selected.files.length,
+            expected: selected.shardCount
+          })}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <Select value={selected.path} onValueChange={setSelectedPath}>
-          <SelectTrigger className="h-8 min-w-48 max-w-80" aria-label={t('detail:intent.quant')}>
-            <SelectValue />
+          <SelectTrigger
+            className="h-auto min-h-8 w-full min-w-0 max-w-80 py-1.5 text-left"
+            aria-label={t('detail:intent.quant')}
+          >
+            <SelectValue className="min-w-0 flex-1" />
           </SelectTrigger>
-          <SelectContent>
-            {weights.map((file) => {
-              const estimate = estimateByPath.get(file.path)
+          <SelectContent className="w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-content-available-width)]">
+            {variants.map((variant) => {
+              const estimate = estimateByPath.get(variant.path)
               return (
-                <SelectItem key={file.path} value={file.path}>
-                  <span className="font-mono text-[12.5px]">
-                    {file.quant ?? file.label}
-                    {file.size !== undefined ? ` · ${formatBytes(file.size)}` : ''}
-                    {file.path === recommendation.recommendedPath
-                      ? ` · ${t('detail:intent.recommended')}`
-                      : ''}
-                    {estimate ? ` · ${t(`detail:intent.fit.${estimate.level}`)}` : ''}
+                <SelectItem
+                  key={variant.path}
+                  value={variant.path}
+                  className="[&>span:first-child]:min-w-0"
+                >
+                  <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-left">
+                    <span className="font-mono text-[12.5px] [overflow-wrap:anywhere]">
+                      {variant.label}
+                    </span>
+                    {variant.shardCount !== undefined && (
+                      <span className="nums whitespace-nowrap text-[11.5px] text-ink-faint">
+                        {t('detail:intent.parts', { count: variant.shardCount })}
+                      </span>
+                    )}
+                    {variant.size !== undefined && (
+                      <span className="nums whitespace-nowrap font-mono text-[11.5px] text-ink-faint">
+                        {formatBytes(variant.size)}
+                      </span>
+                    )}
+                    {variant.path === recommendation.recommendedPath && (
+                      <span className="text-[11.5px] text-ink-faint">
+                        {t('detail:intent.recommended')}
+                      </span>
+                    )}
+                    {estimate && (
+                      <span className="text-[11.5px] text-ink-faint">
+                        {t(`detail:intent.fit.${estimate.level}`)}
+                      </span>
+                    )}
                   </span>
                 </SelectItem>
               )
@@ -305,8 +358,8 @@ export function DownloadIntentPanel({
           variant="cta"
           size="sm"
           loading={download.isPending}
-          disabled={selectedBlocked}
-          onClick={() => download.mutate([selected.path])}
+          disabled={!selected.complete || selectedBlocked}
+          onClick={() => download.mutate(selected)}
         >
           <ArrowDownToLine className="size-3.5" aria-hidden />
           {t('detail:intent.download')}
@@ -327,13 +380,18 @@ export function DownloadIntentPanel({
             size="sm"
             loading={downloadExport.isPending}
             disabled={selectedBlocked}
-            onClick={() => downloadExport.mutate({ tool: target.tool, file: selected })}
+            onClick={() => downloadExport.mutate({ tool: target.tool, variant: selected })}
           >
             <Share className="size-3.5" aria-hidden />
             {t('detail:intent.downloadExport', { tool: TOOL_LABELS[target.tool] })}
           </Button>
         ))}
       </div>
+      {selected.shardCount !== undefined && (
+        <p className="text-[11.5px] text-ink-faint">
+          {t('detail:intent.multipartExportUnsupported')}
+        </p>
+      )}
     </div>
   )
 }

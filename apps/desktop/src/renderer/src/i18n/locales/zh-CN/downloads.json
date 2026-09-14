@@ -31,6 +31,11 @@
     "body": "找到心仪的模型后点击“下载”——文件会存入标准 HF 缓存，transformers、llama.cpp 等工具可直接使用。",
     "title": "还没有下载任务"
   },
+  "file": {
+    "list": "下载文件",
+    "part": "第 {{index}} / {{total}} 部分",
+    "unknownFormat": "未知格式"
+  },
   "files": "{{done}}/{{total}} 个文件",
   "removed": "已移除下载记录",
   "revision": "修订 {{revision}}",
@@ -53,6 +58,7 @@
     "all": "整个仓库：{{size}}",
     "unknown": "大小未知",
     "insufficient": "缓存磁盘空间不足。请清理缓存或更换缓存目录。",
+    "insufficientAll": "缓存磁盘空间不足以下载整个仓库。请选择较小的权重组合或清理缓存空间。",
     "openSettings": "打开下载设置"
   }
 }

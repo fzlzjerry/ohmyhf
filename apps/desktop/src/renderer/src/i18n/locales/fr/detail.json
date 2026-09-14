@@ -286,12 +286,15 @@
     "title": "Edit {{file}}"
   },
   "intent": {
-    "download": "Download this file",
+    "download": "Télécharger la sélection",
     "downloadAll": "Download whole repo",
     "downloadExport": "Download and export to {{tool}}",
     "exportQueued": "Download started — export will run when it finishes",
-    "hint": "Pick the GGUF quant or weight file your local tool can load, instead of fetching the whole repository.",
-    "quant": "Weight file",
+    "hint": "Choisissez une quantification GGUF ou des poids compatibles avec votre outil local. Une sélection en plusieurs parties les inclut toutes, sans télécharger tout le dépôt.",
+    "quant": "Poids du modèle",
+    "parts": "{{count}} parties",
+    "incomplete": "Seules {{available}} parties sur {{expected}} sont disponibles. Cette sélection ne peut pas être téléchargée. Utilisez l’onglet Fichiers pour choisir des fichiers individuels.",
+    "multipartExportUnsupported": "L’export automatique ne prend en charge que les poids dans un seul fichier et n’est pas disponible pour les sélections en plusieurs parties.",
     "title": "Get this model",
     "recommended": "Recommandé",
     "estimated": "Estimé",

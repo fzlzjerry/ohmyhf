@@ -266,7 +266,15 @@ function directChildName(parent: string, child: string): string | null {
 
 function ensureDirectDirectory(parent: string, name: string, label: string): string {
   const path = join(parent, name)
-  if (!existsSync(path)) mkdirSync(path)
+  if (!existsSync(path)) {
+    try {
+      mkdirSync(path)
+    } catch (error) {
+      // Another shard worker may have created it after our existence check.
+      // Still validate the entry below: EEXIST can also mean a file or symlink.
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    }
+  }
   const entry = lstatSync(path)
   if (entry.isSymbolicLink() || !entry.isDirectory()) {
     throw new Error(`unsafe-cache-layout:${label}`)

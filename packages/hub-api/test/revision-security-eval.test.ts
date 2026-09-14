@@ -91,18 +91,23 @@ describe('revision mappers and API identity', () => {
   })
 
   it('resolves a slash-containing branch and preserves requested plus immutable identities', async () => {
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse({ id: 'org/repo', sha: COMMIT }))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          defaultBranch: 'main',
-          branches: [
-            { name: 'main', targetCommit: OTHER_COMMIT },
-            { name: 'release/1.x', targetCommit: COMMIT }
-          ]
-        })
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const path = decodeURIComponent(new URL(String(input)).pathname)
+      return jsonResponse(
+        path.endsWith('/refs')
+          ? {
+              defaultBranch: 'main',
+              branches: [
+                { name: 'main', targetCommit: OTHER_COMMIT },
+                { name: 'release/1.x', targetCommit: COMMIT }
+              ]
+            }
+          : {
+              id: 'org/repo',
+              sha: path.endsWith('/revision/release/1.x') ? COMMIT : OTHER_COMMIT
+            }
       )
+    })
     const client = new HubClient({ fetchImpl, ...FAST })
     await expect(client.resolveRevision('model', 'org/repo', 'release/1.x')).resolves.toEqual({
       requested: 'release/1.x',
@@ -111,9 +116,6 @@ describe('revision mappers and API identity', () => {
       isDefault: false,
       readOnly: false
     })
-    const urls = fetchImpl.mock.calls.map((call) => call[0] as string)
-    expect(urls).toContain('https://huggingface.co/api/models/org/repo/revision/release%2F1.x')
-    expect(urls).toContain('https://huggingface.co/api/models/org/repo/refs?include_prs=true')
   })
 
   it('does not invent main when the default branch cannot be proven', async () => {

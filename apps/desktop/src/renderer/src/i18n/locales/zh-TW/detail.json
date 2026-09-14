@@ -286,12 +286,15 @@
     "title": "編輯 {{file}}"
   },
   "intent": {
-    "download": "下載此檔案",
+    "download": "下載所選權重",
     "downloadAll": "下載整個倉庫",
     "downloadExport": "下載並匯出到 {{tool}}",
     "exportQueued": "已開始下載 — 完成後會自動匯出",
-    "hint": "選擇本機工具能載入的 GGUF 量化或權重檔，而不必拉取整個倉庫。",
-    "quant": "權重檔",
+    "hint": "選擇本機工具能載入的 GGUF 量化版本或模型權重。多分片權重會下載全部分片，無須下載整個儲存庫。",
+    "quant": "模型權重",
+    "parts": "{{count}} 個分片",
+    "incomplete": "僅有 {{available}} / {{expected}} 個分片可用，無法下載這組選取的權重。可在「檔案」分頁手動選擇個別檔案。",
+    "multipartExportUnsupported": "自動匯出目前僅支援單一檔案的權重，不支援多分片權重。",
     "title": "取得這個模型",
     "recommended": "推薦",
     "estimated": "估算",

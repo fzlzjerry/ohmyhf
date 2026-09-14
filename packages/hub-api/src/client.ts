@@ -710,8 +710,10 @@ export class HubClient {
 
   async getRepoDetail(kind: RepoKind, repoId: string, revision?: string): Promise<RepoDetail> {
     const revisionSuffix = revision ? `/revision/${encodeURIComponent(revision)}` : ''
-    const url = `${this.endpoint}/api/${API_PATH[kind]}/${repoId}${revisionSuffix}`
-    const { body } = await this.getJson<unknown>(url)
+    const url = new URL(`${this.endpoint}/api/${API_PATH[kind]}/${repoId}${revisionSuffix}`)
+    // Without blobs, siblings contain only filenames, not download sizes.
+    url.searchParams.set('blobs', 'true')
+    const { body } = await this.getJson<unknown>(url.toString())
     return mapRepoDetail(body as never, kind)
   }
 

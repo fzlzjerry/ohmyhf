@@ -32,6 +32,11 @@
     "body": "Encuentre un modelo que le guste y pulse Descargar; los archivos se guardan en la caché estándar de HF, listos para transformers, llama.cpp y similares.",
     "title": "Aún no hay descargas"
   },
+  "file": {
+    "list": "Archivos de la descarga",
+    "part": "Parte {{index}} de {{total}}",
+    "unknownFormat": "Formato desconocido"
+  },
   "files": "{{done}}/{{total}} archivos",
   "removed": "Entrada de descarga eliminada",
   "revision": "Revisión {{revision}}",
@@ -54,6 +59,7 @@
     "all": "Repositorio completo: {{size}}",
     "unknown": "tamaño desconocido",
     "insufficient": "No hay suficiente espacio en la caché. Limpia la caché o elige otro directorio.",
+    "insufficientAll": "No hay suficiente espacio en la caché para el repositorio completo. Selecciona un conjunto de pesos más pequeño o libera espacio en la caché.",
     "openSettings": "Abrir ajustes de descarga"
   }
 }
