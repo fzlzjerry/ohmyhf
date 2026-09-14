@@ -12,7 +12,11 @@ import { lstat, readdir, realpath, rm, statfs } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { app } from 'electron'
-import { computeSpeedShare, downloadPostActionSchema } from '@oh-my-huggingface/shared'
+import {
+  computeSpeedShare,
+  downloadPostActionSchema,
+  securityPreflightRequestSchema
+} from '@oh-my-huggingface/shared'
 import type {
   DownloadAutoExport,
   DownloadCapacity,
@@ -32,6 +36,7 @@ import type { AppDatabase } from './db'
 import { resolveSystemProxyUrl } from './hub'
 import type { NotificationService } from './notifications'
 import type { SettingsStore } from './settings'
+import type { SecurityGate } from './security-gate'
 import type { DownloadJob } from './workers/download-worker'
 
 interface WorkerMessage {
@@ -182,6 +187,7 @@ type DownloadErrorCode =
   | 'network'
   | 'integrity'
   | 'disk-space'
+  | 'security'
 
 interface DownloadEnvironment {
   endpoint: string
@@ -207,6 +213,7 @@ interface ManagedDownloadTask extends DownloadTask {
   postActionStatus?: DownloadPostActionStatus
   postActionError?: string
   securityAcknowledgement?: SecurityAcknowledgement
+  securityAuthorization?: DownloadRequest['securityAuthorization']
 }
 
 interface DownloadRow {
@@ -227,6 +234,7 @@ interface DownloadRow {
   error_code: string | null
   post_action_json: string | null
   security_ack_json: string | null
+  security_authorization_json: string | null
   created_at: string
   completed_at: string | null
 }
@@ -269,6 +277,7 @@ function normalizeErrorCode(value: string | null): DownloadErrorCode | undefined
     case 'network':
     case 'integrity':
     case 'disk-space':
+    case 'security':
       return value
     default:
       return undefined
@@ -354,6 +363,10 @@ export class DownloadManager {
   private shuttingDown = false
   private suppressPump = false
   private revisionSequence = 0
+  private unsubscribeSettings?: () => void
+  private readonly resumeOperations = new Map<string, symbol>()
+  private readonly resumeGates = new Map<string, SecurityGate>()
+  private securityToken?: string
 
   constructor(
     private readonly db: AppDatabase,
@@ -362,6 +375,7 @@ export class DownloadManager {
     private readonly notifications: NotificationService,
     private readonly getAuthToken: () => string | undefined,
     private readonly broadcast: (tasks: DownloadTask[]) => void,
+    private readonly securityForEndpoint: (endpoint: string) => SecurityGate,
     private readonly onAutoExport?: (request: ExportStartRequest) => void,
     private readonly onPostAction?: (
       request: DownloadPostAction & {
@@ -373,6 +387,33 @@ export class DownloadManager {
     private readonly storageDeps: DownloadStorageDeps = DEFAULT_STORAGE_DEPS
   ) {
     this.loadPersisted()
+    this.subscribeSettings()
+  }
+
+  invalidateSecurityContexts(): void {
+    this.resumeGates.clear()
+    this.resumeOperations.clear()
+    this.securityToken = undefined
+  }
+
+  private subscribeSettings(): void {
+    let { speedLimitBps, downloadConcurrency, hubEndpoint, proxyUrl } = this.settings.get()
+    this.unsubscribeSettings = this.settings.onChange((next) => {
+      if (next.hubEndpoint !== hubEndpoint || next.proxyUrl !== proxyUrl) {
+        this.resumeGates.clear()
+        this.resumeOperations.clear()
+      }
+      hubEndpoint = next.hubEndpoint
+      proxyUrl = next.proxyUrl
+      if (next.speedLimitBps !== speedLimitBps) this.rebalanceSpeedLimit()
+      if (next.downloadConcurrency > downloadConcurrency) this.pump()
+      speedLimitBps = next.speedLimitBps
+      downloadConcurrency = next.downloadConcurrency
+    })
+  }
+
+  private tokenForEndpoint(endpoint: string): string | undefined {
+    return endpoint === this.hub.baseUrl.replace(/\/+$/, '') ? this.getAuthToken() : undefined
   }
 
   private loadPersisted(): void {
@@ -442,7 +483,10 @@ export class DownloadManager {
         postActionRequest: storedPostAction?.request,
         postActionStatus: storedPostAction?.status,
         postActionError: storedPostAction?.error,
-        securityAcknowledgement: parseJson<SecurityAcknowledgement>(row.security_ack_json)
+        securityAcknowledgement: parseJson<SecurityAcknowledgement>(row.security_ack_json),
+        securityAuthorization: parseJson<DownloadRequest['securityAuthorization']>(
+          row.security_authorization_json
+        )
       }
       task.resumable = this.canResume(task)
       this.tasks.set(row.id, task)
@@ -453,8 +497,8 @@ export class DownloadManager {
   private persistRow(task: ManagedDownloadTask): void {
     this.db
       .prepare(
-        `INSERT INTO downloads (id, repo_id, kind, revision, resolved_commit, endpoint, proxy_url, cache_dir, environment_version, status, total_bytes, received_bytes, files_json, error, error_code, post_action_json, security_ack_json, created_at, completed_at)
-         VALUES (@id, @repoId, @kind, @revision, @resolvedCommit, @endpoint, @proxyUrl, @cacheDir, @environmentVersion, @status, @totalBytes, @receivedBytes, @filesJson, @error, @errorCode, @postActionJson, @securityAckJson, @createdAt, @completedAt)
+        `INSERT INTO downloads (id, repo_id, kind, revision, resolved_commit, endpoint, proxy_url, cache_dir, environment_version, status, total_bytes, received_bytes, files_json, error, error_code, post_action_json, security_ack_json, security_authorization_json, created_at, completed_at)
+         VALUES (@id, @repoId, @kind, @revision, @resolvedCommit, @endpoint, @proxyUrl, @cacheDir, @environmentVersion, @status, @totalBytes, @receivedBytes, @filesJson, @error, @errorCode, @postActionJson, @securityAckJson, @securityAuthorizationJson, @createdAt, @completedAt)
          ON CONFLICT(id) DO UPDATE SET
            resolved_commit = excluded.resolved_commit,
            endpoint = excluded.endpoint,
@@ -469,6 +513,7 @@ export class DownloadManager {
            error_code = excluded.error_code,
            post_action_json = excluded.post_action_json,
            security_ack_json = excluded.security_ack_json,
+           security_authorization_json = excluded.security_authorization_json,
            completed_at = excluded.completed_at`
       )
       .run({
@@ -497,6 +542,9 @@ export class DownloadManager {
           : null,
         securityAckJson: task.securityAcknowledgement
           ? JSON.stringify(task.securityAcknowledgement)
+          : null,
+        securityAuthorizationJson: task.securityAuthorization
+          ? JSON.stringify(task.securityAuthorization)
           : null,
         createdAt: task.createdAt,
         completedAt: task.completedAt ?? null
@@ -537,6 +585,7 @@ export class DownloadManager {
           postActionStatus: _postActionStatus,
           postActionError: _postActionError,
           securityAcknowledgement: _securityAcknowledgement,
+          securityAuthorization: _securityAuthorization,
           ...publicTask
         } = task
         return {
@@ -701,6 +750,8 @@ export class DownloadManager {
     const getRepoRefs = sourceHub.getRepoRefs?.bind(sourceHub)
     const getRepoDetail = sourceHub.getRepoDetail.bind(sourceHub)
     const getFileTree = sourceHub.getFileTree.bind(sourceHub)
+    const endpoint = sourceHub.baseUrl.replace(/\/+$/, '')
+    const token = this.tokenForEndpoint(endpoint)
     let revision = request.revision ?? request.resolvedCommit
     if (!revision) {
       if (!getRepoRefs) throw new Error('revision.defaultUnavailable')
@@ -710,7 +761,6 @@ export class DownloadManager {
     }
     const revisionSequence = isResolvedCommit(revision) ? undefined : ++this.revisionSequence
     const settings = this.settings.get()
-    const endpoint = sourceHub.baseUrl.replace(/\/+$/, '')
     const environment: DownloadEnvironment = {
       endpoint,
       // Worker threads use Node/undici and cannot see Electron's system proxy.
@@ -753,6 +803,41 @@ export class DownloadManager {
         gitBlobOid: e.lfs ? undefined : e.oid
       }))
     if (files.length === 0) throw new Error('No matching files to download')
+    const gate = this.securityForEndpoint(endpoint)
+    const securityRequest: SecurityPreflightRequest = request.securityAuthorization?.request ?? {
+      action: request.postAction ? 'local-run' : request.autoExport ? 'export' : 'download',
+      kind: request.kind,
+      repoId: request.repoId,
+      revision,
+      resolvedCommit,
+      files: request.files
+    }
+    const authorizedPaths = securityRequest.files ? new Set(securityRequest.files) : undefined
+    if (
+      securityRequest.kind !== request.kind ||
+      securityRequest.repoId !== request.repoId ||
+      securityRequest.revision !== revision ||
+      securityRequest.resolvedCommit !== resolvedCommit ||
+      (authorizedPaths && files.some((file) => !authorizedPaths.has(file.path)))
+    ) {
+      throw new Error('security.acknowledgementScopeMismatch')
+    }
+    const report = request.securityAuthorization
+      ? await gate.authorizeAcknowledged(
+          securityRequest,
+          request.securityAuthorization.acknowledgement
+        )
+      : await gate.authorize(securityRequest, request.securityGrantId)
+    const securityAuthorization = {
+      request: {
+        ...securityRequest,
+        files: securityRequest.files ? [...securityRequest.files] : undefined
+      },
+      acknowledgement:
+        request.securityAuthorization?.acknowledgement ??
+        gate.acknowledgement(securityRequest, report)
+    }
+    if (this.tokenForEndpoint(endpoint) !== token) throw new Error('download.environmentChanged')
 
     // Same-revision dedup: a second task covering files a task with a live
     // worker already holds would race two workers onto the same blob. Only
@@ -838,11 +923,12 @@ export class DownloadManager {
       postActionStatus: request.postAction ? 'pending' : undefined,
       securityAcknowledgement:
         request.securityAcknowledgement ?? request.postAction?.securityAcknowledgement,
+      securityAuthorization,
       createdAt: new Date().toISOString()
     }
     this.tasks.set(task.id, task)
     this.rememberRevisionTask(task)
-    this.runtimeAuthTokens.set(task.id, this.getAuthToken())
+    this.runtimeAuthTokens.set(task.id, this.tokenForEndpoint(environment.endpoint))
     this.persist(task)
     this.pump()
     return this.list()
@@ -1328,6 +1414,7 @@ export class DownloadManager {
   }
 
   pause(id: string): DownloadTask[] {
+    this.resumeOperations.delete(id)
     const task = this.tasks.get(id)
     if (task && (task.status === 'running' || task.status === 'queued')) {
       void this.abortTaskWorkers(task)
@@ -1344,42 +1431,143 @@ export class DownloadManager {
     return this.list()
   }
 
-  resume(id: string): DownloadTask[] {
+  private resumeContext(
+    id: string,
+    renewScope = false
+  ): { task: ManagedDownloadTask; gate: SecurityGate; request: SecurityPreflightRequest } {
+    const token = this.getAuthToken()
+    if (this.securityToken !== token) {
+      this.resumeGates.clear()
+      this.securityToken = token
+    }
     const task = this.tasks.get(id)
-    if (task && (task.status === 'paused' || task.status === 'error')) {
-      if (!this.canResume(task)) {
-        task.resumable = false
-        return this.list()
+    if (!task || !this.canResume(task) || !task.environment || !task.resolvedCommit) {
+      throw new Error('download.resumeUnavailable')
+    }
+    const parsed = securityPreflightRequestSchema.safeParse(task.securityAuthorization?.request)
+    let stored = parsed.success ? parsed.data : undefined
+    const authorizedPaths = stored?.files ? new Set(stored.files) : undefined
+    const scopeMatches =
+      stored &&
+      stored.repoId === task.repoId &&
+      stored.kind === task.kind &&
+      stored.revision === task.revision &&
+      stored.resolvedCommit === task.resolvedCommit &&
+      (!authorizedPaths || task.files.every((file) => authorizedPaths.has(file.path)))
+    if (!scopeMatches && task.securityAuthorization && !renewScope) {
+      throw new Error('security.acknowledgementScopeMismatch')
+    }
+    if (!scopeMatches) stored = undefined
+    // Legacy rows require explicit approval of their exact download files.
+    // Their post-actions remain subject to independent action-scoped approval.
+    const request = stored ?? {
+      action: 'download' as const,
+      kind: task.kind,
+      repoId: task.repoId,
+      revision: task.revision,
+      resolvedCommit: task.resolvedCommit,
+      files: task.files.map((file) => file.path)
+    }
+    if (!securityPreflightRequestSchema.safeParse(request).success) {
+      throw new Error('security.acknowledgementScopeMismatch')
+    }
+    let gate = this.resumeGates.get(task.environment.endpoint)
+    if (!gate) {
+      gate = this.securityForEndpoint(task.environment.endpoint)
+      this.resumeGates.set(task.environment.endpoint, gate)
+    }
+    return { task, gate, request }
+  }
+
+  resumePreflight(id: string) {
+    const { gate, request } = this.resumeContext(id, true)
+    return gate.preflight(request)
+  }
+
+  confirmResume(id: string, challengeId: string) {
+    return this.resumeContext(id, true).gate.confirm(challengeId)
+  }
+
+  async resume(
+    id: string,
+    options: { reconfirm?: boolean; securityGrantId?: string } = {}
+  ): Promise<DownloadTask[]> {
+    const task = this.tasks.get(id)
+    if (
+      this.shuttingDown ||
+      !task ||
+      (task.status !== 'paused' && task.status !== 'error') ||
+      this.resumeOperations.has(id)
+    )
+      return this.list()
+    if (!this.canResume(task)) return this.list()
+    const operation = Symbol(id)
+    const token = this.getAuthToken()
+    this.resumeOperations.set(id, operation)
+    const current = (): boolean =>
+      !this.shuttingDown &&
+      this.getAuthToken() === token &&
+      this.tasks.get(id) === task &&
+      this.resumeOperations.get(id) === operation
+    try {
+      const { gate, request } = this.resumeContext(id, options.reconfirm)
+      let acknowledgement = task.securityAuthorization?.acknowledgement
+      if (options.reconfirm) {
+        const report = await gate.authorize(request, options.securityGrantId)
+        acknowledgement = gate.acknowledgement(request, report)
+      } else {
+        const valid =
+          downloadPostActionSchema.shape.securityAcknowledgement.safeParse(acknowledgement)
+        if (!valid.success || !valid.data) throw new Error('security.confirmationRequired')
+        await gate.authorizeAcknowledged(request, valid.data)
       }
-      if (!task.environment || !isResolvedCommit(task.resolvedCommit)) {
-        task.status = 'error'
-        task.errorCode = 'legacy-task'
-        task.error = 'This download was created by an older version and cannot be resumed.'
-        task.resumable = false
-        this.persist(task)
-        this.scheduleBroadcast()
-        return this.list()
+      if (!current()) return this.list()
+      const previousBinding = task.securityAuthorization?.acknowledgement?.binding
+      if (
+        previousBinding &&
+        request.action !== 'download' &&
+        task.securityAcknowledgement?.binding === previousBinding
+      ) {
+        task.securityAcknowledgement = acknowledgement
       }
-      for (const f of task.files) {
-        if (f.status === 'paused' || f.status === 'error') {
-          f.status = 'queued'
-          f.error = undefined
+      if (
+        previousBinding &&
+        request.action === 'local-run' &&
+        task.postActionRequest?.securityAcknowledgement?.binding === previousBinding
+      ) {
+        task.postActionRequest.securityAcknowledgement = acknowledgement
+      }
+      task.securityAuthorization = { request, acknowledgement: acknowledgement! }
+      for (const file of task.files) {
+        if (file.status === 'paused' || file.status === 'error') {
+          file.status = 'queued'
+          file.error = undefined
         }
       }
       task.status = 'queued'
       task.error = undefined
       task.errorCode = undefined
-      task.resumable = true
       task.revisionSequence = ++this.revisionSequence
       this.rememberRevisionTask(task)
-      this.runtimeAuthTokens.set(task.id, this.getAuthToken())
+      this.runtimeAuthTokens.set(id, this.tokenForEndpoint(task.environment!.endpoint))
       this.persist(task)
       this.pump()
+    } catch (error) {
+      if (!current()) return this.list()
+      task.status = 'error'
+      task.errorCode = 'security'
+      task.error = error instanceof Error ? error.message : String(error)
+      this.persist(task)
+      this.scheduleBroadcast()
+      throw error
+    } finally {
+      if (this.resumeOperations.get(id) === operation) this.resumeOperations.delete(id)
     }
     return this.list()
   }
 
   cancel(id: string): DownloadTask[] {
+    this.resumeOperations.delete(id)
     const task = this.tasks.get(id)
     if (task && task.status !== 'completed') {
       task.status = 'canceled'
@@ -1403,6 +1591,7 @@ export class DownloadManager {
   }
 
   remove(id: string): DownloadTask[] {
+    this.resumeOperations.delete(id)
     const task = this.tasks.get(id)
     if (task) {
       if (task.status === 'running' || task.status === 'queued') this.cancel(id)
@@ -1424,16 +1613,23 @@ export class DownloadManager {
   /** Pause every running or queued task. */
   pauseAll(): DownloadTask[] {
     for (const task of this.tasks.values()) {
-      if (task.status === 'running' || task.status === 'queued') this.pause(task.id)
+      if (
+        task.status === 'running' ||
+        task.status === 'queued' ||
+        this.resumeOperations.has(task.id)
+      )
+        this.pause(task.id)
     }
     return this.list()
   }
 
   /** Resume every paused or failed task. */
-  resumeAll(): DownloadTask[] {
-    for (const task of this.tasks.values()) {
-      if (task.status === 'paused' || task.status === 'error') this.resume(task.id)
-    }
+  async resumeAll(): Promise<DownloadTask[]> {
+    await Promise.allSettled(
+      [...this.tasks.values()]
+        .filter((task) => task.status === 'paused' || task.status === 'error')
+        .map((task) => this.resume(task.id))
+    )
     return this.list()
   }
 
@@ -1460,6 +1656,10 @@ export class DownloadManager {
   shutdown(): void {
     if (this.shuttingDown) return
     this.shuttingDown = true
+    this.resumeOperations.clear()
+    this.resumeGates.clear()
+    this.unsubscribeSettings?.()
+    this.unsubscribeSettings = undefined
     if (this.persistTimer) {
       clearTimeout(this.persistTimer)
       this.persistTimer = null
@@ -1484,17 +1684,20 @@ export class DownloadManager {
   }
 
   /** Undo shutdown after a failed update install so queued work can start again. */
-  resumeAfterShutdown(): void {
+  async resumeAfterShutdown(): Promise<void> {
     if (!this.shuttingDown) return
     this.shuttingDown = false
+    this.subscribeSettings()
+    const ids: string[] = []
     for (const task of this.tasks.values()) {
       this.rememberRevisionTask(task)
       if (task.status !== 'queued' && task.status !== 'running') continue
+      task.status = 'paused'
       for (const file of task.files) {
-        if (file.status === 'running') file.status = 'queued'
+        if (file.status === 'running' || file.status === 'queued') file.status = 'paused'
       }
-      this.runtimeAuthTokens.set(task.id, this.getAuthToken())
+      ids.push(task.id)
     }
-    this.pump()
+    await Promise.allSettled(ids.map((id) => this.resume(id)))
   }
 }

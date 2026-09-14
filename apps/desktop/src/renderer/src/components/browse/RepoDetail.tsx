@@ -24,6 +24,7 @@ import {
   type SecurityPreflightRequest
 } from '@oh-my-huggingface/shared'
 import { invoke, openExternal } from '@/lib/ipc'
+import { isRepoQuery, repoQueryKey } from '@/lib/query'
 import { cn, formatBytes, formatCount } from '@/lib/utils'
 import { useSettledValue } from '@/hooks/use-settled-value'
 import { useCommandActions } from '@/hooks/use-command-actions'
@@ -125,7 +126,7 @@ export function RepoDetail({
   const queriesEnabled = settledRepoId === repoId
 
   const refs = useQuery({
-    queryKey: ['repo-refs', endpointKey, kind, settledRepoId],
+    queryKey: repoQueryKey('repo-refs', endpointKey, kind, settledRepoId),
     queryFn: () => invoke('hub:repoRefs', { kind, repoId: settledRepoId }),
     enabled: queriesEnabled,
     retry: false
@@ -133,15 +134,16 @@ export function RepoDetail({
   const revisionParam = searchParams.get('revision')
   const exactSelection = useMemo(() => exactRevisionSelection(revisionParam), [revisionParam])
   const exactCommit = exactSelection?.resolvedCommit ?? null
-  const requestedRevision = exactCommit ?? revisionParam ?? refs.data?.defaultBranch ?? ''
+  const requestedRevision =
+    exactCommit ?? revisionParam ?? (queriesEnabled ? (refs.data?.defaultBranch ?? '') : '')
   const commits = useQuery({
-    queryKey: ['repo-commits', endpointKey, kind, settledRepoId],
+    queryKey: repoQueryKey('repo-commits', endpointKey, kind, settledRepoId),
     queryFn: () => invoke('hub:repoCommits', { kind, repoId: settledRepoId, limit: 20 }),
     enabled: queriesEnabled,
     retry: false
   })
   const revisionSelection = useQuery({
-    queryKey: ['repo-revision', endpointKey, kind, settledRepoId, requestedRevision],
+    queryKey: repoQueryKey('repo-revision', endpointKey, kind, settledRepoId, requestedRevision),
     queryFn: () =>
       invoke('hub:resolveRevision', {
         kind,
@@ -157,17 +159,24 @@ export function RepoDetail({
     staleTime: exactSelection ? Infinity : undefined,
     retry: false
   })
-  const resolvedCommit = revisionSelection.data?.resolvedCommit
+  const resolvedCommit = queriesEnabled ? revisionSelection.data?.resolvedCommit : undefined
 
   useEffect(() => {
-    if (revisionParam !== null || !refs.data?.defaultBranch) return
+    if (!queriesEnabled || revisionParam !== null || !refs.data?.defaultBranch) return
     const next = new URLSearchParams(searchParams)
     next.set('revision', refs.data.defaultBranch)
     setSearchParams(next, { replace: true })
-  }, [refs.data?.defaultBranch, revisionParam, searchParams, setSearchParams])
+  }, [queriesEnabled, refs.data?.defaultBranch, revisionParam, searchParams, setSearchParams])
 
   const detail = useQuery({
-    queryKey: ['repo', endpointKey, kind, settledRepoId, requestedRevision, resolvedCommit],
+    queryKey: repoQueryKey(
+      'repo',
+      endpointKey,
+      kind,
+      settledRepoId,
+      requestedRevision,
+      resolvedCommit
+    ),
     queryFn: () =>
       invoke('hub:repoDetail', {
         kind,
@@ -177,7 +186,14 @@ export function RepoDetail({
     enabled: queriesEnabled && Boolean(resolvedCommit)
   })
   const readme = useQuery({
-    queryKey: ['readme', endpointKey, kind, settledRepoId, requestedRevision, resolvedCommit],
+    queryKey: repoQueryKey(
+      'readme',
+      endpointKey,
+      kind,
+      settledRepoId,
+      requestedRevision,
+      resolvedCommit
+    ),
     queryFn: async () => {
       try {
         const markdown = await invoke('hub:readme', {
@@ -472,7 +488,7 @@ export function RepoDetail({
   // Controlled tabs: the component persists across repo selection (parent keys
   // by kind only), so the active tab resets per repo and clamps to 'card' when
   // its value is no longer rendered (e.g. 'manage' on a repo you don't own).
-  const tabKey = `${kind}:${repoId}:${resolvedCommit ?? requestedRevision}`
+  const tabKey = `${endpointKey}:${kind}:${repoId}:${requestedRevision}:${resolvedCommit ?? ''}`
   const [tabState, setTabState] = useState({ key: tabKey, value: 'card' })
   if (tabState.key !== tabKey) {
     setTabState({ key: tabKey, value: 'card' })
@@ -498,18 +514,15 @@ export function RepoDetail({
       : revisionHubUrl
 
   const changeRevision = (revision: string): void => {
-    void queryClient
-      .cancelQueries({
-        predicate: (query) => query.queryKey.includes(kind) && query.queryKey.includes(repoId)
-      })
-      .finally(() => {
-        const next = new URLSearchParams(searchParams)
-        next.set('revision', revision)
-        setSearchParams(next)
-      })
+    void queryClient.cancelQueries({
+      predicate: (query) => isRepoQuery(query.queryKey, endpointKey, kind, repoId)
+    })
+    const next = new URLSearchParams(searchParams)
+    next.set('revision', revision)
+    setSearchParams(next)
   }
 
-  if (revisionParam === null && !refs.isPending && !refs.data?.defaultBranch) {
+  if (queriesEnabled && revisionParam === null && !refs.isPending && !refs.data?.defaultBranch) {
     return (
       <div className="flex h-full flex-col">
         <div className="border-b p-3">
@@ -534,8 +547,8 @@ export function RepoDetail({
     )
   }
 
-  if (revisionSelection.isPending || !revisionSelection.data) {
-    if (revisionSelection.isError) {
+  if (!queriesEnabled || revisionSelection.isPending || !revisionSelection.data) {
+    if (queriesEnabled && revisionSelection.isError) {
       return (
         <div className="flex h-full flex-col">
           <div className="border-b p-3">
@@ -834,16 +847,13 @@ export function RepoDetail({
             )}
             {editingCard && readmeMarkdown !== undefined ? (
               <RepoFileEditor
+                key={`${endpointKey}:${kind}:${repoId}:${revisionSelection.data.requested}:${revisionSelection.data.resolvedCommit}`}
                 kind={kind}
                 repoId={repoId}
                 path="README.md"
                 initial={readmeMarkdown}
                 revision={revisionSelection.data}
                 onClose={() => setEditingCard(false)}
-                onSaved={() => {
-                  setEditingCard(false)
-                  void readme.refetch()
-                }}
               />
             ) : readmeError ? (
               <div className="flex flex-col items-start gap-2">

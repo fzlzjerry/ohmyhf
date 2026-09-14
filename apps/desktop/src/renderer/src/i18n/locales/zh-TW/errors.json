@@ -6,6 +6,9 @@
   "rateLimit": "Hugging Face API 目前正在限制請求速率。應用程式會自動延遲並重試——請稍候片刻後再試一次。",
   "unknown": "發生錯誤，請再試一次。",
   "server": "Hugging Face API 傳回伺服器錯誤，請稍後再試一次。",
+  "securityBlocked": "安全證據已阻止此操作，無法繼續。",
+  "securityReview": "安全證據已變更或需要您的確認。請先檢查安全證據，再繼續。",
+  "canceled": "已取消操作。",
   "query": {
     "title": "無法載入此內容"
   },

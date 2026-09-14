@@ -6,6 +6,9 @@
   "rateLimit": "La API de Hugging Face está limitando las solicitudes. La aplicación espera y reintenta automáticamente; espere un momento antes de volver a intentarlo.",
   "unknown": "Algo salió mal. Inténtelo de nuevo.",
   "server": "La API de Hugging Face devolvió un error del servidor. Inténtelo de nuevo en un momento.",
+  "securityBlocked": "La evidencia de seguridad bloquea esta acción. No se puede continuar.",
+  "securityReview": "La evidencia de seguridad ha cambiado o requiere su aprobación. Revísela antes de continuar.",
+  "canceled": "Acción cancelada.",
   "query": {
     "title": "No se pudo cargar este contenido"
   },

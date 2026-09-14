@@ -73,6 +73,11 @@ function security(decision: 'allow' | 'confirm' | 'block' = 'confirm') {
     ...(decision === 'confirm' ? { challengeId: CHALLENGE } : {})
   }
   return {
+    acknowledgement: vi.fn(() => ({
+      fingerprint: report().fingerprint,
+      binding: `sha256:${'d'.repeat(64)}`,
+      acceptedAt: '2026-08-24T00:00:00.000Z'
+    })),
     preflight: vi.fn().mockResolvedValue(result),
     authorize: vi.fn().mockImplementation(async (_request, grantId?: string) => {
       if (decision === 'block') throw new Error('security.blocked')
@@ -220,6 +225,17 @@ describe('LockfileManager exact inspection and restore', () => {
       expect.objectContaining({
         revision: 'v1',
         resolvedCommit: COMMIT,
+        securityAuthorization: {
+          request: {
+            action: 'lock-restore',
+            kind: 'model',
+            repoId: 'org/model',
+            revision: 'v1',
+            resolvedCommit: COMMIT,
+            files: ['model.gguf']
+          },
+          acknowledgement: expect.objectContaining({ fingerprint: report().fingerprint })
+        },
         files: ['model.gguf']
       }),
       expect.objectContaining({ baseUrl: 'https://huggingface.co' })

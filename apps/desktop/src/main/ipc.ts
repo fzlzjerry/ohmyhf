@@ -470,12 +470,16 @@ export function registerIpcHandlers(ctx: AppContext): void {
     ctx.hub.getFileTree(kind, repoId, revision, path, { expand: true })
   )
   handle('hub:commitFiles', async (req) => {
-    const base = await ctx.hub.resolveRevision(req.kind, req.repoId, req.startingPoint)
+    const endpoint = ctx.hub.baseUrl
+    const accessToken = ctx.auth.accessToken()
+    const resolveRevision = ctx.hub.resolveRevision.bind(ctx.hub)
+    const invalidateCache = ctx.hub.invalidateCache.bind(ctx.hub)
+    const base = await resolveRevision(req.kind, req.repoId, req.startingPoint, { fresh: true })
     if (base.resolvedCommit !== req.startingPoint.toLowerCase()) {
       throw new Error('edit.baseCommitMismatch')
     }
     if (req.branch) {
-      const selection = await ctx.hub.resolveRevision(req.kind, req.repoId, req.branch)
+      const selection = await resolveRevision(req.kind, req.repoId, req.branch, { fresh: true })
       if (selection.type !== 'branch' || selection.readOnly) {
         throw new Error('edit.readOnlyRevision')
       }
@@ -483,7 +487,12 @@ export function registerIpcHandlers(ctx: AppContext): void {
         throw new Error('edit.branchMoved')
       }
     }
-    return commitRepoFiles(req, ctx.auth.accessToken())
+    if (ctx.hub.baseUrl !== endpoint || ctx.auth.accessToken() !== accessToken) {
+      throw new Error('edit.environmentChanged')
+    }
+    const result = await commitRepoFiles(req, accessToken)
+    if (result.ok) invalidateCache()
+    return result
   })
   handle('hub:discussions', ({ kind, repoId, type, status, cursor }) =>
     ctx.hub.listDiscussions(kind, repoId, { type, status, cursor })
@@ -738,6 +747,7 @@ export function registerIpcHandlers(ctx: AppContext): void {
       resolvedCommit,
       securityGrantId: undefined,
       securityAcknowledgement: acknowledgement,
+      securityAuthorization: { request: securityRequest, acknowledgement },
       postAction: request.postAction
         ? {
             ...request.postAction,
@@ -747,7 +757,11 @@ export function registerIpcHandlers(ctx: AppContext): void {
     })
   })
   handle('downloads:pause', ({ id }) => ctx.downloads.pause(id))
-  handle('downloads:resume', ({ id }) => ctx.downloads.resume(id))
+  handle('downloads:resume', ({ id, ...options }) => ctx.downloads.resume(id, options))
+  handle('downloads:resumePreflight', ({ id }) => ctx.downloads.resumePreflight(id))
+  handle('downloads:confirmResume', ({ id, challengeId }) =>
+    ctx.downloads.confirmResume(id, challengeId)
+  )
   handle('downloads:retryPostAction', async ({ id, securityGrantId, allowTightFit }) => {
     const request = ctx.downloads.postActionSecurityRequest(id)
     const report = await ctx.security.authorize(request, securityGrantId)

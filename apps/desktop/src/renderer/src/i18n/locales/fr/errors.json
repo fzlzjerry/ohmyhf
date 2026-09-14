@@ -6,6 +6,9 @@
   "rateLimit": "L'API Hugging Face limite le débit des requêtes. L'application patiente et réessaie automatiquement — veuillez patienter un instant avant de réessayer.",
   "unknown": "Un problème est survenu. Veuillez réessayer.",
   "server": "L'API Hugging Face a renvoyé une erreur serveur. Veuillez réessayer dans un instant.",
+  "securityBlocked": "Cette action est bloquée par les résultats de sécurité et ne peut pas continuer.",
+  "securityReview": "Les résultats de sécurité ont changé ou nécessitent votre confirmation. Vérifiez-les avant de continuer.",
+  "canceled": "Action annulée.",
   "query": {
     "title": "Impossible de charger ce contenu"
   },

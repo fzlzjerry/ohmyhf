@@ -39,6 +39,8 @@ owner-only permissions. See the complete [telemetry contract](docs/telemetry.md)
   pointer sizes. Automatic export to a detected Ollama / LM Studio / ComfyUI
   install is available for single-file weights only. Files land in the **standard HF cache layout**,
   fully interoperable with `transformers`, `huggingface-cli`, and friends.
+  Speed-limit changes apply immediately to running transfers. Resuming an individual task or the
+  whole queue rechecks its original Hub endpoint, exact commit, and security approval before writing.
 - **Reproducible revisions** — browse branches, tags, commits, and PR refs across Models, Datasets,
   and Spaces. Every preview, download, cache lookup, safety decision, and evaluation is bound to
   an immutable 40-character commit; pin exact snapshots or export/import an `ohmyhf.lock.json`
@@ -47,6 +49,9 @@ owner-only permissions. See the complete [telemetry contract](docs/telemetry.md)
   machine, and stream text chat through an existing local Ollama or `llama-server`. Oh My
   HuggingFace never installs a runtime, connects Ollama remotely, enables `trust_remote_code`, or
   persists chat content.
+  Context presets apply to both runtimes. Managed Ollama imports use the full repository, commit,
+  and file identity; missing copies can be recreated from the cached GGUF. Older imported copies
+  are preserved when a new identity-bound import is created.
 - **Security evidence gate** — show Hub malware, pickle, secrets, third-party scanner, commit,
   signature, LFS, and local-hash evidence. Download, export, local run, and lock restoration are
   rechecked and enforced in the main process immediately before side effects.
@@ -60,6 +65,8 @@ owner-only permissions. See the complete [telemetry contract](docs/telemetry.md)
 - **Upload, export, and edit** — scan and upload local folders safely; export downloaded files
   to Ollama, LM Studio, or ComfyUI with progress and cancellation; edit a README or small
   text file and commit (or open a PR branch) from the card or file preview.
+  Successful branch edits resolve and display the new commit without moving an explicitly selected
+  commit, tag, or PR view.
 - **History** — local, searchable browsing history with repository-type filters.
 - **i18n** — English and 简体中文 built in; adding a language is a single JSON folder.
 - **Dark & light themes**, native menus, and OS conventions on every platform.
@@ -128,8 +135,15 @@ at `~/.oh_my_hf/credentials.json`.
   file lives outside the per-profile `userData` directory so every session — packaged app,
   `pnpm dev`, extra profiles — shares one login. `OMH_CREDENTIALS_DIR` relocates it (tests use
   this for isolation). Deleting the file signs you out everywhere.
-- **No network calls forward the token cross-host**: the `Authorization` header is only sent to
-  `huggingface.co` API hosts, never to the CDN/`resolve` redirect targets.
+- **Credentials stay within their Hub context**: authenticated caches are isolated across account
+  changes. Authorization is sent only to the configured Hub or Hugging Face API hosts, never
+  inherited by cross-host CDN redirects. Resuming a task at a different frozen endpoint does not
+  forward the currently configured endpoint's token.
+- **Action checks require fresh evidence**: download, resume, export, and local-run authorization
+  does not reuse stale browsing results when required commit or scanner requests fail. Cached
+  cards remain readable offline, but these protected actions fail closed without fresh evidence.
+  Changed or missing download approvals require **Review and resume**; a malicious verdict cannot
+  be overridden by confirmation.
 
 ### Releasing
 

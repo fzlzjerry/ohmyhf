@@ -6,6 +6,9 @@
   "rateLimit": "The Hugging Face API is rate-limiting requests. The app backs off and retries automatically — please wait a moment before trying again.",
   "unknown": "Something went wrong. Please try again.",
   "server": "The Hugging Face API returned a server error. Please try again in a moment.",
+  "securityBlocked": "Blocked by security evidence. This action cannot continue.",
+  "securityReview": "Security evidence changed or needs your approval. Review it before continuing.",
+  "canceled": "Action canceled.",
   "query": {
     "title": "Couldn't load this content"
   },

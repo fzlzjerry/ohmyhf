@@ -138,6 +138,83 @@ describe('security policy', () => {
     })
   })
 
+  it('requires every scanner for each selected path to be safe, independent of evidence order', () => {
+    const evidence: SecurityEvidence[] = [
+      { source: 'first', status: 'safe', filePath: 'mixed.gguf' },
+      { source: 'second', status: 'pending', filePath: 'mixed.gguf' },
+      { source: 'scanner', status: 'error', filePath: 'failed.gguf' },
+      { source: 'scanner', status: 'unknown', filePath: 'unknown.gguf' },
+      { source: 'scanner', status: 'warning', filePath: 'warning.gguf' },
+      { source: 'scanner', status: 'safe', filePath: 'safe.gguf' }
+    ]
+    const files = [
+      'mixed.gguf',
+      'failed.gguf',
+      'unknown.gguf',
+      'warning.gguf',
+      'missing.gguf',
+      'safe.gguf',
+      'mixed.gguf'
+    ]
+    const value = report(evidence, 'warning')
+    const fingerprint = value.fingerprint
+    expect(evaluateSecurityPolicy(value, files, 'download')).toEqual({
+      decision: 'confirm',
+      reasons: ['unscanned-file', 'scan-pending', 'scan-error', 'scan-unknown']
+    })
+    expect(
+      evaluateSecurityPolicy(report([...evidence].reverse(), 'warning'), files, 'download')
+    ).toEqual({
+      decision: 'confirm',
+      reasons: ['unscanned-file', 'scan-unknown', 'scan-error', 'scan-pending']
+    })
+    expect(evaluateSecurityPolicy(value, ['safe.gguf'], 'download')).toEqual({
+      decision: 'allow',
+      reasons: []
+    })
+    expect(value.fingerprint).toBe(fingerprint)
+    expect(
+      securityEvidenceFingerprint({
+        repoId: value.repoId,
+        resolvedCommit: COMMIT,
+        evidence: value.evidence
+      })
+    ).toBe(fingerprint)
+  })
+
+  it('distinguishes whole-repository, empty, and unattributed selections', () => {
+    const attributed = report(
+      [
+        { source: 'scanner', status: 'malicious', filePath: 'bad.gguf' },
+        { source: 'scanner', status: 'safe', filePath: 'safe.gguf' }
+      ],
+      'malicious'
+    )
+    expect(evaluateSecurityPolicy(attributed, undefined, 'download')).toEqual({
+      decision: 'block',
+      reasons: ['confirmed-malicious']
+    })
+    expect(evaluateSecurityPolicy(attributed, [], 'download')).toEqual({
+      decision: 'confirm',
+      reasons: ['other-file-malicious']
+    })
+    expect(
+      evaluateSecurityPolicy(
+        report([{ source: 'scanner', status: 'malicious' }], 'malicious'),
+        [],
+        'download'
+      )
+    ).toEqual({ decision: 'block', reasons: ['repository-malicious', 'confirmed-malicious'] })
+    expect(evaluateSecurityPolicy(report([], 'safe'), undefined, 'download')).toEqual({
+      decision: 'confirm',
+      reasons: ['scan-unknown']
+    })
+    expect(evaluateSecurityPolicy(report([], 'safe'), [], 'download')).toEqual({
+      decision: 'allow',
+      reasons: []
+    })
+  })
+
   it('uses a deterministic SHA-256 fingerprint independent of evidence ordering', () => {
     const evidence: SecurityEvidence[] = [
       { source: 'b', status: 'safe', filePath: 'b.gguf' },

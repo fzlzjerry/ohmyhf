@@ -1,10 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Pencil, Save, X } from 'lucide-react'
-import type { RepoKind, RepoRevisionSelection } from '@oh-my-huggingface/shared'
+import {
+  normalizeHubEndpoint,
+  type RepoKind,
+  type RepoRevisionSelection
+} from '@oh-my-huggingface/shared'
 import { describeError } from '@/lib/errors'
 import { invoke, openExternal } from '@/lib/ipc'
+import { repoQueryKey } from '@/lib/query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useToasts } from '@/components/ui/toaster'
@@ -30,8 +35,7 @@ export function RepoFileEditor({
   path,
   initial,
   revision,
-  onClose,
-  onSaved
+  onClose
 }: {
   kind: RepoKind
   repoId: string
@@ -39,29 +43,47 @@ export function RepoFileEditor({
   initial: string
   revision: RepoRevisionSelection
   onClose: () => void
-  onSaved: (content: string) => void
 }): React.JSX.Element {
   const { t } = useTranslation(['detail', 'common', 'errors'])
   const auth = useAppStore((s) => s.auth)
+  const endpointKey = normalizeHubEndpoint(useAppStore((s) => s.settings.hubEndpoint))
   const queryClient = useQueryClient()
   const push = useToasts((s) => s.push)
   const [content, setContent] = useState(initial)
   const [title, setTitle] = useState(t('detail:edit.defaultTitle', { file: path }))
   const [createPr, setCreatePr] = useState(false)
   const canWrite = auth.status === 'signedIn'
+  const mounted = useRef(false)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
 
   const commit = useMutation({
-    mutationFn: () =>
-      invoke('hub:commitFiles', {
+    mutationFn: async (draft: { content: string; title: string; createPr: boolean }) => {
+      // Freeze the save scope before IPC; a later render may belong to another
+      // repository, revision, endpoint or account.
+      const source = { kind, repoId, endpointKey, revision, auth: useAppStore.getState().auth }
+      const result = await invoke('hub:commitFiles', {
         kind,
         repoId,
-        files: [{ path, content }],
-        title: title.trim() || t('detail:edit.defaultTitle', { file: path }),
+        files: [{ path, content: draft.content }],
+        title: draft.title.trim() || t('detail:edit.defaultTitle', { file: path }),
         branch: revision.type === 'branch' ? revision.requested : undefined,
         startingPoint: revision.resolvedCommit,
-        createPr
-      }),
-    onSuccess: (result) => {
+        createPr: draft.createPr
+      })
+      return { result, source, createPr: draft.createPr }
+    },
+    onSuccess: async ({ result, source, createPr }) => {
+      const current = useAppStore.getState()
+      if (
+        current.auth !== source.auth ||
+        normalizeHubEndpoint(current.settings.hubEndpoint) !== source.endpointKey
+      )
+        return
       if (!result.ok) {
         push(
           result.messageKey === 'edit.needWrite'
@@ -71,9 +93,37 @@ export function RepoFileEditor({
         )
         return
       }
-      onSaved(content)
-      void queryClient.invalidateQueries({ queryKey: ['readme', kind, repoId] })
-      void queryClient.invalidateQueries({ queryKey: ['repo', kind, repoId] })
+      // A direct edit moves only its mutable branch. Dropping that resolution
+      // forces new content/security queries to wait for its new exact commit;
+      // old commit-keyed payloads remain unchanged for immutable links.
+      if (!createPr && source.revision.type === 'branch') {
+        await queryClient.resetQueries({
+          queryKey: repoQueryKey(
+            'repo-revision',
+            source.endpointKey,
+            source.kind,
+            source.repoId,
+            source.revision.requested
+          ),
+          exact: true
+        })
+      }
+      // A PR writes to a separate branch/ref, not the branch being viewed.
+      void queryClient.invalidateQueries({
+        queryKey: repoQueryKey('repo-refs', source.endpointKey, source.kind, source.repoId)
+      })
+      void queryClient.invalidateQueries({
+        queryKey: repoQueryKey('repo-commits', source.endpointKey, source.kind, source.repoId)
+      })
+      void queryClient.invalidateQueries({
+        queryKey: repoQueryKey('repo', source.endpointKey, source.kind, source.repoId),
+        exact: true
+      })
+      if (createPr) {
+        void queryClient.invalidateQueries({
+          queryKey: ['discussions', source.kind, source.repoId]
+        })
+      }
       push(t('detail:edit.committed', { branch: result.branch }), 'success', {
         action: result.compareUrl
           ? {
@@ -82,7 +132,7 @@ export function RepoFileEditor({
             }
           : undefined
       })
-      onClose()
+      if (mounted.current) onClose()
     },
     onError: (err) => push(describeError(t, err), 'error')
   })
@@ -126,7 +176,7 @@ export function RepoFileEditor({
           size="sm"
           loading={commit.isPending}
           disabled={!canWrite || content === initial || revision.readOnly}
-          onClick={() => commit.mutate()}
+          onClick={() => commit.mutate({ content, title, createPr })}
         >
           <Save className="size-3.5" aria-hidden />
           {t('detail:edit.commit')}

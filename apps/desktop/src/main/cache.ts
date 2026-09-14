@@ -578,13 +578,17 @@ async function resolveSnapshot(
   if (!COMMIT_HASH.test(normalized)) throw new Error('Invalid commit hash')
   const safeRepo = await resolveSafeRepo(cacheDir, kind, repoId)
   if (!safeRepo?.snapshotsExist) return null
-  const snapshots = await inspectSnapshotDirectories(safeRepo)
-  if (snapshots.length === 0) return null
-  const chosen = snapshots.find((snapshot) => snapshot.name === normalized)
-  if (!chosen) return null
+  const path = join(safeRepo.snapshotsDir, normalized)
+  const entry = await lstatIfExists(path)
+  if (!entry) return null
+  assertDirectory(entry, `snapshot ${normalized}`)
+  const real = await realpath(path)
+  if (relative(safeRepo.snapshotsDir, real) !== normalized) {
+    throw new Error(`Unsafe cache path: snapshot ${normalized} resolves outside its directory`)
+  }
   return {
-    commit: chosen.name,
-    path: chosen.path,
+    commit: normalized,
+    path: real,
     blobsDir: safeRepo.blobsExist ? safeRepo.blobsDir : null
   }
 }

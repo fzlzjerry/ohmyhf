@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation } from '@tanstack/react-query'
 import { Heart } from 'lucide-react'
-import type { RepoKind } from '@oh-my-huggingface/shared'
+import { normalizeHubEndpoint, type AuthState, type RepoKind } from '@oh-my-huggingface/shared'
 import { classifyError, isHubSessionRequired } from '@/lib/errors'
 import { invoke, openExternal } from '@/lib/ipc'
 import { repoHubUrl } from '@/lib/repo-open'
@@ -49,15 +49,23 @@ export function LikeButton({ kind, repoId, likes }: LikeButtonProps): React.JSX.
   // (it tells us whether the likes prop already counts this account); `likesAt`
   // snapshots the likes prop at toggle time so the optimistic bump only applies
   // until the server count moves (a refetch then already includes the toggle).
-  const key = `${kind}/${repoId}`
+  const key = `${normalizeHubEndpoint(settings.hubEndpoint)}/${kind}/${repoId}`
   const [state, setState] = useState<{
     key: string
+    auth: AuthState
     liked: boolean | null
     base: boolean | null
     likesAt: number
-  }>({ key, liked: null, base: null, likesAt: likes })
-  if (state.key !== key) setState({ key, liked: null, base: null, likesAt: likes })
-  if (state.key === key && state.base === null && state.liked === null && serverLiked !== undefined)
+  }>({ key, auth, liked: null, base: null, likesAt: likes })
+  if (state.key !== key || state.auth !== auth)
+    setState({ key, auth, liked: null, base: null, likesAt: likes })
+  if (
+    state.key === key &&
+    state.auth === auth &&
+    state.base === null &&
+    state.liked === null &&
+    serverLiked !== undefined
+  )
     setState({ ...state, base: serverLiked })
 
   const liked = state.liked ?? state.base ?? false
@@ -66,7 +74,8 @@ export function LikeButton({ kind, repoId, likes }: LikeButtonProps): React.JSX.
     mutationFn: (next: boolean) => invoke('hub:likeSet', { kind, repoId, liked: next }),
     // Snapshot the pre-toggle state (onMutate runs before onClick's setState lands).
     onMutate: () => state,
-    onSuccess: (_res, next) => {
+    onSuccess: (_res, next, prev) => {
+      if (!prev || prev.auth !== useAppStore.getState().auth || prev.key !== key) return
       userLikes.setLiked(kind, repoId, next)
       if (!next) return
       const slash = repoId.indexOf('/')
@@ -85,8 +94,9 @@ export function LikeButton({ kind, repoId, likes }: LikeButtonProps): React.JSX.
       })
     },
     onError: (err, next, prev) => {
-      // Revert the optimistic bump — unless the user moved to another repo.
-      if (prev && prev.key === key) setState(prev)
+      // An older account/repository cannot restore its optimistic state here.
+      if (!prev || prev.auth !== useAppStore.getState().auth || prev.key !== key) return
+      setState(prev)
       // A 401 on the like path means the web session expired (main already
       // auto-disconnected it); point the user at Settings instead of a raw error.
       if (next && (isHubSessionRequired(err) || classifyError(err).status === 401)) {

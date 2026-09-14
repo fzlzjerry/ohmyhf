@@ -641,16 +641,13 @@ export function FilePreview({
         {editing && canEdit && textQuery.data ? (
           <div className="p-4">
             <RepoFileEditor
+              key={`${endpointKey}:${kind}:${repoId}:${revision.requested}:${revision.resolvedCommit}:${entry.path}`}
               kind={kind}
               repoId={repoId}
               path={entry.path}
               initial={textQuery.data.content}
               revision={revision}
               onClose={() => setEditing(false)}
-              onSaved={() => {
-                setEditing(false)
-                void textQuery.refetch()
-              }}
             />
           </div>
         ) : (

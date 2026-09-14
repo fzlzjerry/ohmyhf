@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { GitBranch, ShieldAlert, Tag, UserPlus, Users } from 'lucide-react'
 import type { AccessRequest, RepoKind } from '@oh-my-huggingface/shared'
 import { invoke } from '@/lib/ipc'
+import { isRepoQuery, repoQueryKey } from '@/lib/query'
 import { formatRelativeTime } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -83,15 +84,17 @@ export function RepoManagePanel({
 
   const canManage = !scopeMissing(auth, MANAGE_REPOS_SCOPE)
 
-  // Shares the cache key used by the repo detail view.
+  // Mutable repository settings share the detail family's endpoint/repository prefix.
   const detail = useQuery({
-    queryKey: ['repo', kind, repoId, endpointKey],
+    queryKey: repoQueryKey('repo', endpointKey, kind, repoId),
     queryFn: () => invoke('hub:repoDetail', { kind, repoId }),
     enabled: canManage
   })
 
   const invalidateDetail = (): void => {
-    void queryClient.invalidateQueries({ queryKey: ['repo', kind, repoId] })
+    void queryClient.invalidateQueries({
+      queryKey: repoQueryKey('repo', endpointKey, kind, repoId)
+    })
     void queryClient.invalidateQueries({ queryKey: ['my-repos'] })
   }
 
@@ -99,8 +102,9 @@ export function RepoManagePanel({
   // refresh the listing before navigating away.
   const dropRepoCaches = (): void => {
     void queryClient.invalidateQueries({ queryKey: ['my-repos'] })
-    queryClient.removeQueries({ queryKey: ['repo', kind, repoId] })
-    queryClient.removeQueries({ queryKey: ['readme', kind, repoId] })
+    queryClient.removeQueries({
+      predicate: (query) => isRepoQuery(query.queryKey, endpointKey, kind, repoId)
+    })
   }
 
   const updateSettings = useMutation({

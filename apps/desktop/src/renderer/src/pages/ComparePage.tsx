@@ -6,6 +6,7 @@ import { ArrowDownToLine, CircleX, Columns3, Heart, Plus, Search, X } from 'luci
 import { isValidRepoId, normalizeHubEndpoint, type RepoSummary } from '@oh-my-huggingface/shared'
 import { describeError } from '@/lib/errors'
 import { invoke } from '@/lib/ipc'
+import { repoQueryKey } from '@/lib/query'
 import { cn, formatCount, formatDate, formatParams } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -257,7 +258,7 @@ export function ComparePage(): React.JSX.Element {
     .slice(0, MAX_MODELS)
   const refs = useQueries({
     queries: ids.map((id) => ({
-      queryKey: ['repo-refs', endpointKey, 'model' as const, id],
+      queryKey: repoQueryKey('repo-refs', endpointKey, 'model', id),
       queryFn: async () => {
         const value = await invoke('hub:repoRefs', { kind: 'model', repoId: id })
         if (!value.defaultBranch) throw new Error('revision.defaultUnavailable')
@@ -268,13 +269,13 @@ export function ComparePage(): React.JSX.Element {
   })
   const selections = useQueries({
     queries: ids.map((id, index) => ({
-      queryKey: [
+      queryKey: repoQueryKey(
         'repo-revision',
         endpointKey,
-        'model' as const,
+        'model',
         id,
         refs[index]?.data?.defaultBranch ?? 'unresolved-default'
-      ],
+      ),
       queryFn: () =>
         invoke('hub:resolveRevision', {
           kind: 'model',
@@ -287,14 +288,14 @@ export function ComparePage(): React.JSX.Element {
   })
   const results = useQueries({
     queries: ids.map((id, index) => ({
-      queryKey: [
+      queryKey: repoQueryKey(
         'repo',
         endpointKey,
-        'model' as const,
+        'model',
         id,
         refs[index]?.data?.defaultBranch ?? 'unresolved-default',
         selections[index]?.data?.resolvedCommit ?? 'unresolved'
-      ],
+      ),
       queryFn: () =>
         invoke('hub:repoDetail', {
           kind: 'model',

@@ -65,16 +65,15 @@ export function NetworkSection(): React.JSX.Element {
     }
     await updateSettings({ hubEndpoint, proxyUrl })
     if (!endpointChanged) return
-    // Every endpoint-aware remote key ends in its canonical endpoint. Remove
-    // only the old partition, then reset any legacy/unkeyed active observers
-    // against the newly attached main-process HubClient.
+    // Repository keys place the endpoint before their immutable revision;
+    // other remote families keep it at the end. Drop either old partition.
     queryClient.removeQueries({
       predicate: (query) =>
-        isHubRemoteQuery(query.queryKey) && query.queryKey.at(-1) === previousEndpoint
+        isHubRemoteQuery(query.queryKey) && query.queryKey.includes(previousEndpoint)
     })
     await queryClient.resetQueries({
       predicate: (query) =>
-        isHubRemoteQuery(query.queryKey) && query.queryKey.at(-1) !== previousEndpoint
+        isHubRemoteQuery(query.queryKey) && !query.queryKey.includes(previousEndpoint)
     })
     setAuth(await invoke('auth:refreshUser', undefined))
   }

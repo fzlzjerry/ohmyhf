@@ -1,15 +1,25 @@
 import { useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, Ban, ShieldQuestion } from 'lucide-react'
-import type { SecurityPreflightRequest, SecurityPreflightResult } from '@oh-my-huggingface/shared'
+import type {
+  SecurityGrant,
+  SecurityPreflightRequest,
+  SecurityPreflightResult
+} from '@oh-my-huggingface/shared'
 import { invoke } from '@/lib/ipc'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+
+interface SecurityConfirmationFlow {
+  preflight: () => Promise<SecurityPreflightResult>
+  confirm: (challengeId: string) => Promise<SecurityGrant>
+}
 
 interface PendingConfirmation {
   result: SecurityPreflightResult
   resolve: (grantId: string | undefined) => void
   reject: (error: Error) => void
+  confirm: SecurityConfirmationFlow['confirm']
 }
 
 function securityError(result: SecurityPreflightResult): Error {
@@ -24,7 +34,9 @@ function securityError(result: SecurityPreflightResult): Error {
 
 /** Renderer UX for the main-process SecurityGate. It never changes a decision. */
 export function useSecurityGate(): {
-  authorize: (request: SecurityPreflightRequest) => Promise<string | undefined>
+  authorize: (
+    request: SecurityPreflightRequest | SecurityConfirmationFlow
+  ) => Promise<string | undefined>
   dialog: React.JSX.Element
 } {
   const { t } = useTranslation('common')
@@ -32,12 +44,21 @@ export function useSecurityGate(): {
   const closingByAction = useRef(false)
 
   const authorize = useCallback(
-    async (request: SecurityPreflightRequest): Promise<string | undefined> => {
-      const result = await invoke('security:preflight', { request })
+    async (
+      request: SecurityPreflightRequest | SecurityConfirmationFlow
+    ): Promise<string | undefined> => {
+      const flow: SecurityConfirmationFlow =
+        'preflight' in request
+          ? request
+          : {
+              preflight: () => invoke('security:preflight', { request }),
+              confirm: (challengeId) => invoke('security:confirm', { challengeId })
+            }
+      const result = await flow.preflight()
       if (result.decision === 'allow') return undefined
       if (result.decision === 'block') throw securityError(result)
       return new Promise<string | undefined>((resolve, reject) => {
-        setPending({ result, resolve, reject })
+        setPending({ result, resolve, reject, confirm: flow.confirm })
       })
     },
     []
@@ -59,7 +80,7 @@ export function useSecurityGate(): {
     const challengeId = current?.result.challengeId
     if (!current || !challengeId) return
     try {
-      const grant = await invoke('security:confirm', { challengeId })
+      const grant = await current.confirm(challengeId)
       closingByAction.current = true
       setPending(null)
       current.resolve(grant.grantId)

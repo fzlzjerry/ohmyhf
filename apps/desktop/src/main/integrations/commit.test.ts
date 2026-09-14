@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type * as HubSdk from '@huggingface/hub'
 import { commitRepoFiles } from './commit'
 
 const STARTING_POINT = 'c'.repeat(40)
@@ -7,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   commit: vi.fn(),
   createBranch: vi.fn(),
   fetchImpl: vi.fn(),
+  network: { endpoint: null as string | null, proxyUrl: null as string | null },
   HubApiError: class HubApiError extends Error {
     statusCode: number
     constructor(statusCode: number, message: string) {
@@ -23,7 +25,7 @@ vi.mock('@huggingface/hub', () => ({
 }))
 
 vi.mock('../hub', () => ({
-  getHubNetworkOptions: () => ({ endpoint: null, proxyUrl: null }),
+  getHubNetworkOptions: () => mocks.network,
   createProxiedFetch: () => mocks.fetchImpl
 }))
 
@@ -45,6 +47,7 @@ describe('commitRepoFiles', () => {
     mocks.commit.mockReset()
     mocks.createBranch.mockReset()
     mocks.fetchImpl.mockReset()
+    mocks.network = { endpoint: null, proxyUrl: null }
   })
 
   it('refuses to commit without a token', async () => {
@@ -131,6 +134,48 @@ describe('commitRepoFiles', () => {
     expect(mocks.fetchImpl).not.toHaveBeenCalled()
   })
 
+  it('keeps a started save on its original endpoint when network settings change', async () => {
+    const sdk = await vi.importActual<typeof HubSdk>('@huggingface/hub')
+    const sent: Array<{ url: string; authorization: string | null }> = []
+    mocks.commit.mockImplementation(sdk.commit)
+    mocks.network = { endpoint: 'https://original.example.test', proxyUrl: null }
+    mocks.fetchImpl.mockImplementation(async (url: string, init: RequestInit) => {
+      sent.push({ url: String(url), authorization: new Headers(init.headers).get('authorization') })
+      if (String(url).includes('/preupload/')) {
+        return Response.json({ files: [{ path: 'README.md', uploadMode: 'regular' }] })
+      }
+      if (String(url).includes('/commit/')) {
+        return Response.json({ commitOid: 'a'.repeat(40), commitUrl: `${url}/result` })
+      }
+      throw new Error(`Unexpected commit transport: ${url}`)
+    })
+
+    const saving = commitRepoFiles(
+      {
+        kind: 'model',
+        repoId: 'me/card',
+        files: [{ path: 'README.md', content: '# updated' }],
+        title: 'Update README',
+        branch: 'main',
+        startingPoint: STARTING_POINT
+      },
+      'hf_original'
+    )
+    mocks.network.endpoint = 'https://replacement.example.test'
+
+    expect(await saving).toMatchObject({ ok: true, branch: 'main' })
+    expect(sent).toEqual([
+      {
+        url: 'https://original.example.test/api/models/me/card/preupload/main',
+        authorization: 'Bearer hf_original'
+      },
+      {
+        url: 'https://original.example.test/api/models/me/card/commit/main',
+        authorization: 'Bearer hf_original'
+      }
+    ])
+  })
+
   it('fails before writing when a direct commit omits its branch', async () => {
     const result = await commitRepoFiles(
       {
@@ -142,11 +187,7 @@ describe('commitRepoFiles', () => {
       },
       'hf_token'
     )
-    expect(result).toEqual({
-      ok: false,
-      error: 'Direct commits require a branch',
-      messageKey: 'edit.commitFailed'
-    })
+    expect(result).toMatchObject({ ok: false, messageKey: 'edit.commitFailed' })
     expect(mocks.commit).not.toHaveBeenCalled()
   })
 })

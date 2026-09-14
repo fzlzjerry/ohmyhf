@@ -1,11 +1,12 @@
 import { createServer, type Server } from 'node:http'
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
   LocalInferenceStreamEvent,
   LocalRuntimeState,
+  LocalRunRequest,
   MachineProfile,
   SecurityReport
 } from '@oh-my-huggingface/shared'
@@ -77,6 +78,19 @@ class RuntimeDatabase {
     const normalized = sql.replace(/\s+/g, ' ').trim()
     return {
       get: (...args) => {
+        if (normalized.startsWith('SELECT model_name, repo_id')) {
+          const modelName = String(args[1])
+          const model = this.models.get(modelName)
+          return (
+            model && {
+              model_name: modelName,
+              repo_id: model.repoId,
+              resolved_commit: model.commit,
+              file_path: model.filePath,
+              missing: model.missing
+            }
+          )
+        }
         if (normalized.startsWith('SELECT model_name FROM local_models')) {
           const modelName = String(args[1])
           return this.models.has(modelName) ? { model_name: modelName } : undefined
@@ -198,7 +212,10 @@ if (process.env.FAKE_LLAMA_OOM_ALWAYS === '1' || (process.env.FAKE_LLAMA_OOM_ONC
 }
 const port = Number(args[args.indexOf('--port') + 1])
 const server = http.createServer((req, res) => {
-  if (req.url === '/health') { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"status":"ok"}'); return }
+  if (req.url === '/health') {
+    res.writeHead(process.env.FAKE_LLAMA_WAIT === '1' ? 503 : 200, { 'content-type': 'application/json' })
+    res.end('{"status":"ok"}'); return
+  }
   if (req.url === '/v1/chat/completions') {
     res.writeHead(200, { 'content-type': 'text/event-stream' })
     res.write('data: {"choices":[{"delta":{"content":"hello "}}]}\\n\\n')
@@ -228,6 +245,7 @@ function managerFor(input: {
   db?: RuntimeDatabase
   inference?: LocalInferenceStreamEvent[]
   states?: LocalRuntimeState[]
+  authorize?: () => Promise<SecurityReport>
 }): LocalRuntimeManager {
   const db = input.db ?? new RuntimeDatabase()
   const settingsValue = {
@@ -256,7 +274,7 @@ function managerFor(input: {
       })
     } as never,
     security: {
-      authorize: vi.fn().mockResolvedValue(safeReport()),
+      authorize: input.authorize ?? vi.fn().mockResolvedValue(safeReport()),
       authorizeAcknowledged: vi.fn().mockResolvedValue(safeReport())
     } as never,
     broadcastState: (state) => input.states?.push(state),
@@ -276,6 +294,130 @@ afterEach(async () => {
   delete process.env.FAKE_LLAMA_COUNT
   delete process.env.FAKE_LLAMA_OOM_ONCE
   delete process.env.FAKE_LLAMA_OOM_ALWAYS
+  delete process.env.FAKE_LLAMA_WAIT
+  vi.restoreAllMocks()
+})
+
+const runRequest: LocalRunRequest = {
+  runtime: 'llama.cpp',
+  repoId: 'org/repo',
+  revision: 'v1',
+  resolvedCommit: COMMIT,
+  filePath: 'model.gguf',
+  contextLength: 2048,
+  allowTightFit: true
+}
+
+function deferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (error: Error) => void
+} {
+  let resolve!: (value: T) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes
+    reject = no
+  })
+  return { promise, resolve, reject }
+}
+
+describe('LocalRuntimeManager lifecycle ownership', () => {
+  it('stops unresolved authorization immediately and ignores its later success', async () => {
+    const authorization = deferred<SecurityReport>()
+    const entered = deferred<void>()
+    const states: LocalRuntimeState[] = []
+    const manager = managerFor({
+      modelPath: '/unused',
+      cacheRoot: '/unused',
+      states,
+      authorize: () => {
+        entered.resolve()
+        return authorization.promise
+      }
+    })
+    const start = manager.start(runRequest)
+    expect(manager.protectedCommits('model', 'org/repo')).toEqual(new Set([COMMIT]))
+    await entered.promise
+    const stop = manager.stop()
+    expect(manager.getState().status).toBe('stopping')
+    expect(manager.protectedCommits('model', 'org/repo')).toEqual(new Set([COMMIT]))
+    expect((await start).status).toBe('error')
+    expect(await stop).toEqual({ status: 'idle' })
+    authorization.resolve(safeReport())
+    await authorization.promise
+    await Promise.resolve()
+    expect(states.map((state) => state.status)).toEqual(['preparing', 'stopping', 'idle'])
+    expect(manager.protectedCommits('model', 'org/repo')).toEqual(new Set())
+  })
+
+  it('discards superseded failures and never authorizes an already replaced queued start', async () => {
+    const first = deferred<SecurityReport>()
+    const entered = deferred<void>()
+    const last = deferred<SecurityReport>()
+    let calls = 0
+    const states: LocalRuntimeState[] = []
+    const manager = managerFor({
+      modelPath: '/unused',
+      cacheRoot: '/unused',
+      states,
+      authorize: () => {
+        calls++
+        entered.resolve()
+        return calls === 1 ? first.promise : last.promise
+      }
+    })
+    const one = manager.start(runRequest)
+    await entered.promise
+    const two = manager.start({ ...runRequest, filePath: 'second.gguf' })
+    const three = manager.start({ ...runRequest, filePath: 'third.gguf' })
+    await one
+    await two
+    await vi.waitFor(() => expect(manager.getState().filePath).toBe('third.gguf'))
+    last.reject(new Error('current failure'))
+    expect(await three).toMatchObject({
+      status: 'error',
+      filePath: 'third.gguf',
+      error: 'current failure'
+    })
+    first.reject(new Error('obsolete failure'))
+    await first.promise.catch(() => undefined)
+    await Promise.resolve()
+    expect(calls).toBe(2)
+    expect(states.filter((state) => state.status === 'error')).toEqual([
+      expect.objectContaining({ error: 'current failure', filePath: 'third.gguf' })
+    ])
+    expect(manager.protectedCommits('model', 'org/repo')).toEqual(new Set())
+  })
+
+  it('fences starts throughout shutdown and only reopens after an explicit drained resume', async () => {
+    const authorization = deferred<SecurityReport>()
+    const entered = deferred<void>()
+    const manager = managerFor({
+      modelPath: '/unused',
+      cacheRoot: '/unused',
+      authorize: () => {
+        entered.resolve()
+        return authorization.promise
+      }
+    })
+    const start = manager.start(runRequest)
+    await entered.promise
+    const shutdown = manager.shutdown()
+    expect(() => manager.resumeAfterShutdown()).toThrow('runtime.shutdownNotDrained')
+    await expect(manager.start(runRequest)).rejects.toThrow('runtime.shuttingDown')
+    await start
+    await shutdown
+    await expect(manager.start(runRequest)).rejects.toThrow('runtime.shuttingDown')
+    authorization.reject(new Error('cancelled preparation'))
+    await authorization.promise.catch(() => undefined)
+    manager.resumeAfterShutdown()
+    expect(await manager.start(runRequest)).toMatchObject({
+      status: 'error',
+      error: 'cancelled preparation'
+    })
+    expect(manager.protectedCommits('model', 'org/repo')).toEqual(new Set())
+  })
 })
 
 describeRuntimeIntegration('LocalRuntimeManager llama.cpp integration', () => {
@@ -294,7 +436,7 @@ describeRuntimeIntegration('LocalRuntimeManager llama.cpp integration', () => {
     const discoveries = await manager.discover()
     expect(discoveries.find((item) => item.kind === 'llama.cpp')).toMatchObject({
       available: true,
-      binaryPath: fixture.llamaPath,
+      binaryPath: await realpath(fixture.llamaPath),
       capabilities: { chat: true, streaming: true, autoFit: true, gpuOffload: true }
     })
     const state = await manager.start({
@@ -408,6 +550,66 @@ describeRuntimeIntegration('LocalRuntimeManager llama.cpp integration', () => {
     })
     expect(state).toMatchObject({ status: 'error', error: 'runtime.oomAfterRetry' })
     expect(await readFile(fixture.launchCount, 'utf8')).toBe('2')
+    expect(manager.protectedCommits('model', 'org/repo')).toEqual(new Set())
+  })
+
+  it('owns an unready child and drains it before shutdown completes', async () => {
+    const fixture = await fixtureFiles()
+    process.env.FAKE_LLAMA_LOG = fixture.commandLog
+    process.env.FAKE_LLAMA_COUNT = fixture.launchCount
+    process.env.FAKE_LLAMA_WAIT = '1'
+    const states: LocalRuntimeState[] = []
+    const manager = managerFor({
+      modelPath: fixture.modelPath,
+      cacheRoot: fixture.root,
+      llamaPath: fixture.llamaPath,
+      states
+    })
+    const start = manager.start(runRequest)
+    let endpoint = ''
+    await vi.waitFor(async () => {
+      const args = JSON.parse((await readFile(fixture.commandLog, 'utf8')).trim()) as string[]
+      endpoint = `http://127.0.0.1:${args[args.indexOf('--port') + 1]}`
+      expect((await fetch(`${endpoint}/health`)).status).toBe(503)
+    })
+    expect(manager.protectedCommits('model', 'org/repo')).toEqual(new Set([COMMIT]))
+    await manager.shutdown()
+    expect((await start).status).toBe('error')
+    expect(manager.getState()).toEqual({ status: 'idle' })
+    expect(states.some((state) => state.status === 'ready')).toBe(false)
+    expect(manager.protectedCommits('model', 'org/repo')).toEqual(new Set())
+    await expect(fetch(`${endpoint}/health`)).rejects.toThrow()
+  })
+
+  it('replaces an unready child without leaving the old server alive', async () => {
+    const fixture = await fixtureFiles()
+    process.env.FAKE_LLAMA_LOG = fixture.commandLog
+    process.env.FAKE_LLAMA_COUNT = fixture.launchCount
+    process.env.FAKE_LLAMA_WAIT = '1'
+    const states: LocalRuntimeState[] = []
+    const manager = managerFor({
+      modelPath: fixture.modelPath,
+      cacheRoot: fixture.root,
+      llamaPath: fixture.llamaPath,
+      states
+    })
+    const first = manager.start(runRequest)
+    let oldEndpoint = ''
+    await vi.waitFor(async () => {
+      const args = JSON.parse((await readFile(fixture.commandLog, 'utf8')).trim()) as string[]
+      oldEndpoint = `http://127.0.0.1:${args[args.indexOf('--port') + 1]}`
+      expect((await fetch(`${oldEndpoint}/health`)).status).toBe(503)
+    })
+    delete process.env.FAKE_LLAMA_WAIT
+    const second = manager.start({ ...runRequest, filePath: 'replacement.gguf' })
+    expect((await first).status).toBe('error')
+    expect(await second).toMatchObject({ status: 'ready', filePath: 'replacement.gguf' })
+    expect(states.filter((state) => state.status === 'ready')).toEqual([
+      expect.objectContaining({ filePath: 'replacement.gguf' })
+    ])
+    await expect(fetch(`${oldEndpoint}/health`)).rejects.toThrow()
+    await manager.stop()
+    expect(manager.protectedCommits('model', 'org/repo')).toEqual(new Set())
   })
 })
 
@@ -444,6 +646,11 @@ process.exit(0)
 
     const requests: Array<Record<string, unknown>> = []
     let loadedModel = ''
+    let failedLoadsRemaining = 0
+    let failedUnloadsRemaining = 0
+    let holdNextLoad = false
+    const loadEntered = deferred<void>()
+    let finishLoad: (() => void) | undefined
     const server = createServer((request, response) => {
       let body = ''
       request.setEncoding('utf8')
@@ -463,6 +670,27 @@ process.exit(0)
         const payload = JSON.parse(body) as Record<string, unknown>
         requests.push(payload)
         loadedModel = String(payload.model ?? loadedModel)
+        if (holdNextLoad && payload.stream === false && payload.keep_alive === -1) {
+          holdNextLoad = false
+          finishLoad = () => {
+            response.writeHead(200, { 'content-type': 'application/json' })
+            response.end('{"done":true}')
+          }
+          loadEntered.resolve()
+          return
+        }
+        if (failedLoadsRemaining && payload.stream === false && payload.keep_alive === -1) {
+          failedLoadsRemaining--
+          response.writeHead(404, { 'content-type': 'application/json' })
+          response.end('{"error":"model not found"}')
+          return
+        }
+        if (failedUnloadsRemaining && payload.keep_alive === 0) {
+          failedUnloadsRemaining--
+          response.writeHead(503, { 'content-type': 'application/json' })
+          response.end('{"error":"temporary unload failure"}')
+          return
+        }
         if (payload.stream === true) {
           response.writeHead(200, { 'content-type': 'application/x-ndjson' })
           response.write('{"message":{"content":"ollama "}}\n')
@@ -494,6 +722,8 @@ process.exit(0)
         resolvedCommit: COMMIT,
         filePath: 'model.gguf',
         contextLength: 2048,
+        maxTokens: 19,
+        temperature: 0.25,
         allowTightFit: true
       })
       expect(state).toMatchObject({
@@ -502,7 +732,6 @@ process.exit(0)
         loadedBytes: 1234,
         loadedVramBytes: 567
       })
-      expect(state.modelName).toContain(`org-repo-${COMMIT.slice(0, 8)}`)
       expect(db.models.has(state.modelName!)).toBe(true)
       const createArgs = JSON.parse((await readFile(commandLog, 'utf8')).trim()) as string[]
       expect(createArgs).toEqual(expect.arrayContaining(['create', state.modelName!, '-f']))
@@ -517,12 +746,91 @@ process.exit(0)
           .map((event) => event.delta)
           .join('')
       ).toBe('ollama ok')
-      await manager.stop()
+      expect(requests[0]).toMatchObject({ options: { num_ctx: 2048 } })
+      expect(requests.find((payload) => payload.stream === true)).toMatchObject({
+        options: { num_ctx: 2048, num_predict: 19, temperature: 0.25 }
+      })
+      failedUnloadsRemaining = 1
+      await expect(manager.shutdown()).rejects.toThrow('runtime.ollamaUnloadFailed:503')
+      expect(manager.protectedCommits('model', 'org/repo')).toEqual(new Set([COMMIT]))
+      await expect(manager.start(runRequest)).rejects.toThrow('runtime.shuttingDown')
+      expect(() => manager.resumeAfterShutdown()).toThrow('runtime.shutdownNotDrained')
+      const retry = manager.shutdown()
+      expect(manager.shutdown()).toBe(retry)
+      await retry
+      expect(manager.getState()).toEqual({ status: 'idle' })
+      expect(manager.protectedCommits('model', 'org/repo')).toEqual(new Set())
+      await expect(manager.start(runRequest)).rejects.toThrow('runtime.shuttingDown')
+      manager.resumeAfterShutdown()
       expect(requests.at(-1)).toMatchObject({
         model: state.modelName,
         keep_alive: 0,
         messages: []
       })
+
+      const runOllama = (filePath: string) =>
+        manager.start({
+          ...runRequest,
+          runtime: 'ollama',
+          filePath,
+          contextLength: 16384
+        })
+      db.models.set('legacy-app-model', {
+        repoId: runRequest.repoId,
+        revision: runRequest.revision,
+        commit: COMMIT,
+        filePath: 'variant-a/model.gguf',
+        missing: 0
+      })
+      const variantA = await runOllama('variant-a/model.gguf')
+      const variantB = await runOllama('variant-b/model.gguf')
+      expect(variantA.status).toBe('ready')
+      expect(variantB.status).toBe('ready')
+      expect(variantA.modelName).not.toBe(variantB.modelName)
+      expect(requests.at(-1)).toMatchObject({
+        model: variantB.modelName,
+        options: { num_ctx: 8192 }
+      })
+      expect(variantB.contextLength).toBe(8192)
+      expect(variantA.modelName).not.toBe('legacy-app-model')
+      expect(db.models.has('legacy-app-model')).toBe(true)
+
+      db.models.get(variantB.modelName!)!.missing = 1
+      await runOllama('variant-b/model.gguf')
+      failedLoadsRemaining = 1
+      expect((await runOllama('variant-b/model.gguf')).status).toBe('ready')
+      const creates = (await readFile(commandLog, 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as string[])
+        .filter((args) => args[0] === 'create')
+      expect(creates.filter((args) => args[1] === variantB.modelName)).toHaveLength(3)
+      expect(db.models.get(variantB.modelName!)!.missing).toBe(0)
+
+      failedLoadsRemaining = 2
+      expect(await runOllama('variant-b/model.gguf')).toMatchObject({
+        status: 'error',
+        error: 'runtime.ollamaLoadFailed:404'
+      })
+      expect(db.models.get(variantB.modelName!)!.missing).toBe(1)
+      expect(manager.protectedCommits('model', 'org/repo')).toEqual(new Set())
+
+      db.models.get(variantB.modelName!)!.filePath = 'unrelated.gguf'
+      const conflict = await runOllama('variant-b/model.gguf')
+      expect(conflict).toMatchObject({ status: 'error', error: 'runtime.ollamaIdentityConflict' })
+      expect(manager.protectedCommits('model', 'org/repo')).toEqual(new Set())
+
+      holdNextLoad = true
+      const loading = runOllama('variant-a/model.gguf')
+      await loadEntered.promise
+      const stopping = manager.stop()
+      expect(manager.getState().status).toBe('stopping')
+      expect(manager.protectedCommits('model', 'org/repo')).toEqual(new Set([COMMIT]))
+      finishLoad!()
+      expect((await loading).status).toBe('error')
+      expect(await stopping).toEqual({ status: 'idle' })
+      expect(requests.at(-1)).toMatchObject({ model: variantA.modelName, keep_alive: 0 })
+      expect(manager.protectedCommits('model', 'org/repo')).toEqual(new Set())
 
       await expect(manager.removeImportedModel(state.modelName!)).resolves.toEqual({
         removed: true

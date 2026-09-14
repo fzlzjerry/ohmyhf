@@ -9,7 +9,16 @@ import type { TFunction } from 'i18next'
 import { HUB_SESSION_REQUIRED_CODE } from '@oh-my-huggingface/shared'
 
 export type ErrorKind =
-  'auth' | 'gated' | 'notFound' | 'rateLimit' | 'server' | 'network' | 'unknown'
+  | 'auth'
+  | 'gated'
+  | 'notFound'
+  | 'rateLimit'
+  | 'server'
+  | 'network'
+  | 'securityBlocked'
+  | 'securityReview'
+  | 'canceled'
+  | 'unknown'
 
 export interface ClassifiedError {
   kind: ErrorKind
@@ -17,6 +26,8 @@ export interface ClassifiedError {
 }
 
 const HTTP_STATUS_RE = /\bfailed: (\d{3})\b/
+const SECURITY_ERROR_RE =
+  /(?:^|:\s*)security\.(blocked|confirmationCanceled|confirmationRequired|evidenceChanged|acknowledgementScopeMismatch|grantExpired|challengeExpired)\b/
 
 const NETWORK_RE =
   /fetch failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|network|timed? ?out|abort/i
@@ -32,6 +43,10 @@ export function classifyError(err: unknown): ClassifiedError {
     if (status >= 500) return { kind: 'server', status }
     return { kind: 'unknown', status }
   }
+  const securityCode = SECURITY_ERROR_RE.exec(message)?.[1]
+  if (securityCode === 'blocked') return { kind: 'securityBlocked' }
+  if (securityCode === 'confirmationCanceled') return { kind: 'canceled' }
+  if (securityCode) return { kind: 'securityReview' }
   if (NETWORK_RE.test(message)) return { kind: 'network' }
   return { kind: 'unknown' }
 }

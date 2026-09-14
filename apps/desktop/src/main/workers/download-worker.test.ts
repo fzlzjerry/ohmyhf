@@ -13,6 +13,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 import {
   Throttle,
   assertExpectedCommit,
@@ -212,5 +213,113 @@ describe('gitBlobSha1OfFile', () => {
     writeFileSync(file, 'hello\n')
     // `printf 'hello\n' | git hash-object --stdin`
     await expect(gitBlobSha1OfFile(file)).resolves.toBe('ce013625030ba8dba906f756967f9e9ca394464a')
+  })
+})
+
+describe('worker LFS integrity and digest reuse', () => {
+  async function transfer(
+    options: { cached?: Buffer; downloaded?: Buffer; expected?: string } = {}
+  ) {
+    const fs = await vi.importActual<typeof Fs>('node:fs')
+    const root = mkdtempSync(join(tmpdir(), 'ohmyhf-lfs-worker-'))
+    roots.push(root)
+    const repoDir = join(root, 'models--org--model')
+    const blobsDir = join(repoDir, 'blobs')
+    fs.mkdirSync(blobsDir, { recursive: true })
+    const data = options.downloaded ?? Buffer.from('verified model bytes')
+    const digest = options.expected ?? createHash('sha256').update(data).digest('hex')
+    const blobPath = join(blobsDir, digest)
+    if (options.cached) fs.writeFileSync(blobPath, options.cached)
+    let readBytes = 0
+    const readStream: typeof Fs.createReadStream = (...args) => {
+      const stream = fs.createReadStream(...args)
+      stream.on('data', (chunk) => {
+        readBytes += Buffer.byteLength(chunk)
+      })
+      return stream
+    }
+    let finish!: (message: {
+      type: string
+      verified?: boolean
+      localSha256?: string
+      message?: string
+    }) => void
+    const finished = new Promise<Parameters<typeof finish>[0]>((resolve) => {
+      finish = resolve
+    })
+    vi.resetModules()
+    vi.doMock('node:fs', () => ({ ...fs, createReadStream: readStream }))
+    vi.doMock('node:worker_threads', () => ({
+      workerData: {
+        taskId: 'integrity-test',
+        cacheDir: root,
+        repoDir,
+        path: 'model.gguf',
+        expectedCommit: 'a'.repeat(40),
+        url: 'https://hub.example.test/org/model/resolve/model.gguf',
+        userAgent: 'test'
+      },
+      parentPort: {
+        on: vi.fn(),
+        postMessage: (message: Parameters<typeof finish>[0]) => {
+          if (message.type === 'done' || message.type === 'error') finish(message)
+        }
+      }
+    }))
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === 'HEAD'
+        ? new Response(null, {
+            headers: {
+              'x-linked-etag': digest,
+              'x-linked-size': String(data.length),
+              'x-repo-commit': 'a'.repeat(40)
+            }
+          })
+        : new Response(Uint8Array.from(data))
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      // Module initialization is the worker entry point and must see this job's port/data.
+      await import('./download-worker')
+      const message = await finished
+      return { message, readBytes, digest, blobPath, blobsDir, fs, data, fetchMock }
+    } finally {
+      vi.doUnmock('node:worker_threads')
+      vi.doUnmock('node:fs')
+      vi.unstubAllGlobals()
+    }
+  }
+
+  it('returns the verified digest after only one full read of freshly downloaded LFS bytes', async () => {
+    const result = await transfer()
+    expect(result.message).toMatchObject({
+      type: 'done',
+      verified: true,
+      localSha256: result.digest
+    })
+    expect(result.fs.readFileSync(result.blobPath)).toEqual(result.data)
+    expect(result.readBytes).toBe(result.data.length)
+  })
+
+  it('verifies reused LFS bytes once without downloading or hashing again for localSha256', async () => {
+    const data = Buffer.from('verified model bytes')
+    const result = await transfer({ cached: data })
+    expect(result.message).toMatchObject({
+      type: 'done',
+      verified: true,
+      localSha256: result.digest
+    })
+    expect(result.readBytes).toBe(data.length)
+    expect(result.fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('discards mismatched LFS bytes without promoting a blob or reporting verification', async () => {
+    const result = await transfer({ expected: 'b'.repeat(64) })
+    expect(result.message).toMatchObject({
+      type: 'error',
+      message: expect.stringContaining('Checksum mismatch')
+    })
+    expect(result.fs.existsSync(result.blobPath)).toBe(false)
+    expect(result.fs.readdirSync(result.blobsDir)).toEqual([])
   })
 })

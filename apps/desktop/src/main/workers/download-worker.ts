@@ -443,7 +443,7 @@ async function run(): Promise<void> {
     received: meta.size,
     verified,
     snapshotPath: snapshotFile,
-    localSha256: await sha256OfFile(blobPath)
+    localSha256: meta.isLfs && verified ? meta.etag : await sha256OfFile(blobPath)
   })
 }
 

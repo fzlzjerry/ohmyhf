@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { TFunction } from 'i18next'
 import { HUB_SESSION_REQUIRED_CODE } from '@oh-my-huggingface/shared'
-import {
-  classifyError,
-  describeError,
-  isAuthError,
-  isHubSessionRequired,
-  sanitizeErrorDetails
-} from './errors'
+import { classifyError, isAuthError, isHubSessionRequired, sanitizeErrorDetails } from './errors'
 
 /** Message shape the hub client emits: "GET <url> failed: <status> <statusText>". */
 const hubError = (status: number, statusText: string): Error =>
@@ -55,6 +48,24 @@ describe('classifyError', () => {
     expect(classifyError(new Error('The operation was aborted'))).toEqual({ kind: 'network' })
   })
 
+  it('distinguishes security blocks, renewed approval, and an explicitly canceled review', () => {
+    expect(
+      classifyError(
+        new Error("Error invoking remote method 'downloads:resume': Error: security.blocked")
+      )
+    ).toEqual({ kind: 'securityBlocked' })
+    expect(classifyError('security.evidenceChanged')).toEqual({ kind: 'securityReview' })
+    expect(classifyError(new Error('security.confirmationCanceled'))).toEqual({ kind: 'canceled' })
+  })
+
+  it('does not mistake security-like repository names for local security decisions', () => {
+    expect(
+      classifyError(new Error('fetch failed for https://hub.test/security.blocked/model'))
+    ).toEqual({
+      kind: 'network'
+    })
+  })
+
   it('falls back to unknown for anything else, including non-Errors', () => {
     expect(classifyError(new Error('something exploded'))).toEqual({ kind: 'unknown' })
     expect(classifyError('plain string failure')).toEqual({ kind: 'unknown' })
@@ -66,17 +77,6 @@ describe('classifyError', () => {
     expect(classifyError(new Error('repo org/model-429 not readable'))).toEqual({
       kind: 'unknown'
     })
-  })
-})
-
-describe('describeError', () => {
-  const t = ((key: string) => key) as TFunction
-
-  it('resolves the errors-namespace key for the classified kind', () => {
-    expect(describeError(t, hubError(401, 'Unauthorized'))).toBe('errors:auth')
-    expect(describeError(t, hubError(502, 'Bad Gateway'))).toBe('errors:server')
-    expect(describeError(t, new Error('fetch failed'))).toBe('errors:network')
-    expect(describeError(t, new Error('???'))).toBe('errors:unknown')
   })
 })
 

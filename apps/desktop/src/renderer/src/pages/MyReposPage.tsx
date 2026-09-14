@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { normalizeHubEndpoint, type MyRepoEntry, type RepoKind } from '@oh-my-huggingface/shared'
 import { invoke } from '@/lib/ipc'
+import { isRepoQuery, repoQueryKey } from '@/lib/query'
 import { cn, formatBytes, formatRelativeTime } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -82,9 +83,12 @@ export function MyReposPage(): React.JSX.Element {
         repoId: args.repo.id,
         patch: { private: args.makePrivate }
       }),
-    onSuccess: () => {
+    onSuccess: (_result, { repo }) => {
       push(t('admin:visibility.updated'), 'success')
       void queryClient.invalidateQueries({ queryKey: ['my-repos'] })
+      void queryClient.invalidateQueries({
+        queryKey: repoQueryKey('repo', endpointKey, repo.kind, repo.id)
+      })
     },
     onError: (err) => push(err.message, 'error')
   })
@@ -95,8 +99,9 @@ export function MyReposPage(): React.JSX.Element {
 
   // Rename/delete leave stale detail caches behind under the old id; drop them too.
   const refreshAndDrop = (repo: MyRepoEntry): void => {
-    queryClient.removeQueries({ queryKey: ['repo', repo.kind, repo.id] })
-    queryClient.removeQueries({ queryKey: ['readme', repo.kind, repo.id] })
+    queryClient.removeQueries({
+      predicate: (query) => isRepoQuery(query.queryKey, endpointKey, repo.kind, repo.id)
+    })
     refresh()
   }
 

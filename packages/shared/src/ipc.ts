@@ -587,7 +587,12 @@ export interface IpcInvokeContract {
   'downloads:getCapacity': { req: void; res: DownloadCapacity }
   'downloads:start': { req: { request: DownloadRequest }; res: DownloadTask[] }
   'downloads:pause': { req: { id: string }; res: DownloadTask[] }
-  'downloads:resume': { req: { id: string }; res: DownloadTask[] }
+  'downloads:resume': {
+    req: { id: string; reconfirm?: boolean; securityGrantId?: string }
+    res: DownloadTask[]
+  }
+  'downloads:resumePreflight': { req: { id: string }; res: SecurityPreflightResult }
+  'downloads:confirmResume': { req: { id: string; challengeId: string }; res: SecurityGrant }
   'downloads:retryPostAction': {
     req: { id: string; securityGrantId?: string; allowTightFit?: boolean }
     res: DownloadTask[]
@@ -877,6 +882,8 @@ export const IPC_INVOKE_CHANNELS = [
   'downloads:start',
   'downloads:pause',
   'downloads:resume',
+  'downloads:resumePreflight',
+  'downloads:confirmResume',
   'downloads:retryPostAction',
   'downloads:cancel',
   'downloads:remove',

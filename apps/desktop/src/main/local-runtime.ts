@@ -1,8 +1,10 @@
 import { spawn, execFile as execFileCallback, type ChildProcess } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { lstat, mkdtemp, realpath, rm, statfs, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { cpus, freemem, platform, totalmem, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import {
   assessModelFit,
   normalizeHubEndpoint,
@@ -16,6 +18,7 @@ import {
   type MachineProfile,
   type ModelFitAssessment,
   type RuntimeDiscovery,
+  type RepoKind,
   type SecurityAcknowledgement
 } from '@oh-my-huggingface/shared'
 import type { AppDatabase } from './db'
@@ -45,6 +48,23 @@ interface RunningLlama {
   child: ChildProcess
   endpoint: string
   stderr: string
+}
+
+interface RuntimeOperation {
+  request: LocalRunRequest
+  controller: AbortController
+  ollamaPort: number
+  llama?: RunningLlama
+  ollamaModel?: string
+  contextLength?: number
+}
+
+interface ImportedModel {
+  model_name: string
+  repo_id: string
+  resolved_commit: string
+  file_path: string
+  missing: number
 }
 
 function command(
@@ -82,6 +102,28 @@ function command(
 
 function limited(text: string, maximum = MAX_CAPTURE_BYTES): string {
   return text.length <= maximum ? text : text.slice(text.length - maximum)
+}
+
+function readUntilAbort<T>(signal: AbortSignal, read: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(signal.reason)
+    signal.addEventListener('abort', onAbort, { once: true })
+    void Promise.resolve()
+      .then(() => {
+        signal.throwIfAborted()
+        return read()
+      })
+      .then(
+        (value) => {
+          signal.removeEventListener('abort', onAbort)
+          resolve(value)
+        },
+        (error: unknown) => {
+          signal.removeEventListener('abort', onAbort)
+          reject(error)
+        }
+      )
+  })
 }
 
 async function canonicalExecutable(path: string): Promise<string> {
@@ -220,15 +262,18 @@ export async function collectMachineProfile(cacheDir: string): Promise<MachinePr
   }
 }
 
-function modelNameFor(request: LocalRunRequest, metadata: GgufRuntimeMetadata): string {
-  const quant = basename(request.filePath, '.gguf')
-  const raw = `${request.repoId}-${request.resolvedCommit.slice(0, 8)}-${quant}-${metadata.quantization ?? 'gguf'}`
-  return (
-    raw
-      .toLowerCase()
-      .replace(/[^a-z0-9._-]+/g, '-')
-      .replace(/^[-._]+|[-._]+$/g, '') || `ohmyhf-${request.resolvedCommit.slice(0, 8)}`
-  ).slice(0, 240)
+function modelNameFor(request: LocalRunRequest): string {
+  const identity = JSON.stringify([
+    request.repoId,
+    request.resolvedCommit.toLowerCase(),
+    request.filePath
+  ])
+  const digest = createHash('sha256').update(identity).digest('hex')
+  const label = basename(request.filePath, '.gguf')
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .slice(0, 80)
+  return `ohmyhf-${label}-${digest}:latest`
 }
 
 function quantizedGpuLayers(metadata: GgufRuntimeMetadata, freeGpuBytes: number): number {
@@ -252,25 +297,33 @@ async function freeLoopbackPort(): Promise<number> {
   })
 }
 
-async function waitForHealth(endpoint: string, child: ChildProcess): Promise<void> {
+async function waitForHealth(
+  endpoint: string,
+  child: ChildProcess,
+  signal: AbortSignal
+): Promise<void> {
   const deadline = Date.now() + START_TIMEOUT_MS
   while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error('runtime.exitedBeforeReady')
+    signal.throwIfAborted()
+    if (!child.pid || child.exitCode !== null || child.signalCode !== null) {
+      throw new Error('runtime.exitedBeforeReady')
+    }
     try {
       const response = await fetch(`${endpoint}/health`, {
-        signal: AbortSignal.timeout(1_500)
+        signal: AbortSignal.any([signal, AbortSignal.timeout(1_500)])
       })
+      await response.body?.cancel()
       if (response.ok) return
     } catch {
-      // Retry until bounded deadline.
+      signal.throwIfAborted()
     }
-    await new Promise((resolve) => setTimeout(resolve, 250))
+    await delay(250, undefined, { signal })
   }
   throw new Error('runtime.healthTimeout')
 }
 
 async function killOwnedProcess(child: ChildProcess): Promise<void> {
-  if (!child.pid || child.exitCode !== null) return
+  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return
   const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()))
   if (process.platform === 'win32') {
     try {
@@ -301,6 +354,8 @@ async function killOwnedProcess(child: ChildProcess): Promise<void> {
       child.kill('SIGKILL')
     }
   }
+  // Ownership ends only after the OS confirms exit, including forced shutdown.
+  await exited
 }
 
 function ollamaEnvironment(port: number): NodeJS.ProcessEnv {
@@ -318,10 +373,73 @@ export interface LocalRuntimeManagerDeps {
 
 export class LocalRuntimeManager {
   private state: LocalRuntimeState = { status: 'idle' }
-  private llama: RunningLlama | null = null
-  private activeOllamaModel: string | null = null
+  private owner: RuntimeOperation | null = null
+  private pending = new Set<RuntimeOperation>()
+  private lifecycle: Promise<void> = Promise.resolve()
+  private generation = 0
   private streams = new Map<string, AbortController>()
   private probes = new Map<LocalRuntimeKind, RuntimeProbe>()
+  private streamWork = new Set<Promise<void>>()
+  private shuttingDown = false
+  private shutdownWork: Promise<void> | null = null
+  private shutdownDrained = false
+
+  protectedCommits(kind: RepoKind, repoId: string): Set<string> {
+    const commits = new Set<string>()
+    if (kind !== 'model') return commits
+    for (const operation of this.pending) {
+      if (operation.request.repoId === repoId) commits.add(operation.request.resolvedCommit)
+    }
+    if (this.owner?.request.repoId === repoId) {
+      commits.add(this.owner.request.resolvedCommit)
+    }
+    return commits
+  }
+
+  private invalidate(): number {
+    this.owner?.controller.abort()
+    for (const operation of this.pending) operation.controller.abort()
+    for (const controller of this.streams.values()) controller.abort()
+    return ++this.generation
+  }
+
+  private enqueue<T>(work: () => Promise<T>): Promise<T> {
+    const result = this.lifecycle.then(work)
+    this.lifecycle = result.then(
+      () => undefined,
+      () => undefined
+    )
+    return result
+  }
+
+  private async releaseOwner(): Promise<void> {
+    const owner = this.owner
+    await Promise.all(this.streamWork)
+    if (!owner) return
+    if (owner.llama) {
+      await killOwnedProcess(owner.llama.child)
+      owner.llama = undefined
+    }
+    if (owner.ollamaModel) {
+      const response = await fetch(`http://127.0.0.1:${owner.ollamaPort}/api/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: owner.ollamaModel,
+          messages: [],
+          stream: false,
+          keep_alive: 0
+        }),
+        signal: AbortSignal.timeout(START_TIMEOUT_MS)
+      })
+      await response.text()
+      if (!response.ok && response.status !== 404) {
+        throw new Error(`runtime.ollamaUnloadFailed:${response.status}`)
+      }
+      owner.ollamaModel = undefined
+    }
+    if (this.owner === owner) this.owner = null
+  }
 
   constructor(private readonly deps: LocalRuntimeManagerDeps) {}
 
@@ -418,7 +536,7 @@ export class LocalRuntimeManager {
     }))
   }
 
-  private async probe(kind: LocalRuntimeKind): Promise<RuntimeProbe> {
+  private async probe(kind: LocalRuntimeKind, signal?: AbortSignal): Promise<RuntimeProbe> {
     const configured =
       kind === 'ollama'
         ? this.deps.settings.get().ollamaBinaryPath
@@ -427,6 +545,7 @@ export class LocalRuntimeManager {
     const binaryPath = configured
       ? await canonicalExecutable(configured).catch(() => undefined)
       : await locateExecutable(commandName)
+    signal?.throwIfAborted()
     if (!binaryPath) {
       return {
         kind,
@@ -440,7 +559,9 @@ export class LocalRuntimeManager {
         stdout: String((error as { stdout?: string }).stdout ?? ''),
         stderr: String((error as { stderr?: string }).stderr ?? '')
       }))
+      signal?.throwIfAborted()
       const helpResult = await command(binaryPath, ['--help'])
+      signal?.throwIfAborted()
       const help = limited(`${helpResult.stdout}\n${helpResult.stderr}`)
       const version = limited(`${versionResult.stdout}\n${versionResult.stderr}`, 4096)
         .trim()
@@ -464,6 +585,7 @@ export class LocalRuntimeManager {
         error: supportsChat ? undefined : 'runtime.chatUnsupported'
       }
     } catch (error) {
+      signal?.throwIfAborted()
       return {
         kind,
         available: false,
@@ -520,16 +642,17 @@ export class LocalRuntimeManager {
     }
   }
 
-  private async ensureProbe(kind: LocalRuntimeKind): Promise<RuntimeProbe> {
+  private async ensureProbe(kind: LocalRuntimeKind, signal?: AbortSignal): Promise<RuntimeProbe> {
     const existing = this.probes.get(kind)
     if (existing?.available) return existing
-    const discovered = await this.probe(kind)
+    const discovered = await this.probe(kind, signal)
     this.probes.set(kind, discovered)
     if (!discovered.available || !discovered.binaryPath) throw new Error('runtime.unavailable')
     return discovered
   }
 
   private async startLlama(
+    operation: RuntimeOperation,
     probe: RuntimeProbe,
     absolutePath: string,
     contextLength: number,
@@ -539,6 +662,7 @@ export class LocalRuntimeManager {
   ): Promise<RunningLlama> {
     const binary = probe.binaryPath!
     const port = await freeLoopbackPort()
+    operation.controller.signal.throwIfAborted()
     const endpoint = `http://127.0.0.1:${port}`
     const freeGpu = profile.accelerators.reduce(
       (sum, accelerator) => sum + (accelerator.freeMemoryBytes ?? 0),
@@ -574,6 +698,7 @@ export class LocalRuntimeManager {
             : baseArgs
 
     const launch = async (args: string[]): Promise<RunningLlama> => {
+      operation.controller.signal.throwIfAborted()
       const child = spawn(binary, args, {
         shell: false,
         windowsHide: true,
@@ -582,16 +707,30 @@ export class LocalRuntimeManager {
         env: { ...process.env, LLAMA_ARG_HOST: '127.0.0.1' }
       })
       const running: RunningLlama = { child, endpoint, stderr: '' }
+      operation.llama = running
+      child.once('exit', (_code, signal) => {
+        if (operation.llama !== running) return
+        operation.llama = undefined
+        if (this.owner !== operation || this.pending.has(operation)) return
+        this.owner = null
+        if (operation.controller.signal.aborted) return
+        this.setState({
+          ...this.state,
+          status: 'error',
+          error: signal ? `runtime.exited:${signal}` : 'runtime.exited'
+        })
+      })
       child.stderr?.setEncoding('utf8')
       child.stderr?.on('data', (chunk: string) => {
         running.stderr = limited(`${running.stderr}${chunk}`, 64 * 1024)
       })
       child.on('error', () => undefined)
       try {
-        await waitForHealth(endpoint, child)
+        await waitForHealth(endpoint, child, operation.controller.signal)
         return running
       } catch (error) {
         await killOwnedProcess(child)
+        if (operation.llama === running) operation.llama = undefined
         const message = `${running.stderr}\n${error instanceof Error ? error.message : String(error)}`
         const failure = error instanceof Error ? error : new Error(String(error))
         Object.assign(failure, { runtimeOutput: message })
@@ -602,6 +741,7 @@ export class LocalRuntimeManager {
     try {
       return await launch(firstArgs)
     } catch (error) {
+      operation.controller.signal.throwIfAborted()
       const output = String((error as { runtimeOutput?: string }).runtimeOutput ?? '')
       if (!/out of memory|cuda.*alloc|hip.*alloc|failed to allocate/i.test(output)) throw error
       // Exactly one bounded OOM retry, with GPU offload disabled.
@@ -622,23 +762,39 @@ export class LocalRuntimeManager {
 
   private async importOllama(
     probe: RuntimeProbe,
-    request: LocalRunRequest,
+    operation: RuntimeOperation,
     absolutePath: string,
-    metadata: GgufRuntimeMetadata
+    force = false
   ): Promise<string> {
-    const modelName = modelNameFor(request, metadata)
-    const existing = this.deps.db
-      .prepare('SELECT model_name FROM local_models WHERE runtime = ? AND model_name = ?')
-      .get('ollama', modelName) as { model_name: string } | undefined
-    if (!existing) {
+    const { request, ollamaPort, controller } = operation
+    controller.signal.throwIfAborted()
+    const modelName = modelNameFor(request)
+    const existing = this.importedModel(request)
+    if (!existing || existing.missing || force) {
+      // Legacy names are retained for explicit app-owned removal, never aliased
+      // or trusted for a new run. Reimport into the complete-identity namespace.
+      const listed = await readUntilAbort(controller.signal, () =>
+        command(probe.binaryPath!, ['list'], {
+          env: ollamaEnvironment(ollamaPort)
+        })
+      )
+      controller.signal.throwIfAborted()
+      const present = listed.stdout
+        .split(/\r?\n/)
+        .slice(1)
+        .some((line) => line.trim().split(/\s+/)[0] === modelName)
+      if (!existing && present) throw new Error('runtime.ollamaIdentityConflict')
       const folder = await mkdtemp(join(tmpdir(), 'ohmyhf-ollama-'))
       const modelfile = join(folder, 'Modelfile')
       try {
         await writeFile(modelfile, `FROM ${JSON.stringify(absolutePath)}\n`, 'utf8')
+        controller.signal.throwIfAborted()
+        // Drain create rather than aborting its CLI connection: the external
+        // daemon may still be reading the GGUF after a client disconnects.
         await command(probe.binaryPath!, ['create', modelName, '-f', modelfile], {
           timeout: 15 * 60_000,
           maxBuffer: 16 * 1024 * 1024,
-          env: ollamaEnvironment(this.deps.settings.get().ollamaPort)
+          env: ollamaEnvironment(ollamaPort)
         })
         this.deps.db
           .prepare(
@@ -660,6 +816,7 @@ export class LocalRuntimeManager {
             request.filePath,
             new Date().toISOString()
           )
+        controller.signal.throwIfAborted()
       } finally {
         await rm(folder, { recursive: true, force: true }).catch(() => undefined)
       }
@@ -667,11 +824,78 @@ export class LocalRuntimeManager {
     return modelName
   }
 
-  async start(
+  private importedModel(request: LocalRunRequest): ImportedModel | undefined {
+    const row = this.deps.db
+      .prepare(
+        'SELECT model_name, repo_id, resolved_commit, file_path, missing FROM local_models WHERE runtime = ? AND model_name = ?'
+      )
+      .get('ollama', modelNameFor(request)) as ImportedModel | undefined
+    if (
+      row &&
+      (row.repo_id !== request.repoId ||
+        row.resolved_commit !== request.resolvedCommit ||
+        row.file_path !== request.filePath)
+    ) {
+      throw new Error('runtime.ollamaIdentityConflict')
+    }
+    return row
+  }
+
+  start(
     request: LocalRunRequest,
     acknowledgement?: SecurityAcknowledgement
   ): Promise<LocalRuntimeState> {
-    await this.stop()
+    if (this.shuttingDown) return Promise.reject(new Error('runtime.shuttingDown'))
+    const generation = this.invalidate()
+    const operation: RuntimeOperation = {
+      request: { ...request, resolvedCommit: request.resolvedCommit.toLowerCase() },
+      controller: new AbortController(),
+      ollamaPort: this.deps.settings.get().ollamaPort
+    }
+    this.pending.add(operation)
+    return this.enqueue(async () => {
+      try {
+        operation.controller.signal.throwIfAborted()
+        await this.releaseOwner()
+        operation.controller.signal.throwIfAborted()
+        this.owner = operation
+        return await this.startOwned(operation, acknowledgement)
+      } catch (error) {
+        let failure = error
+        if (this.owner === operation) {
+          try {
+            await this.releaseOwner()
+          } catch (cleanupError) {
+            failure = cleanupError
+          }
+        }
+        const result: LocalRuntimeState = {
+          status: 'error',
+          runtime: operation.request.runtime,
+          repoId: operation.request.repoId,
+          revision: operation.request.revision,
+          resolvedCommit: operation.request.resolvedCommit,
+          filePath: operation.request.filePath,
+          error: operation.controller.signal.aborted
+            ? 'runtime.startCancelled'
+            : failure instanceof Error
+              ? limited(failure.message, 500)
+              : String(failure)
+        }
+        return generation === this.generation ? this.setState(result) : result
+      } finally {
+        this.pending.delete(operation)
+      }
+    })
+  }
+
+  private async startOwned(
+    operation: RuntimeOperation,
+    acknowledgement?: SecurityAcknowledgement
+  ): Promise<LocalRuntimeState> {
+    const { request, controller } = operation
+    const prepare = <T>(read: () => Promise<T>): Promise<T> =>
+      readUntilAbort(controller.signal, read)
     this.setState({
       status: 'preparing',
       runtime: request.runtime,
@@ -680,133 +904,146 @@ export class LocalRuntimeManager {
       resolvedCommit: request.resolvedCommit,
       filePath: request.filePath
     })
-    try {
-      const securityRequest = {
-        action: 'local-run' as const,
-        kind: 'model' as const,
-        repoId: request.repoId,
-        revision: request.revision,
-        resolvedCommit: request.resolvedCommit,
-        files: [request.filePath]
-      }
-      const report = acknowledgement
-        ? await this.deps.security.authorizeAcknowledged(securityRequest, acknowledgement)
-        : await this.deps.security.authorize(securityRequest, request.securityGrantId)
-      // Keep the variable intentionally used: the refreshed report is the
-      // authorization evidence for this exact side effect, never renderer data.
-      if (report.resolvedCommit !== request.resolvedCommit.toLowerCase()) {
-        throw new Error('security.reportCommitMismatch')
-      }
-      const cached = await this.deps.cache.resolveFilePath(
+    controller.signal.throwIfAborted()
+    const securityRequest = {
+      action: 'local-run' as const,
+      kind: 'model' as const,
+      repoId: request.repoId,
+      revision: request.revision,
+      resolvedCommit: request.resolvedCommit,
+      files: [request.filePath]
+    }
+    const report = await prepare(() =>
+      acknowledgement
+        ? this.deps.security.authorizeAcknowledged(securityRequest, acknowledgement)
+        : this.deps.security.authorize(securityRequest, request.securityGrantId)
+    )
+    controller.signal.throwIfAborted()
+    // Keep the variable intentionally used: the refreshed report is the
+    // authorization evidence for this exact side effect, never renderer data.
+    if (report.resolvedCommit !== request.resolvedCommit.toLowerCase()) {
+      throw new Error('security.reportCommitMismatch')
+    }
+    const cached = await prepare(() =>
+      this.deps.cache.resolveFilePath(
         'model',
         request.repoId,
         request.resolvedCommit,
         request.filePath
       )
-      if (!cached) throw new Error('runtime.fileNotCached')
-      if (!request.filePath.toLowerCase().endsWith('.gguf')) throw new Error('runtime.ggufOnly')
-      const metadata = await readGgufRuntimeMetadata(cached.absolutePath)
-      if (!metadata.architecture) throw new Error('runtime.architectureUnknown')
-      const modelDescriptor = `${metadata.architecture} ${metadata.modelType ?? ''}`
-      if (
-        (metadata.modelType && !/model/i.test(metadata.modelType)) ||
-        /(?:^|[._ -])(?:clip|vision|projector|mmproj|embedding|embedder|reranker|rerank|bert)(?:$|[._ -])/i.test(
-          modelDescriptor
-        )
-      ) {
-        throw new Error('runtime.unsupportedModelType')
-      }
-      const probe = await this.ensureProbe(request.runtime)
-      // Runtime API support alone does not prove that this particular GGUF is
-      // an instruction/chat model. Until a runtime exposes a model-specific
-      // compatibility probe, require the immutable file's own chat template.
-      if (!metadata.chatTemplate) {
-        throw new Error('runtime.chatTemplateMissing')
-      }
-      const contextLength = Math.min(
-        request.contextLength ?? DEFAULT_CONTEXT,
-        metadata.contextLength ?? request.contextLength ?? DEFAULT_CONTEXT
+    )
+    controller.signal.throwIfAborted()
+    if (!cached) throw new Error('runtime.fileNotCached')
+    if (!request.filePath.toLowerCase().endsWith('.gguf')) throw new Error('runtime.ggufOnly')
+    const metadata = await prepare(() => readGgufRuntimeMetadata(cached.absolutePath))
+    controller.signal.throwIfAborted()
+    if (!metadata.architecture) throw new Error('runtime.architectureUnknown')
+    const modelDescriptor = `${metadata.architecture} ${metadata.modelType ?? ''}`
+    if (
+      (metadata.modelType && !/model/i.test(metadata.modelType)) ||
+      /(?:^|[._ -])(?:clip|vision|projector|mmproj|embedding|embedder|reranker|rerank|bert)(?:$|[._ -])/i.test(
+        modelDescriptor
       )
-      const profile = await this.profile()
-      const fit = assessModelFit(profile, {
-        runtime: request.runtime,
-        fileSize: cached.info.size,
+    ) {
+      throw new Error('runtime.unsupportedModelType')
+    }
+    const probe = await prepare(() => this.ensureProbe(request.runtime, controller.signal))
+    controller.signal.throwIfAborted()
+    // Runtime API support alone does not prove that this particular GGUF is
+    // an instruction/chat model. Until a runtime exposes a model-specific
+    // compatibility probe, require the immutable file's own chat template.
+    if (!metadata.chatTemplate) {
+      throw new Error('runtime.chatTemplateMissing')
+    }
+    const contextLength = Math.min(
+      request.contextLength ?? DEFAULT_CONTEXT,
+      metadata.contextLength ?? request.contextLength ?? DEFAULT_CONTEXT
+    )
+    const profile = await prepare(() => this.profile())
+    controller.signal.throwIfAborted()
+    const fit = assessModelFit(profile, {
+      runtime: request.runtime,
+      fileSize: cached.info.size,
+      contextLength,
+      layerCount: metadata.layerCount,
+      embeddingLength: metadata.embeddingLength,
+      kvHeadCount: metadata.kvHeadCount,
+      cacheFreeBytes: profile.cacheFreeBytes,
+      cached: true,
+      importedAlready: request.runtime === 'ollama' && this.importedModel(request)?.missing === 0
+    })
+    if ((fit.level === 'unlikely' || fit.level === 'unknown') && !request.allowTightFit) {
+      throw new Error(`runtime.fitConfirmationRequired:${fit.level}`)
+    }
+
+    this.setState({ ...this.state, status: 'starting', contextLength })
+    operation.contextLength = contextLength
+    if (request.runtime === 'llama.cpp') {
+      const running = await this.startLlama(
+        operation,
+        probe,
+        cached.absolutePath,
         contextLength,
-        layerCount: metadata.layerCount,
-        embeddingLength: metadata.embeddingLength,
-        kvHeadCount: metadata.kvHeadCount,
-        cacheFreeBytes: profile.cacheFreeBytes,
-        cached: true,
-        importedAlready:
-          request.runtime === 'ollama' &&
-          Boolean(
-            this.deps.db
-              .prepare(
-                'SELECT 1 FROM local_models WHERE runtime = ? AND repo_id = ? AND resolved_commit = ? AND file_path = ? AND missing = 0'
-              )
-              .get('ollama', request.repoId, request.resolvedCommit, request.filePath)
-          )
-      })
-      if ((fit.level === 'unlikely' || fit.level === 'unknown') && !request.allowTightFit) {
-        throw new Error(`runtime.fitConfirmationRequired:${fit.level}`)
-      }
-
-      this.setState({ ...this.state, status: 'starting', contextLength })
-      if (request.runtime === 'llama.cpp') {
-        this.llama = await this.startLlama(
-          probe,
-          cached.absolutePath,
-          contextLength,
-          metadata,
-          profile,
-          request.gpuLayers
-        )
-        const ownedLlama = this.llama
-        ownedLlama.child.once('exit', (_code, signal) => {
-          if (this.llama !== ownedLlama) return
-          this.llama = null
-          if (this.state.status === 'stopping' || this.state.status === 'idle') return
-          this.setState({
-            ...this.state,
-            status: 'error',
-            error: signal ? `runtime.exited:${signal}` : 'runtime.exited'
-          })
-        })
-        return this.setState({
-          ...this.state,
-          status: 'ready',
-          endpoint: this.llama.endpoint,
-          contextLength
-        })
-      }
-
-      const modelName = await this.importOllama(probe, request, cached.absolutePath, metadata)
-      const endpoint = `http://127.0.0.1:${this.deps.settings.get().ollamaPort}`
-      // A zero-token chat loads the model without persisting any prompt.
-      const response = await fetch(`${endpoint}/api/chat`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ model: modelName, messages: [], stream: false, keep_alive: -1 }),
-        signal: AbortSignal.timeout(START_TIMEOUT_MS)
-      })
-      if (!response.ok) throw new Error(`runtime.ollamaLoadFailed:${response.status}`)
-      this.activeOllamaModel = modelName
-      const usage = await this.ollamaUsage(endpoint, modelName)
+        metadata,
+        profile,
+        request.gpuLayers
+      )
+      controller.signal.throwIfAborted()
       return this.setState({
         ...this.state,
         status: 'ready',
-        endpoint,
-        modelName,
-        contextLength,
-        ...usage
-      })
-    } catch (error) {
-      return this.setState({
-        ...this.state,
-        status: 'error',
-        error: error instanceof Error ? limited(error.message, 500) : String(error)
+        endpoint: running.endpoint,
+        contextLength
       })
     }
+
+    const modelName = await this.importOllama(probe, operation, cached.absolutePath)
+    controller.signal.throwIfAborted()
+    const endpoint = `http://127.0.0.1:${operation.ollamaPort}`
+    for (let attempt = 0; attempt < 2; attempt++) {
+      controller.signal.throwIfAborted()
+      operation.ollamaModel = modelName
+      // Drain an in-flight load before unloading; disconnecting HTTP does not
+      // establish that an external Ollama daemon stopped loading the model.
+      const response = await fetch(`${endpoint}/api/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: modelName,
+          messages: [],
+          stream: false,
+          keep_alive: -1,
+          options: { num_ctx: contextLength }
+        }),
+        signal: AbortSignal.timeout(START_TIMEOUT_MS)
+      })
+      await response.text()
+      controller.signal.throwIfAborted()
+      if (response.ok) break
+      if (response.status === 404) {
+        operation.ollamaModel = undefined
+        this.deps.db
+          .prepare(
+            "UPDATE local_models SET missing = ? WHERE runtime = 'ollama' AND model_name = ?"
+          )
+          .run(1, modelName)
+        if (attempt === 0) {
+          await this.importOllama(probe, operation, cached.absolutePath, true)
+          continue
+        }
+      }
+      throw new Error(`runtime.ollamaLoadFailed:${response.status}`)
+    }
+    const usage = await prepare(() => this.ollamaUsage(endpoint, modelName))
+    controller.signal.throwIfAborted()
+    return this.setState({
+      ...this.state,
+      status: 'ready',
+      endpoint,
+      modelName,
+      contextLength,
+      ...usage
+    })
   }
 
   startFromPostAction(request: {
@@ -857,13 +1094,23 @@ export class LocalRuntimeManager {
   }
 
   chatStream(id: string, request: LocalChatRequest): void {
-    if (this.state.status !== 'ready' || !this.state.endpoint || !this.state.runtime) {
+    if (
+      this.state.status !== 'ready' ||
+      !this.state.endpoint ||
+      !this.state.runtime ||
+      !this.owner ||
+      this.owner.controller.signal.aborted
+    ) {
       throw new Error('runtime.notReady')
     }
     if (this.streams.has(id)) throw new Error('runtime.duplicateStream')
     const controller = new AbortController()
     this.streams.set(id, controller)
-    void this.streamChat(id, request, controller).finally(() => this.streams.delete(id))
+    const work = this.streamChat(id, request, controller).finally(() => {
+      this.streams.delete(id)
+      this.streamWork.delete(work)
+    })
+    this.streamWork.add(work)
   }
 
   private async streamChat(
@@ -872,22 +1119,24 @@ export class LocalRuntimeManager {
     controller: AbortController
   ): Promise<void> {
     try {
-      const maxTokens = request.maxTokens ?? DEFAULT_MAX_TOKENS
-      const temperature = request.temperature ?? DEFAULT_TEMPERATURE
-      const isOllama = this.state.runtime === 'ollama'
+      const owner = this.owner!
+      const state = this.getState()
+      const maxTokens = request.maxTokens ?? owner.request.maxTokens ?? DEFAULT_MAX_TOKENS
+      const temperature = request.temperature ?? owner.request.temperature ?? DEFAULT_TEMPERATURE
+      const isOllama = state.runtime === 'ollama'
       const response = await fetch(
-        `${this.state.endpoint}${isOllama ? '/api/chat' : '/v1/chat/completions'}`,
+        `${state.endpoint}${isOllama ? '/api/chat' : '/v1/chat/completions'}`,
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(
             isOllama
               ? {
-                  model: this.activeOllamaModel,
+                  model: owner.ollamaModel,
                   messages: request.messages,
                   stream: true,
                   keep_alive: -1,
-                  options: { temperature, num_predict: maxTokens }
+                  options: { temperature, num_predict: maxTokens, num_ctx: owner.contextLength }
                 }
               : {
                   messages: request.messages,
@@ -953,26 +1202,25 @@ export class LocalRuntimeManager {
     this.streams.get(id)?.abort()
   }
 
-  async stop(): Promise<LocalRuntimeState> {
-    if (this.state.status === 'idle' || this.state.status === 'unavailable') return this.getState()
-    this.setState({ ...this.state, status: 'stopping', error: undefined })
-    for (const controller of this.streams.values()) controller.abort()
-    this.streams.clear()
-    const llama = this.llama
-    this.llama = null
-    if (llama) await killOwnedProcess(llama.child)
-    const ollamaModel = this.activeOllamaModel
-    this.activeOllamaModel = null
-    if (ollamaModel) {
-      const endpoint = `http://127.0.0.1:${this.deps.settings.get().ollamaPort}`
-      await fetch(`${endpoint}/api/chat`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ model: ollamaModel, messages: [], stream: false, keep_alive: 0 }),
-        signal: AbortSignal.timeout(STOP_TIMEOUT_MS)
-      }).catch(() => undefined)
+  stop(): Promise<LocalRuntimeState> {
+    const generation = this.invalidate()
+    if (this.owner || this.pending.size) {
+      this.setState({ ...this.state, status: 'stopping', error: undefined })
     }
-    return this.setState({ status: 'idle' })
+    return this.enqueue(async () => {
+      try {
+        await this.releaseOwner()
+        return generation === this.generation ? this.setState({ status: 'idle' }) : this.getState()
+      } catch (error) {
+        if (generation === this.generation)
+          this.setState({
+            ...this.state,
+            status: 'error',
+            error: error instanceof Error ? limited(error.message, 500) : String(error)
+          })
+        throw error
+      }
+    })
   }
 
   async removeImportedModel(modelName: string): Promise<{ removed: boolean }> {
@@ -980,7 +1228,7 @@ export class LocalRuntimeManager {
       .prepare('SELECT model_name FROM local_models WHERE runtime = ? AND model_name = ?')
       .get('ollama', modelName) as { model_name: string } | undefined
     if (!row) return { removed: false }
-    if (this.activeOllamaModel === modelName) await this.stop()
+    if (this.owner?.ollamaModel === modelName || this.pending.size) await this.stop()
     const probe = await this.ensureProbe('ollama')
     await command(probe.binaryPath!, ['rm', modelName], {
       timeout: 60_000,
@@ -1019,8 +1267,28 @@ export class LocalRuntimeManager {
     }
   }
 
-  async shutdown(): Promise<void> {
-    await this.stop()
+  shutdown(): Promise<void> {
+    this.shuttingDown = true
+    if (!this.shutdownWork) {
+      this.shutdownWork = this.stop().then(
+        () => {
+          this.shutdownDrained = true
+        },
+        (error: unknown) => {
+          this.shutdownWork = null
+          throw error
+        }
+      )
+    }
+    return this.shutdownWork
+  }
+
+  resumeAfterShutdown(): void {
+    if (!this.shuttingDown) return
+    if (!this.shutdownDrained) throw new Error('runtime.shutdownNotDrained')
+    this.shuttingDown = false
+    this.shutdownWork = null
+    this.shutdownDrained = false
   }
 }
 

@@ -44,17 +44,30 @@ export function evaluateSecurityPolicy(
   _action: SecurityAction
 ): { decision: SecurityDecision; reasons: SecurityReasonCode[] } {
   const selected = files ? new Set(files) : null
-  const selectedEvidence = report.evidence.filter((item) =>
-    selected === null ? true : item.filePath !== undefined && selected.has(item.filePath)
-  )
-  const selectedMalicious = selectedEvidence.some((item) => item.status === 'malicious')
-  const unscopedMalicious = report.evidence.some(
-    (item) => item.status === 'malicious' && item.filePath === undefined
-  )
-  const repositoryHasMalicious = report.evidence.some((item) => item.status === 'malicious')
+  const selectedEvidence: SecurityEvidence[] = []
+  const safeByPath = new Map<string, boolean>()
+  let selectedMalicious = false
+  let unscopedMalicious = false
+  let repositoryHasMalicious = false
+  let attributedMalicious = false
+  for (const item of report.evidence) {
+    const path = item.filePath
+    const included = selected === null || (path !== undefined && selected.has(path))
+    if (included) {
+      selectedEvidence.push(item)
+      if (selected && path !== undefined) {
+        safeByPath.set(path, (safeByPath.get(path) ?? true) && item.status === 'safe')
+      }
+    }
+    if (item.status === 'malicious') {
+      repositoryHasMalicious = true
+      if (path === undefined) unscopedMalicious = true
+      else attributedMalicious = true
+      if (included) selectedMalicious = true
+    }
+  }
   const overallMaliciousWithoutFileAttribution =
-    report.overall === 'malicious' &&
-    !report.evidence.some((item) => item.status === 'malicious' && item.filePath !== undefined)
+    report.overall === 'malicious' && !attributedMalicious
 
   if (
     selectedMalicious ||
@@ -76,8 +89,7 @@ export function evaluateSecurityPolicy(
   for (const path of files ?? []) reasons.push(...localFileRiskReasons(path))
   if (selected) {
     for (const path of selected) {
-      const fileEvidence = report.evidence.filter((item) => item.filePath === path)
-      if (fileEvidence.length === 0 || !fileEvidence.every((item) => item.status === 'safe')) {
+      if (safeByPath.get(path) !== true) {
         reasons.push('unscanned-file')
       }
     }

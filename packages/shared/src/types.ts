@@ -482,6 +482,7 @@ export interface DownloadTask {
     | 'network'
     | 'integrity'
     | 'disk-space'
+    | 'security'
   /** False when continuing the task could mix endpoint/cache environments. */
   resumable: boolean
   status: DownloadStatus
@@ -563,6 +564,11 @@ export interface DownloadRequest {
   securityGrantId?: string
   /** Main-process-only evidence binding for persisted compound actions. */
   securityAcknowledgement?: SecurityAcknowledgement
+  /** Main-only original authorization scope; never accepted from renderer input. */
+  securityAuthorization?: {
+    request: SecurityPreflightRequest
+    acknowledgement: SecurityAcknowledgement
+  }
 }
 
 export interface CachedRevision {

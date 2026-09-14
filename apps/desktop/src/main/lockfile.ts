@@ -33,7 +33,10 @@ interface StoredInspection {
 type LockfileHub = Pick<HubClient, 'resolveRevision' | 'getRepoDetail' | 'getFileTree'> & {
   baseUrl?: string
 }
-type LockfileSecurity = Pick<SecurityGate, 'preflight' | 'authorize' | 'confirm'>
+type LockfileSecurity = Pick<
+  SecurityGate,
+  'preflight' | 'authorize' | 'confirm' | 'acknowledgement'
+>
 
 interface LockfileEndpointContext {
   hub: LockfileHub
@@ -413,17 +416,16 @@ export class LockfileManager {
           prior.currentSecurityDecision === 'confirm'
             ? options.securityGrantIds?.[grantIndex++]
             : undefined
-        await stored.context.security.authorize(
-          {
-            action: 'lock-restore',
-            kind: resource.kind,
-            repoId: resource.repoId,
-            revision: resource.requestedRevision,
-            resolvedCommit: resource.resolvedCommit,
-            files: resource.files?.map((file) => file.path)
-          },
-          grantId
-        )
+        const securityRequest = {
+          action: 'lock-restore' as const,
+          kind: resource.kind,
+          repoId: resource.repoId,
+          revision: resource.requestedRevision,
+          resolvedCommit: resource.resolvedCommit,
+          files: resource.files?.map((file) => file.path)
+        }
+        const report = await stored.context.security.authorize(securityRequest, grantId)
+        const acknowledgement = stored.context.security.acknowledgement(securityRequest, report)
 
         if (resource.runtime) {
           this.deps.localRuntime.savePreset({
@@ -478,6 +480,8 @@ export class LockfileManager {
             repoId: resource.repoId,
             revision: resource.requestedRevision,
             resolvedCommit: resource.resolvedCommit,
+            securityAuthorization: { request: securityRequest, acknowledgement },
+            securityAcknowledgement: acknowledgement,
             files: missingPaths[0] === '*' ? undefined : missingPaths
           },
           {

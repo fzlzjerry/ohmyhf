@@ -81,21 +81,27 @@ export class SecurityGate {
     }
   }
 
-  private async currentReport(request: SecurityPreflightRequest): Promise<SecurityReport> {
+  private async currentReport(
+    request: SecurityPreflightRequest,
+    fresh = false
+  ): Promise<SecurityReport> {
     const expected = normalizeResolvedCommit(request.resolvedCommit)
     if (!expected) throw new Error('security.invalidCommit')
 
     // Prove that the immutable commit is still accessible. The symbolic ref is
     // deliberately not re-resolved here: branches may move during a long
     // download, while the requested+resolved identity must remain reproducible.
-    const resolved = await this.hub.resolveRevision(request.kind, request.repoId, expected)
+    const resolved = await this.hub.resolveRevision(request.kind, request.repoId, expected, {
+      fresh
+    })
     if (resolved.resolvedCommit !== expected) throw new Error('security.commitChanged')
 
     const report = await this.hub.getSecurityReport(
       request.kind,
       request.repoId,
       request.revision,
-      expected
+      expected,
+      { fresh }
     )
     if (report.resolvedCommit.toLowerCase() !== expected) {
       throw new Error('security.reportCommitMismatch')
@@ -148,7 +154,7 @@ export class SecurityGate {
       resolvedCommit: request.resolvedCommit.toLowerCase(),
       files: canonicalFiles(request.files)
     }
-    const report = await this.currentReport(normalizedRequest)
+    const report = await this.currentReport(normalizedRequest, true)
     const policy = evaluateSecurityPolicy(report, normalizedRequest.files, normalizedRequest.action)
     if (policy.decision === 'block') throw new Error('security.blocked')
     if (policy.decision === 'allow') return report
@@ -201,7 +207,7 @@ export class SecurityGate {
       resolvedCommit: request.resolvedCommit.toLowerCase(),
       files: canonicalFiles(request.files)
     }
-    const report = await this.currentReport(normalizedRequest)
+    const report = await this.currentReport(normalizedRequest, true)
     const policy = evaluateSecurityPolicy(report, normalizedRequest.files, normalizedRequest.action)
     if (policy.decision === 'block') throw new Error('security.blocked')
     if (report.fingerprint !== acknowledgement.fingerprint) {

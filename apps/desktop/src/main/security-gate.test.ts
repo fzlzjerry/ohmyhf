@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { HubClient } from '@oh-my-huggingface/hub-api'
 import {
   securityEvidenceFingerprint,
   type SecurityEvidence,
@@ -147,4 +148,96 @@ describe('SecurityGate', () => {
       'security.evidenceChanged'
     )
   })
+
+  it.each(['report', 'tree'] as const)(
+    'rejects newly malicious %s evidence after a cached safe preflight',
+    async (source) => {
+      let malicious = false
+      const hub = new HubClient({
+        cacheTtlMs: 120_000,
+        minRequestGapMs: 0,
+        maxRetries: 0,
+        fetchImpl: async (input) => {
+          const url = String(input)
+          const body = url.includes('/refs?')
+            ? { branches: [], tags: [], defaultBranch: 'main' }
+            : url.includes('/tree/')
+              ? [
+                  {
+                    type: 'file',
+                    path: 'model.gguf',
+                    size: 8,
+                    security: { status: malicious && source === 'tree' ? 'malicious' : 'safe' }
+                  }
+                ]
+              : {
+                  id: 'org/model',
+                  sha: COMMIT,
+                  securityRepoStatus: {
+                    malware: malicious && source === 'report' ? 'malicious' : 'safe'
+                  }
+                }
+          return new Response(JSON.stringify(body), {
+            headers: { 'Content-Type': 'application/json' }
+          })
+        }
+      })
+      const gate = new SecurityGate(hub)
+      const preflight = await gate.preflight(baseRequest)
+      expect(preflight.decision).toBe('allow')
+      const acknowledgement = gate.acknowledgement(baseRequest, preflight.report)
+      malicious = true
+      await expect(gate.authorize(baseRequest)).rejects.toThrow('security.blocked')
+      await expect(gate.authorizeAcknowledged(baseRequest, acknowledgement)).rejects.toThrow(
+        'security.blocked'
+      )
+    }
+  )
+
+  it.each(['commit', 'report', 'tree'] as const)(
+    'fails closed when fresh %s access fails despite expired safe browsing caches',
+    async (failedRead) => {
+      let offline = false
+      let now = 10_000
+      const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
+      try {
+        const hub = new HubClient({
+          cacheTtlMs: 100,
+          minRequestGapMs: 0,
+          maxRetries: 0,
+          fetchImpl: async (input) => {
+            const url = String(input)
+            const read = url.includes('/tree/')
+              ? 'tree'
+              : url.includes('securityStatus=true')
+                ? 'report'
+                : 'commit'
+            if (offline && read === failedRead) throw new TypeError('network unavailable')
+            const body = url.includes('/refs?')
+              ? { branches: [], tags: [], defaultBranch: 'main' }
+              : read === 'tree'
+                ? [{ type: 'file', path: 'model.gguf', size: 8, security: { status: 'safe' } }]
+                : { id: 'org/model', sha: COMMIT, securityRepoStatus: { malware: 'safe' } }
+            return new Response(JSON.stringify(body), {
+              headers: { 'Content-Type': 'application/json' }
+            })
+          }
+        })
+        const gate = new SecurityGate(hub)
+        const preflight = await gate.preflight(baseRequest)
+        expect(preflight.decision).toBe('allow')
+        const acknowledgement = gate.acknowledgement(baseRequest, preflight.report)
+        now += 101
+        offline = true
+        // Browsing still works offline; neither authorization path may use it.
+        expect((await gate.preflight(baseRequest)).decision).toBe('allow')
+        await expect(gate.authorize(baseRequest)).rejects.toThrow('network unavailable')
+        await expect(gate.authorizeAcknowledged(baseRequest, acknowledgement)).rejects.toThrow(
+          'network unavailable'
+        )
+      } finally {
+        clock.mockRestore()
+      }
+    }
+  )
 })

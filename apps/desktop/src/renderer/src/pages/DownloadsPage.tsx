@@ -19,7 +19,7 @@ import {
   type DownloadStatus,
   type DownloadTask
 } from '@oh-my-huggingface/shared'
-import { describeError } from '@/lib/errors'
+import { classifyError, describeError } from '@/lib/errors'
 import { invoke } from '@/lib/ipc'
 import { cn, formatBytes } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -82,10 +82,24 @@ function TaskCard({ task }: { task: DownloadTask }): React.JSX.Element {
   const [confirmRemove, setConfirmRemove] = useState(false)
 
   const act = useMutation({
-    mutationFn: (action: Action) => invoke(action, { id: task.id }),
+    mutationFn: async (action: Action) => {
+      if (action === 'downloads:resume' && task.errorCode === 'security') {
+        const securityGrantId = await security.authorize({
+          preflight: () => invoke('downloads:resumePreflight', { id: task.id }),
+          confirm: (challengeId) => invoke('downloads:confirmResume', { id: task.id, challengeId })
+        })
+        return invoke('downloads:resume', { id: task.id, reconfirm: true, securityGrantId })
+      }
+      return invoke(action, { id: task.id })
+    },
     onSuccess: (tasks, action) => {
       queryClient.setQueryData(['downloads'], tasks)
       if (action === 'downloads:remove') push(t('downloads:removed'), 'success')
+    },
+    onError: (error) => {
+      if (classifyError(error).kind === 'canceled') return
+      push(describeError(t, error.message), 'error')
+      void queryClient.invalidateQueries({ queryKey: ['downloads'] })
     }
   })
 
@@ -207,14 +221,26 @@ function TaskCard({ task }: { task: DownloadTask }): React.JSX.Element {
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
-                    size="icon"
-                    aria-label={t('downloads:actions.resume')}
+                    size={task.errorCode === 'security' ? 'sm' : 'icon'}
+                    aria-label={t(
+                      task.errorCode === 'security'
+                        ? 'downloads:actions.reviewResume'
+                        : 'downloads:actions.resume'
+                    )}
+                    disabled={act.isPending || !task.resumable}
                     onClick={() => act.mutate('downloads:resume')}
                   >
                     <Play className="size-4" aria-hidden />
+                    {task.errorCode === 'security' && t('downloads:actions.reviewResume')}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>{t('downloads:actions.resume')}</TooltipContent>
+                <TooltipContent>
+                  {t(
+                    task.errorCode === 'security'
+                      ? 'downloads:actions.reviewResume'
+                      : 'downloads:actions.resume'
+                  )}
+                </TooltipContent>
               </Tooltip>
             )}
             {task.status !== 'completed' && task.status !== 'canceled' && (
@@ -402,6 +428,7 @@ function TaskCard({ task }: { task: DownloadTask }): React.JSX.Element {
 export function DownloadsPage(): React.JSX.Element {
   const { t } = useTranslation(['downloads', 'common'])
   const queryClient = useQueryClient()
+  const push = useToasts((s) => s.push)
   const tasks = useQuery({
     queryKey: ['downloads'],
     queryFn: () => invoke('downloads:list', undefined)
@@ -409,7 +436,8 @@ export function DownloadsPage(): React.JSX.Element {
 
   const bulk = useMutation({
     mutationFn: (action: BulkAction) => invoke(action, undefined),
-    onSuccess: (next) => queryClient.setQueryData(['downloads'], next)
+    onSuccess: (next) => queryClient.setQueryData(['downloads'], next),
+    onError: (error) => push(error.message, 'error')
   })
 
   const total = tasks.data?.length ?? 0
@@ -463,6 +491,7 @@ export function DownloadsPage(): React.JSX.Element {
               <Button
                 variant="secondary"
                 size="sm"
+                disabled={bulk.isPending}
                 onClick={() => bulk.mutate('downloads:resumeAll')}
               >
                 <Play className="size-3.5" aria-hidden />
@@ -473,6 +502,7 @@ export function DownloadsPage(): React.JSX.Element {
               <Button
                 variant="secondary"
                 size="sm"
+                disabled={bulk.isPending}
                 onClick={() => bulk.mutate('downloads:pauseAll')}
               >
                 <Pause className="size-3.5" aria-hidden />
@@ -484,6 +514,7 @@ export function DownloadsPage(): React.JSX.Element {
                 variant="secondary"
                 size="sm"
                 onClick={() => bulk.mutate('downloads:clearCompleted')}
+                disabled={bulk.isPending}
               >
                 <Trash2 className="size-3.5" aria-hidden />
                 {t('downloads:bulk.clearCompleted')}

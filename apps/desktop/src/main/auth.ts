@@ -99,6 +99,7 @@ export class AuthManager {
   ) {}
 
   attachClient(client: HubClient): void {
+    if (this.client !== client) this.epoch += 1
     this.client = client
   }
 
@@ -284,6 +285,8 @@ export class AuthManager {
     }
     this.token = accepted
     if (!this.token) return
+    const startEpoch = this.epoch
+    const sessionToken = this.token
     try {
       this.persistToken()
     } catch {
@@ -291,9 +294,11 @@ export class AuthManager {
     }
     try {
       const user = await this.client.whoAmI()
+      if (this.epoch !== startEpoch || this.token !== sessionToken) return
       this.clearRetry()
       this.setState(this.signedInState(user))
     } catch (err) {
+      if (this.epoch !== startEpoch || this.token !== sessionToken) return
       if (isUnauthorized(err)) {
         // Definitive 401 only: the token was revoked. A 403 (WAF challenge,
         // geo block, proxy) is transient and must never wipe stored credentials.
@@ -508,8 +513,11 @@ export class AuthManager {
    */
   async refreshUser(): Promise<AuthState> {
     if (this.state.status !== 'signedIn' || !this.token) return this.state
+    const startEpoch = this.epoch
+    const sessionToken = this.token
     try {
       const user = await this.client.whoAmI()
+      if (this.epoch !== startEpoch || this.token !== sessionToken) return this.state
       this.setState(
         this.signedInState({
           ...user,
@@ -517,6 +525,7 @@ export class AuthManager {
         })
       )
     } catch (err) {
+      if (this.epoch !== startEpoch || this.token !== sessionToken) return this.state
       console.warn('[auth] refreshUser failed', err)
     }
     return this.state

@@ -35,7 +35,14 @@ export function useWatchSync(): (action: 'add' | 'delete', targets: WatchSyncTar
   const endpointKey = normalizeHubEndpoint(endpoint)
 
   return (action, targets) => {
-    if (!signedIn || targets.length === 0) return
+    const current = useAppStore.getState()
+    if (
+      !signedIn ||
+      targets.length === 0 ||
+      current.auth !== auth ||
+      normalizeHubEndpoint(current.settings.hubEndpoint) !== endpointKey
+    )
+      return
     if (!hubSession) {
       push(t('profile:watchSyncNotApplied'), 'info', {
         action: {
@@ -57,6 +64,12 @@ export function useWatchSync(): (action: 'add' | 'delete', targets: WatchSyncTar
       )
     )
       .then((results) => {
+        const current = useAppStore.getState()
+        if (
+          current.auth !== auth ||
+          normalizeHubEndpoint(current.settings.hubEndpoint) !== endpointKey
+        )
+          return
         const last = results[results.length - 1]
         if (last !== undefined) queryClient.setQueryData(['hub-watched', endpointKey], last.watched)
         if (results.every((r) => r.applied)) {

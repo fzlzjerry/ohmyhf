@@ -263,7 +263,11 @@ if (!gotLock) {
       }
     })
 
-    const auth = new AuthManager(db, (state) => broadcast('evt:auth', state))
+    const downloadsForAuth: { current?: DownloadManager } = {}
+    const auth = new AuthManager(db, (state) => {
+      downloadsForAuth.current?.invalidateSecurityContexts()
+      broadcast('evt:auth', state)
+    })
     const initial = settings.get()
     const hubHolder: HubHolder = {
       current: createHubClient(
@@ -332,6 +336,14 @@ if (!gotLock) {
       notifications,
       () => auth.accessToken(),
       (tasks) => broadcast('evt:downloads', tasks),
+      (endpoint) =>
+        new SecurityGate(
+          buildHubClient(
+            () => (endpoint === hub.baseUrl.replace(/\/+$/, '') ? auth.accessToken() : undefined),
+            () => undefined,
+            { endpoint, proxyUrl: settings.get().proxyUrl }
+          )
+        ),
       (request) => {
         void (async () => {
           try {
@@ -364,6 +376,7 @@ if (!gotLock) {
         if (state.status === 'error') throw new Error(state.error ?? 'runtime.startFailed')
       }
     )
+    downloadsForAuth.current = downloads
     // Cache cleanup must spare partials of still-resumable downloads.
     const cachePinsRef: { current?: CachePinStore } = {}
     let lockfile: LockfileManager | null = null
@@ -375,15 +388,8 @@ if (!gotLock) {
         for (const commit of cachePinsRef.current?.commits(kind, repoId) ?? []) {
           protectedCommits.add(commit)
         }
-        const runtimeState = localRuntimeRef.current?.getState()
-        if (
-          runtimeState?.repoId === repoId &&
-          runtimeState.resolvedCommit &&
-          kind === 'model' &&
-          runtimeState.status !== 'idle' &&
-          runtimeState.status !== 'unavailable'
-        ) {
-          protectedCommits.add(runtimeState.resolvedCommit)
+        for (const commit of localRuntimeRef.current?.protectedCommits(kind, repoId) ?? []) {
+          protectedCommits.add(commit)
         }
         for (const commit of lockfile?.protectedCommits(kind, repoId) ?? []) {
           protectedCommits.add(commit)
@@ -455,7 +461,19 @@ if (!gotLock) {
       await localRuntime.shutdown()
     })
     restoreAfterFailedInstall = () => {
-      downloads.resumeAfterShutdown()
+      void (async () => {
+        try {
+          await localRuntime.shutdown()
+          if (installingUpdate || quit?.isQuitting()) return
+          localRuntime.resumeAfterShutdown()
+        } catch (error) {
+          console.warn('[runtime] failed to drain after update failure', error)
+        }
+        if (installingUpdate || quit?.isQuitting()) return
+        await downloads.resumeAfterShutdown()
+      })().catch((error: unknown) => {
+        console.warn('[downloads] failed to resume after update failure', error)
+      })
       follows.start()
       if (settings.get().closeToTray) tray.ensure()
     }

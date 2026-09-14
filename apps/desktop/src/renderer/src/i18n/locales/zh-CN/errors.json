@@ -6,6 +6,9 @@
   "rateLimit": "Hugging Face API 已限流。应用会自动退避并重试，请稍候再试。",
   "unknown": "出错了，请重试。",
   "server": "Hugging Face API 返回服务器错误，请稍后重试。",
+  "securityBlocked": "安全证据已阻止此操作，无法继续。",
+  "securityReview": "安全证据已变化或需要确认。请先检查安全证据，再继续。",
+  "canceled": "已取消操作。",
   "query": {
     "title": "无法加载此内容"
   },

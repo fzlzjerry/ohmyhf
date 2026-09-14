@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -44,6 +44,36 @@ describe('local cache snapshot reads', () => {
     expect(text?.content).toBe('x'.repeat(10))
     expect(text?.truncated).toBe(true)
     expect(text?.size).toBe(2000)
+  })
+
+  it('reads the addressed revision without inspecting unrelated snapshots', async () => {
+    const cacheDir = await seed()
+    const paths = repoCachePaths(cacheDir, 'model', 'org/repo')
+    await writeFile(join(paths.snapshotsDir, 'unrelated-incomplete-snapshot'), 'not a directory')
+
+    const snapshot = await readCacheSnapshot(cacheDir, 'model', 'org/repo', COMMIT)
+    expect(snapshot?.files).toEqual([{ path: 'README.md', size: 14 }])
+    const text = await readCachedText(cacheDir, 'model', 'org/repo', 'README.md', 1024, COMMIT)
+    expect(text?.content).toBe('# hello cache\n')
+    expect(await readCacheSnapshot(cacheDir, 'model', 'org/repo', 'c'.repeat(40))).toBeNull()
+  })
+
+  it('rejects a requested snapshot redirected by a directory symlink', async () => {
+    const cacheDir = await seed()
+    const paths = repoCachePaths(cacheDir, 'model', 'org/repo')
+    const redirectedCommit = 'c'.repeat(40)
+    await symlink(
+      join(paths.snapshotsDir, COMMIT),
+      join(paths.snapshotsDir, redirectedCommit),
+      'junction'
+    )
+
+    await expect(
+      readCacheSnapshot(cacheDir, 'model', 'org/repo', redirectedCommit)
+    ).rejects.toThrow('symbolic link or junction')
+    await expect(
+      readCachedText(cacheDir, 'model', 'org/repo', 'README.md', 1024, redirectedCommit)
+    ).rejects.toThrow('symbolic link or junction')
   })
 
   it('returns null for a repo that is not cached', async () => {

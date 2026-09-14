@@ -70,8 +70,8 @@ export async function commitRepoFiles(
 ): Promise<RepoCommitResult> {
   if (!accessToken) return { ok: false, error: '', messageKey: 'edit.needWrite' }
 
-  const { commit, createBranch, HubApiError } = await import('@huggingface/hub')
   const { endpoint, proxyUrl } = getHubNetworkOptions()
+  const { commit, createBranch, HubApiError } = await import('@huggingface/hub')
   const hubUrl = (endpoint ?? DEFAULT_ENDPOINT).replace(/\/+$/, '')
   const fetchImpl = createProxiedFetch(proxyUrl)
   const repo = { type: REPO_TYPE[input.kind], name: input.repoId }

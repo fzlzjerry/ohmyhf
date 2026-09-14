@@ -326,6 +326,18 @@ const watchTargets = z
   .min(1)
   .max(100)
 
+/** Exact action scope shared by IPC and persisted download authorizations. */
+export const securityPreflightRequestSchema = z
+  .object({
+    action: securityAction,
+    kind: repoKind,
+    repoId,
+    revision,
+    resolvedCommit: commitSha,
+    files: z.array(relPath).max(10_000).optional()
+  })
+  .strict()
+
 /**
  * Validators for every channel that takes a payload. Channels with `req: void`
  * are validated by asserting the payload is undefined/null.
@@ -853,7 +865,11 @@ export const ipcRequestSchemas: Partial<Record<IpcInvokeChannel, z.ZodTypeAny>> 
     })
     .strict(),
   'downloads:pause': z.object({ id: z.uuid() }),
-  'downloads:resume': z.object({ id: z.uuid() }),
+  'downloads:resume': z
+    .object({ id: uuid, reconfirm: z.boolean().optional(), securityGrantId: uuid.optional() })
+    .strict(),
+  'downloads:resumePreflight': z.object({ id: uuid }).strict(),
+  'downloads:confirmResume': z.object({ id: uuid, challengeId: uuid }).strict(),
   'downloads:retryPostAction': z
     .object({
       id: z.uuid(),
@@ -979,20 +995,7 @@ export const ipcRequestSchemas: Partial<Record<IpcInvokeChannel, z.ZodTypeAny>> 
     request: z.object({ model: repoId, input: z.string().max(65536) })
   }),
   'inference:cancel': z.object({ id: z.uuid() }),
-  'security:preflight': z
-    .object({
-      request: z
-        .object({
-          action: securityAction,
-          kind: repoKind,
-          repoId,
-          revision,
-          resolvedCommit: commitSha,
-          files: z.array(relPath).max(10_000).optional()
-        })
-        .strict()
-    })
-    .strict(),
+  'security:preflight': z.object({ request: securityPreflightRequestSchema }).strict(),
   'security:confirm': z.object({ challengeId: uuid }).strict(),
   'localRuntime:selectBinary': z.object({ kind: localRuntimeKind }).strict(),
   'localRuntime:assess': z

@@ -50,6 +50,98 @@ describe('HubClient request coalescing', () => {
     await client.searchRepos(MODEL_QUERY)
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
+
+  it.each(['json', 'text', 'cookie'] as const)(
+    'isolates %s reads across account switches and late completions',
+    async (format) => {
+      let credential = 'account-A'
+      const releases: Array<(response: Response) => void> = []
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockImplementation(() => new Promise<Response>((resolve) => releases.push(resolve)))
+      const client = new HubClient({
+        fetchImpl,
+        ...FAST,
+        getAccessToken: () => credential,
+        getSessionCookie: () => credential
+      })
+      const read = async (): Promise<string | undefined> => {
+        if (format === 'text') return client.getReadme('model', 'private/repo')
+        if (format === 'json') return (await client.getRepoDetail('model', 'private/repo')).id
+        const feed = await client.getRecentActivity()
+        return feed.cursor
+          ? (new URL(feed.cursor).searchParams.get('cursor') ?? undefined)
+          : undefined
+      }
+      const response = (owner: string): Response =>
+        format === 'text'
+          ? new Response(owner)
+          : jsonResponse(
+              format === 'json'
+                ? { id: owner }
+                : { recentActivity: [{ type: 'unsupported' }], cursor: owner }
+            )
+      const old = read()
+      await Promise.resolve()
+      credential = 'account-B'
+      // Text exercises explicit sign-out invalidation; the other paths detect
+      // changed credentials even when the caller forgets to invalidate.
+      if (format === 'text') client.invalidateCache()
+      const current = read()
+      await Promise.resolve()
+      expect(fetchImpl).toHaveBeenCalledTimes(2)
+      releases[0]!(response('account-A'))
+      expect(await old).toBe('account-A')
+      const joined = read()
+      releases[1]!(response('account-B'))
+      expect(await current).toBe('account-B')
+      expect(await joined).toBe('account-B')
+      expect(await read()).toBe('account-B')
+      expect(fetchImpl).toHaveBeenCalledTimes(2)
+    }
+  )
+
+  it('does not overwrite a newer cache value after ordinary invalidation', async () => {
+    let release!: (response: Response) => void
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            release = resolve
+          })
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: 'new' }))
+    const client = new HubClient({ fetchImpl, ...FAST })
+    const old = client.getRepoDetail('model', 'a/b')
+    await Promise.resolve()
+    client.invalidateCache()
+    expect((await client.getRepoDetail('model', 'a/b')).id).toBe('new')
+    release(jsonResponse({ id: 'old' }))
+    await old
+    expect((await client.getRepoDetail('model', 'a/b')).id).toBe('new')
+  })
+
+  it('does not join an older in-flight browsing response for fresh reads', async () => {
+    let release!: (response: Response) => void
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            release = resolve
+          })
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: 'fresh' }))
+    const client = new HubClient({ fetchImpl, ...FAST })
+    const browsing = client.getRepoDetail('model', 'a/b')
+    await Promise.resolve()
+    expect((await client.getRepoDetail('model', 'a/b', undefined, { fresh: true })).id).toBe(
+      'fresh'
+    )
+    release(jsonResponse({ id: 'old' }))
+    await browsing
+  })
 })
 
 describe('HubClient rate-limit handling', () => {
@@ -249,6 +341,72 @@ describe('HubClient.getSafetensorsHeader', () => {
       'implausible header length'
     )
     expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancels ignored Range responses as soon as each header prefix is read', async () => {
+    const { lenBytes, jsonBytes } = encodeHeader({
+      weight: { dtype: 'F32', shape: [2], data_offsets: [0, 8] }
+    })
+    const prefix = new Uint8Array(8 + jsonBytes.length)
+    prefix.set(lenBytes)
+    prefix.set(jsonBytes, 8)
+    let pulled = 0
+    let cancelled = 0
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async () => {
+      let offset = 0
+      return new Response(
+        new ReadableStream<Uint8Array>(
+          {
+            pull(controller) {
+              controller.enqueue(new Uint8Array([prefix[offset] ?? 1]))
+              offset += 1
+              pulled += 1
+              if (offset === 4096) controller.close()
+            },
+            cancel() {
+              cancelled += 1
+            }
+          },
+          { highWaterMark: 0 }
+        ),
+        { status: 200 }
+      )
+    })
+    const client = new HubClient({ fetchImpl, ...FAST })
+    const header = await client.getSafetensorsHeader('model', 'a/b', 'weights.safetensors')
+    expect(header.totalParams).toBe(2)
+    expect(pulled).toBe(8 + prefix.length)
+    expect(cancelled).toBe(2)
+  })
+
+  it.each([200, 206])('bounds byte-window reads from a dishonest %s response', async (status) => {
+    let pulled = 0
+    let cancelled = false
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>(
+            {
+              pull(controller) {
+                const offset = status === 206 ? 4 : 0
+                controller.enqueue(new Uint8Array([offset + pulled++]))
+                if (pulled === 4096) controller.close()
+              },
+              cancel() {
+                cancelled = true
+              }
+            },
+            { highWaterMark: 0 }
+          ),
+          { status }
+        )
+    )
+    const client = new HubClient({ fetchImpl, ...FAST })
+    expect(await client.fetchFileRange('model', 'a/b', 'data.parquet', 4, 7)).toEqual(
+      new Uint8Array([4, 5, 6, 7])
+    )
+    expect(pulled).toBe(status === 200 ? 8 : 4)
+    expect(cancelled).toBe(true)
   })
 })
 

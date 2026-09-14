@@ -266,7 +266,15 @@ export function UserProfile({ username }: { username: string }): React.JSX.Eleme
   const setFollow = useMutation({
     mutationFn: (next: boolean) => invoke('hub:followSet', { username, following: next, isOrg }),
     onMutate: async (next) => {
+      const source = { auth: useAppStore.getState().auth, endpointKey, queryKey: overviewQueryKey }
       await queryClient.cancelQueries({ queryKey: overviewQueryKey })
+      const current = useAppStore.getState()
+      if (
+        current.auth !== source.auth ||
+        normalizeHubEndpoint(current.settings.hubEndpoint) !== source.endpointKey
+      ) {
+        return { ...source, prev: undefined }
+      }
       const prev = queryClient.getQueryData<UserOverview>(overviewQueryKey)
       if (prev) {
         const delta = next ? 1 : -1
@@ -276,10 +284,17 @@ export function UserProfile({ username }: { username: string }): React.JSX.Eleme
           numFollowers: Math.max(0, prev.numFollowers + delta)
         })
       }
-      return { prev }
+      return { ...source, prev }
     },
     onError: (err, _next, ctx) => {
-      if (ctx?.prev) queryClient.setQueryData(overviewQueryKey, ctx.prev)
+      const current = useAppStore.getState()
+      if (
+        !ctx ||
+        current.auth !== ctx.auth ||
+        normalizeHubEndpoint(current.settings.hubEndpoint) !== ctx.endpointKey
+      )
+        return
+      if (ctx.prev) queryClient.setQueryData(ctx.queryKey, ctx.prev)
       push(t('profile:followError', { error: err.message }), 'error')
     },
     onSuccess: async (_res, next) => {
@@ -317,8 +332,16 @@ export function UserProfile({ username }: { username: string }): React.JSX.Eleme
         type: isOrg ? 'org' : 'user',
         watching: next
       }),
-    onSuccess: (result, next) => {
-      queryClient.setQueryData(watchedQueryKey, result.watched)
+    onMutate: () => ({ auth: useAppStore.getState().auth, endpointKey, queryKey: watchedQueryKey }),
+    onSuccess: (result, next, source) => {
+      const current = useAppStore.getState()
+      if (
+        !source ||
+        current.auth !== source.auth ||
+        normalizeHubEndpoint(current.settings.hubEndpoint) !== source.endpointKey
+      )
+        return
+      queryClient.setQueryData(source.queryKey, result.watched)
       if (result.applied) {
         push(t(next ? 'profile:watchSuccess' : 'profile:unwatchSuccess'), 'success')
         return

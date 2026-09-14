@@ -86,7 +86,15 @@ export function PostPage(): React.JSX.Element {
     mutationFn: ({ emoji, active }: { emoji: string; active: boolean }) =>
       invoke('hub:postReactionSet', { author, slug, reaction: emoji, active }),
     onMutate: async ({ emoji, active }) => {
+      const source = { auth: useAppStore.getState().auth, endpointKey, queryKey }
       await queryClient.cancelQueries({ queryKey })
+      const current = useAppStore.getState()
+      if (
+        current.auth !== source.auth ||
+        normalizeHubEndpoint(current.settings.hubEndpoint) !== source.endpointKey
+      ) {
+        return { ...source, prev: undefined }
+      }
       const prev = queryClient.getQueryData<PostSummary>(queryKey)
       if (prev && currentUser !== undefined) {
         queryClient.setQueryData<PostSummary>(
@@ -94,10 +102,17 @@ export function PostPage(): React.JSX.Element {
           withReaction(prev, emoji, active, currentUser)
         )
       }
-      return { prev }
+      return { ...source, prev }
     },
     onError: (err, _vars, ctx) => {
-      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev)
+      const current = useAppStore.getState()
+      if (
+        !ctx ||
+        current.auth !== ctx.auth ||
+        normalizeHubEndpoint(current.settings.hubEndpoint) !== ctx.endpointKey
+      )
+        return
+      if (ctx.prev) queryClient.setQueryData(ctx.queryKey, ctx.prev)
       push(t('profile:reactions.error', { error: err.message }), 'error')
     },
     onSettled: () => void queryClient.invalidateQueries({ queryKey })

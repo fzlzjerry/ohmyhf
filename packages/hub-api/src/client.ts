@@ -173,6 +173,11 @@ export interface HubClientOptions {
   getSessionCookie?: () => string | undefined
 }
 
+export interface FreshReadOptions {
+  /** Bypass cached and in-flight browsing responses, including stale-on-error. */
+  fresh?: boolean
+}
+
 interface CacheEntry {
   at: number
   status: number
@@ -231,25 +236,21 @@ function totalSizeFrom(res: Response, received: number): number {
  */
 async function readBodyCapped(
   res: Response,
-  maxBytes: number
+  maxBytes: number,
+  stopAtLimit = false
 ): Promise<{ bytes: Uint8Array; capped: boolean }> {
   const reader = res.body?.getReader()
-  if (!reader) {
-    const bytes = new Uint8Array(await res.arrayBuffer())
-    return bytes.byteLength > maxBytes
-      ? { bytes: bytes.slice(0, maxBytes), capped: true }
-      : { bytes, capped: false }
-  }
+  if (!reader) return { bytes: new Uint8Array(), capped: false }
   const chunks: Uint8Array[] = []
   let received = 0
   let capped = false
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
-    chunks.push(value)
+    chunks.push(value.subarray(0, Math.max(0, maxBytes - received)))
     received += value.byteLength
-    if (received > maxBytes) {
-      capped = true
+    if (received > maxBytes || (stopAtLimit && received >= maxBytes)) {
+      capped = received > maxBytes
       await reader.cancel().catch(() => undefined)
       break
     }
@@ -413,6 +414,9 @@ export class HubClient {
   private readonly getSessionCookie: () => string | undefined
   private readonly cache = new Map<string, CacheEntry>()
   private readonly inflight = new Map<string, Promise<unknown>>()
+  private cacheGeneration = 0
+  private credentialToken?: string
+  private credentialCookie?: string
   private active = 0
   private nextStartAt = 0
   private readonly slotWaiters: Array<() => void> = []
@@ -492,15 +496,31 @@ export class HubClient {
     return h
   }
 
+  private syncCredentialIdentity(): void {
+    const token = this.getAccessToken()
+    const cookie = this.getSessionCookie()
+    if (this.credentialToken !== token || this.credentialCookie !== cookie) {
+      this.invalidateCache()
+      this.credentialToken = token
+      this.credentialCookie = cookie
+    }
+  }
+
   private cacheKey(url: string, auth: 'token' | 'cookie' = 'token'): string {
-    // Token presence changes private/gated GETs. Cookie GETs (following feed)
-    // are account-specific and must not share the token/anon partition.
-    if (auth === 'cookie') return `cookie:${url}`
-    return `${this.getAccessToken() ? 'auth' : 'anon'}:${url}`
+    this.syncCredentialIdentity()
+    // Credential values never enter cache keys or diagnostics.
+    return `${auth}:${url}`
+  }
+
+  private isCurrentGeneration(generation: number): boolean {
+    this.syncCredentialIdentity()
+    return generation === this.cacheGeneration
   }
 
   invalidateCache(): void {
     this.cache.clear()
+    this.cacheGeneration += 1
+    this.inflight.clear()
   }
 
   /** Admits a request start: caps concurrency and spaces starts by minRequestGapMs. */
@@ -593,7 +613,7 @@ export class HubClient {
 
   private async getJson<T>(
     url: string,
-    opts: { ttl?: number; auth?: 'token' | 'cookie' } = {}
+    opts: FreshReadOptions & { ttl?: number; auth?: 'token' | 'cookie' } = {}
   ): Promise<{
     body: T
     nextUrl?: string
@@ -601,6 +621,8 @@ export class HubClient {
     const ttl = opts.ttl ?? this.cacheTtlMs
     const auth = opts.auth ?? 'token'
     const key = this.cacheKey(url, auth)
+    const generation = this.cacheGeneration
+    if (opts.fresh) return this.fetchJson<T>(url, key, 0, auth, generation, true)
     const hit = this.cache.get(key)
     if (hit && Date.now() - hit.at < ttl) {
       return { body: hit.body as T, nextUrl: hit.nextUrl }
@@ -609,8 +631,8 @@ export class HubClient {
     const inflightKey = `json:${key}`
     const pending = this.inflight.get(inflightKey)
     if (pending) return pending as Promise<{ body: T; nextUrl?: string }>
-    const request = this.fetchJson<T>(url, key, ttl, auth).finally(() => {
-      this.inflight.delete(inflightKey)
+    const request = this.fetchJson<T>(url, key, ttl, auth, generation).finally(() => {
+      if (this.inflight.get(inflightKey) === request) this.inflight.delete(inflightKey)
     })
     this.inflight.set(inflightKey, request)
     return request
@@ -620,18 +642,22 @@ export class HubClient {
     url: string,
     key: string,
     ttl: number,
-    auth: 'token' | 'cookie' = 'token'
+    auth: 'token' | 'cookie',
+    generation: number,
+    fresh = false
   ): Promise<{ body: T; nextUrl?: string }> {
     try {
       const res = await this.fetchWithPolicy(url, { headers: this.headers(url, auth) })
       if (!res.ok) await this.throwHttpError(res, 'GET', url)
       const body = (await res.json()) as T
       const nextUrl = parseLinkNext(res.headers.get('Link'))
-      if (ttl > 0) this.cache.set(key, { at: Date.now(), status: res.status, body, nextUrl })
+      if (ttl > 0 && this.isCurrentGeneration(generation)) {
+        this.cache.set(key, { at: Date.now(), status: res.status, body, nextUrl })
+      }
       return { body, nextUrl }
     } catch (err) {
       // Stale-on-error: an expired entry beats surfacing a transient failure.
-      const stale = this.cache.get(key)
+      const stale = !fresh && this.isCurrentGeneration(generation) ? this.cache.get(key) : undefined
       if (stale && isTransientFailure(err)) return { body: stale.body as T, nextUrl: stale.nextUrl }
       throw err
     }
@@ -639,27 +665,30 @@ export class HubClient {
 
   private async getText(url: string): Promise<string> {
     const key = this.cacheKey(url)
+    const generation = this.cacheGeneration
     const hit = this.cache.get(key)
     if (hit && Date.now() - hit.at < this.cacheTtlMs) return hit.body as string
     const inflightKey = `text:${key}`
     const pending = this.inflight.get(inflightKey)
     if (pending) return pending as Promise<string>
-    const request = this.fetchText(url, key).finally(() => {
-      this.inflight.delete(inflightKey)
+    const request = this.fetchText(url, key, generation).finally(() => {
+      if (this.inflight.get(inflightKey) === request) this.inflight.delete(inflightKey)
     })
     this.inflight.set(inflightKey, request)
     return request
   }
 
-  private async fetchText(url: string, key: string): Promise<string> {
+  private async fetchText(url: string, key: string, generation: number): Promise<string> {
     try {
       const res = await this.fetchWithPolicy(url, { headers: this.headers(url) })
       if (!res.ok) await this.throwHttpError(res, 'GET', url)
       const body = await res.text()
-      if (this.cacheTtlMs > 0) this.cache.set(key, { at: Date.now(), status: res.status, body })
+      if (this.cacheTtlMs > 0 && this.isCurrentGeneration(generation)) {
+        this.cache.set(key, { at: Date.now(), status: res.status, body })
+      }
       return body
     } catch (err) {
-      const stale = this.cache.get(key)
+      const stale = this.isCurrentGeneration(generation) ? this.cache.get(key) : undefined
       if (stale && isTransientFailure(err)) return stale.body as string
       throw err
     }
@@ -667,6 +696,15 @@ export class HubClient {
 
   /** Ranged GET returning the requested byte window even when the server ignores Range. */
   private async fetchRange(url: string, start: number, end: number): Promise<Uint8Array> {
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      start < 0 ||
+      end < start ||
+      end - start >= RANGE_FALLBACK_MAX
+    ) {
+      throw new HubApiError('invalid range request', 400, url)
+    }
     const res = await this.fetchWithPolicy(url, {
       headers: {
         ...this.headers(url),
@@ -675,9 +713,14 @@ export class HubClient {
       }
     })
     if (res.status !== 200 && res.status !== 206) await this.throwHttpError(res, 'GET', url)
-    const bytes = new Uint8Array(await res.arrayBuffer())
-    const want = end - start + 1
-    return res.status === 200 && bytes.byteLength > want ? bytes.slice(start, end + 1) : bytes
+    // Do not trust a 206 to honor its advertised window, either.
+    if (res.status === 200 && end >= RANGE_FALLBACK_MAX) {
+      await res.body?.cancel()
+      throw new HubApiError('server does not support range requests', res.status, url)
+    }
+    const limit = res.status === 200 ? end + 1 : end - start + 1
+    const { bytes } = await readBodyCapped(res, limit, true)
+    return res.status === 200 ? bytes.subarray(start, end + 1) : bytes
   }
 
   /** Build the search URL for a query; exposed for tests. */
@@ -708,22 +751,31 @@ export class HubClient {
     }
   }
 
-  async getRepoDetail(kind: RepoKind, repoId: string, revision?: string): Promise<RepoDetail> {
+  async getRepoDetail(
+    kind: RepoKind,
+    repoId: string,
+    revision?: string,
+    opts: FreshReadOptions = {}
+  ): Promise<RepoDetail> {
     const revisionSuffix = revision ? `/revision/${encodeURIComponent(revision)}` : ''
     const url = new URL(`${this.endpoint}/api/${API_PATH[kind]}/${repoId}${revisionSuffix}`)
     // Without blobs, siblings contain only filenames, not download sizes.
     url.searchParams.set('blobs', 'true')
-    const { body } = await this.getJson<unknown>(url.toString())
+    const { body } = await this.getJson<unknown>(url.toString(), opts)
     return mapRepoDetail(body as never, kind)
   }
 
   /** Branches, tags and optional pull-request refs for all supported repo kinds. */
-  async getRepoRefs(kind: RepoKind, repoId: string): Promise<RepoRefs> {
+  async getRepoRefs(
+    kind: RepoKind,
+    repoId: string,
+    opts: FreshReadOptions = {}
+  ): Promise<RepoRefs> {
     const url = `${this.endpoint}/api/${API_PATH[kind]}/${repoId}/refs?include_prs=true`
-    const { body } = await this.getJson<unknown>(url)
+    const { body } = await this.getJson<unknown>(url, opts)
     const refs = mapRepoRefs(body as never)
     if (!refs.defaultBranch) {
-      const detail = await this.getRepoDetail(kind, repoId)
+      const detail = await this.getRepoDetail(kind, repoId, undefined, opts)
       const matching = refs.branches.find((branch) => branch.targetCommit === detail.sha)
       refs.defaultBranch = matching?.name
       if (refs.defaultBranch) {
@@ -764,11 +816,12 @@ export class HubClient {
   async resolveRevision(
     kind: RepoKind,
     repoId: string,
-    revision: string
+    revision: string,
+    opts: FreshReadOptions = {}
   ): Promise<RepoRevisionSelection> {
     const [detail, refs] = await Promise.all([
-      this.getRepoDetail(kind, repoId, revision),
-      this.getRepoRefs(kind, repoId).catch(() => undefined)
+      this.getRepoDetail(kind, repoId, revision, opts),
+      this.getRepoRefs(kind, repoId, opts).catch(() => undefined)
     ])
     if (!detail.sha) throw new HubApiError('revision did not resolve to a commit', 502)
     return classifyRevision(revision, detail.sha, refs)
@@ -779,7 +832,8 @@ export class HubClient {
     kind: RepoKind,
     repoId: string,
     revision: string,
-    resolvedCommit: string
+    resolvedCommit: string,
+    opts: FreshReadOptions = {}
   ): Promise<SecurityReport> {
     // Security evidence must be read at the immutable commit. `revision` is
     // retained only as the user-facing label in the normalized report.
@@ -787,11 +841,15 @@ export class HubClient {
     const url = new URL(`${this.endpoint}/api/${API_PATH[kind]}/${repoId}${revisionSuffix}`)
     if (kind === 'model') url.searchParams.set('securityStatus', 'true')
     const [{ body }, tree] = await Promise.all([
-      this.getJson<unknown>(url.toString()),
+      this.getJson<unknown>(url.toString(), opts),
       this.getFileTree(kind, repoId, resolvedCommit, '', {
         recursive: true,
-        expand: true
-      }).catch(() => [] as FileTreeEntry[])
+        expand: true,
+        ...opts
+      }).catch((error: unknown) => {
+        if (opts.fresh) throw error
+        return [] as FileTreeEntry[]
+      })
     ])
     return mapSecurityReport(body as never, tree, kind, repoId, revision, resolvedCommit)
   }
@@ -858,7 +916,7 @@ export class HubClient {
     repoId: string,
     revision = 'main',
     path = '',
-    opts: { recursive?: boolean; expand?: boolean } = {}
+    opts: FreshReadOptions & { recursive?: boolean; expand?: boolean } = {}
   ): Promise<FileTreeEntry[]> {
     const rev = encodeURIComponent(revision)
     const suffix = path ? `/${path.split('/').map(encodeURIComponent).join('/')}` : ''
@@ -868,7 +926,7 @@ export class HubClient {
     let url: string | undefined = first.toString()
     const all: FileTreeEntry[] = []
     while (url) {
-      const page: { body: never[]; nextUrl?: string } = await this.getJson<never[]>(url)
+      const page: { body: never[]; nextUrl?: string } = await this.getJson<never[]>(url, opts)
       all.push(...mapFileTree(page.body))
       url = page.nextUrl
     }
@@ -1176,11 +1234,8 @@ export class HubClient {
       }
     })
     if (res.status !== 200 && res.status !== 206) await this.throwHttpError(res, 'GET', url)
-    // A 200 means the server ignored the Range; cap the read so maxBytes still holds.
-    const { bytes, capped } =
-      res.status === 200
-        ? await readBodyCapped(res, maxBytes)
-        : { bytes: new Uint8Array(await res.arrayBuffer()), capped: false }
+    // Bound both ignored ranges and oversized 206 responses.
+    const { bytes, capped } = await readBodyCapped(res, maxBytes)
     if (bytes.includes(0)) throw new HubApiError('binary file', undefined, url)
     const size = totalSizeFrom(res, bytes.byteLength)
     return {
@@ -1230,26 +1285,7 @@ export class HubClient {
     revision = 'main'
   ): Promise<Uint8Array> {
     const url = this.resolveUrl(kind, repoId, revision, path)
-    const res = await this.fetchWithPolicy(url, {
-      headers: {
-        ...this.headers(url),
-        Range: `bytes=${start}-${end}`,
-        // Byte ranges are only meaningful without transfer compression.
-        'Accept-Encoding': 'identity'
-      }
-    })
-    if (res.status !== 200 && res.status !== 206) await this.throwHttpError(res, 'GET', url)
-    // 206: the server honored the Range, so the body is exactly [start, end],
-    // bounded by the schema's window cap.
-    if (res.status === 206) return new Uint8Array(await res.arrayBuffer())
-    // 200: the server ignored the Range. Reaching byte `end` means reading from
-    // 0, so a deep offset would buffer (nearly) the whole file — refuse it.
-    if (end >= RANGE_FALLBACK_MAX) {
-      await res.body?.cancel()
-      throw new HubApiError('server does not support range requests', res.status, url)
-    }
-    const { bytes } = await readBodyCapped(res, end + 1)
-    return bytes.slice(start, end + 1)
+    return this.fetchRange(url, start, end)
   }
 
   /** Parse the safetensors JSON header via ranged requests (never downloads tensors). */

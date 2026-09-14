@@ -106,7 +106,9 @@ describe('v0.0.12 database migration', () => {
       }
     }
 
-    expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 4 })
+    expect(db.prepare('PRAGMA user_version').get()).toEqual({
+      user_version: DATABASE_MIGRATIONS.length
+    })
     expect(db.prepare('SELECT key, value FROM kv').all()).toEqual([
       { key: 'settings', value: '{"theme":"dark"}' }
     ])
@@ -123,7 +125,7 @@ describe('v0.0.12 database migration', () => {
     expect(
       db
         .prepare(
-          'SELECT id, status, resolved_commit, post_action_json, security_ack_json FROM downloads'
+          'SELECT id, status, resolved_commit, post_action_json, security_ack_json, security_authorization_json FROM downloads'
         )
         .get()
     ).toEqual({
@@ -131,7 +133,8 @@ describe('v0.0.12 database migration', () => {
       status: 'completed',
       resolved_commit: 'a'.repeat(40),
       post_action_json: null,
-      security_ack_json: null
+      security_ack_json: null,
+      security_authorization_json: null
     })
     expect(db.prepare('SELECT id, target FROM follows').get()).toEqual({
       id: 'follow-1',
@@ -155,4 +158,74 @@ describe('v0.0.12 database migration', () => {
 
     db.close()
   })
+})
+
+it('preserves old imports and round-trips exact download approvals through the new migration', () => {
+  const db = new DatabaseSync(':memory:')
+  try {
+    for (const migration of DATABASE_MIGRATIONS.slice(0, -1)) db.exec(migration)
+    const insertModel = db.prepare(
+      'INSERT INTO local_models (runtime, model_name, repo_id, revision, resolved_commit, file_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    )
+    insertModel.run(
+      'ollama',
+      'legacy-name',
+      'org/model',
+      'v1',
+      'a'.repeat(40),
+      'model.gguf',
+      '2026-08-24'
+    )
+    db.exec(DATABASE_MIGRATIONS.at(-1)!)
+    insertModel.run(
+      'ollama',
+      'full-identity-name',
+      'org/model',
+      'v1',
+      'a'.repeat(40),
+      'model.gguf',
+      '2026-08-25'
+    )
+    expect(db.prepare('SELECT model_name FROM local_models ORDER BY created_at').all()).toEqual([
+      { model_name: 'legacy-name' },
+      { model_name: 'full-identity-name' }
+    ])
+    const approval = {
+      request: {
+        action: 'lock-restore',
+        kind: 'model',
+        repoId: 'org/model',
+        revision: 'v1',
+        resolvedCommit: 'a'.repeat(40),
+        files: ['model.gguf', 'config.json']
+      },
+      acknowledgement: {
+        fingerprint: `sha256:${'b'.repeat(64)}`,
+        binding: `sha256:${'c'.repeat(64)}`,
+        acceptedAt: '2026-08-24T00:00:00.000Z'
+      }
+    }
+    db.prepare(
+      'INSERT INTO downloads (id, repo_id, kind, revision, status, files_json, created_at, endpoint, resolved_commit, security_authorization_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(
+      'download',
+      'org/model',
+      'model',
+      'v1',
+      'paused',
+      '[]',
+      '2026-08-24',
+      'https://frozen.example',
+      'a'.repeat(40),
+      JSON.stringify(approval)
+    )
+    const row = db
+      .prepare('SELECT endpoint, resolved_commit, security_authorization_json FROM downloads')
+      .get()!
+    expect(row.endpoint).toBe('https://frozen.example')
+    expect(row.resolved_commit).toBe('a'.repeat(40))
+    expect(JSON.parse(row.security_authorization_json as string)).toEqual(approval)
+  } finally {
+    db.close()
+  }
 })

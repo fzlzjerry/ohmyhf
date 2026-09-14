@@ -13,7 +13,7 @@ import { SettingsDialog } from '@/components/settings/SettingsDialog'
 import { CommunityPrompt } from '@/components/CommunityPrompt'
 import { useIpcEvent } from '@/hooks/use-ipc-event'
 import { invoke } from '@/lib/ipc'
-import { APP_UPDATE_QUERY_KEY } from '@/lib/query'
+import { APP_UPDATE_QUERY_KEY, resetHubRemoteQueries } from '@/lib/query'
 import { isEditableTarget } from '@/lib/utils'
 import { useAppStore } from '@/stores/app'
 
@@ -66,8 +66,9 @@ export function AppShell(): React.JSX.Element {
     useCallback(
       (auth) => {
         setAuth(auth)
-        // Signed-in state changes visibility of private/gated repos everywhere.
-        void queryClient.invalidateQueries()
+        // Drop private payloads immediately; invalidation would keep the last
+        // account visible and allow its pending reads to repopulate the cache.
+        void resetHubRemoteQueries(queryClient)
       },
       [setAuth, queryClient]
     )

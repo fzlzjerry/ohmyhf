@@ -134,6 +134,12 @@ export const DATABASE_MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX idx_local_run_presets_repo
     ON local_run_presets (endpoint, repo_id, resolved_commit);
+  `,
+  `
+  ALTER TABLE downloads ADD COLUMN security_authorization_json TEXT;
+  DROP INDEX idx_local_models_source;
+  CREATE INDEX idx_local_models_source
+    ON local_models (runtime, repo_id, resolved_commit, file_path);
   `
 ]
 

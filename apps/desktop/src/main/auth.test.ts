@@ -58,9 +58,25 @@ function writeCredentials(dir: string, token: object): void {
   )
 }
 
+function deferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (reason: unknown) => void
+} {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
 describe('AuthManager', () => {
   let dir: string
   let states: AuthState[]
+  const managers: AuthManager[] = []
+  const originalCredentialsDir = process.env.OMH_CREDENTIALS_DIR
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'omh-auth-test-'))
@@ -71,15 +87,18 @@ describe('AuthManager', () => {
     states = []
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    await Promise.all(managers.splice(0).map((auth) => auth.signOut()))
     vi.useRealTimers()
-    delete process.env.OMH_CREDENTIALS_DIR
+    if (originalCredentialsDir === undefined) delete process.env.OMH_CREDENTIALS_DIR
+    else process.env.OMH_CREDENTIALS_DIR = originalCredentialsDir
     rmSync(dir, { recursive: true, force: true })
   })
 
   function makeAuth(client: ReturnType<typeof makeClient>, db = makeDb()): AuthManager {
     const auth = new AuthManager(db, (state) => states.push(state))
     auth.attachClient(client as unknown as HubClient)
+    managers.push(auth)
     return auth
   }
 
@@ -107,6 +126,66 @@ describe('AuthManager', () => {
     await auth.init()
     expect(auth.getState().status).toBe('signedOut')
     expect(existsSync(join(dir, 'credentials.json'))).toBe(false)
+  })
+
+  it.each(['success', 'unauthorized'] as const)(
+    'ignores a superseded startup %s after a new account signs in',
+    async (outcome) => {
+      writeCredentials(dir, { accessToken: 'hf_old', mode: 'token' })
+      const previous = deferred<UserProfile>()
+      const nextUser = { ...USER, name: 'next-account' }
+      const client = makeClient()
+      client.whoAmI.mockReturnValue(previous.promise)
+      client.whoAmIWithToken.mockResolvedValue({ user: nextUser })
+      const auth = makeAuth(client)
+      const restoring = auth.init()
+
+      await auth.signInWithToken('hf_new')
+      if (outcome === 'success') previous.resolve(USER)
+      else previous.reject(new HubApiError('revoked previous token', 401))
+      await restoring
+
+      expect(auth.getState()).toMatchObject({ status: 'signedIn', user: nextUser })
+      expect(auth.accessToken()).toBe('hf_new')
+      expect(existsSync(join(dir, 'credentials.json'))).toBe(true)
+      await auth.signOut()
+    }
+  )
+
+  it('does not restore signed-in state when a profile refresh outlives sign-out', async () => {
+    const pending = deferred<UserProfile>()
+    const client = makeClient()
+    client.whoAmIWithToken.mockResolvedValue({ user: USER })
+    client.whoAmI.mockReturnValue(pending.promise)
+    const auth = makeAuth(client)
+    await auth.signInWithToken('hf_old')
+    const refreshing = auth.refreshUser()
+
+    await auth.signOut()
+    pending.resolve(USER)
+
+    expect(await refreshing).toEqual({ status: 'signedOut' })
+    expect(auth.getState()).toEqual({ status: 'signedOut' })
+    expect(auth.accessToken()).toBeUndefined()
+  })
+
+  it('ignores an old endpoint response after replacing the Hub client', async () => {
+    const pending = deferred<UserProfile>()
+    const client = makeClient()
+    client.whoAmIWithToken.mockResolvedValue({ user: USER })
+    client.whoAmI.mockReturnValue(pending.promise)
+    const auth = makeAuth(client)
+    await auth.signInWithToken('hf_old')
+    const refreshing = auth.refreshUser()
+
+    const nextClient = makeClient()
+    auth.attachClient(nextClient as unknown as HubClient)
+    pending.resolve({ ...USER, name: 'old-endpoint-response' })
+    await refreshing
+
+    expect(auth.getState()).toMatchObject({ status: 'signedIn', user: USER })
+    expect(auth.accessToken()).toBe('hf_old')
+    await auth.signOut()
   })
 
   it('signInWithToken still signs in when persisting the token fails', async () => {

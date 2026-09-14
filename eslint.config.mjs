@@ -27,6 +27,7 @@ export default tseslint.config(
   {
     // Every user-facing string in the renderer must go through i18n.
     files: ['apps/desktop/src/renderer/**/*.tsx'],
+    ignores: ['**/*.test.tsx'],
     plugins: { i18next },
     rules: {
       'i18next/no-literal-string': [
