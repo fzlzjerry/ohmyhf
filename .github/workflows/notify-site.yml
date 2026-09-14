@@ -1,0 +1,52 @@
+name: Notify website
+
+# After a GitHub Release is published, ping oh-my-hf/oh-my-hf.github.io so it
+# re-pins download links immediately. The site listens for repository_dispatch
+# type `ohmyhf-release` in `.github/workflows/pin-release.yml`.
+#
+# workflow_dispatch is for dry-testing this notify job once SITE_DISPATCH_TOKEN
+# exists. Release dry-runs in release.yml never publish a Release, so they do
+# not trigger this workflow.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    name: Dispatch site pin-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require SITE_DISPATCH_TOKEN
+        env:
+          SITE_DISPATCH_TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SITE_DISPATCH_TOKEN:-}" || "$SITE_DISPATCH_TOKEN" =~ ^[[:space:]]*$ ]]; then
+            echo "::error::SITE_DISPATCH_TOKEN is missing. Add a fine-grained or classic PAT with Contents write on oh-my-hf/oh-my-hf.github.io as the SITE_DISPATCH_TOKEN repository secret on fzlzjerry/ohmyhf."
+            exit 1
+          fi
+
+      - name: Notify oh-my-hf.github.io to re-pin downloads
+        env:
+          GH_TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+          VERSION: ${{ github.event.release.name }}
+        run: |
+          set -euo pipefail
+          payload="$(jq -n \
+            --arg tag_name "${TAG_NAME:-}" \
+            --arg version "${VERSION:-}" \
+            '{
+              event_type: "ohmyhf-release",
+              client_payload: {
+                tag_name: $tag_name,
+                version: $version
+              }
+            }')"
+          gh api repos/oh-my-hf/oh-my-hf.github.io/dispatches --input - <<<"$payload"
