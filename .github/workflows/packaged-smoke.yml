@@ -188,6 +188,10 @@ jobs:
           # Ubuntu 22.04 (which the AppImage catalog tests on too) ships glibc
           # 2.35 and libstdc++ from GCC 12; nothing packaged may need newer.
           floors=(GLIBC_=2.35 GLIBCXX_=3.4.30 CXXABI_=1.3.13)
+          # linux-unpacked is what the .deb ships; the AppImage adds its
+          # toolset's libraries, so check its extracted contents as well.
+          appimage="$(ls "$PWD"/apps/desktop/release/*.AppImage)"
+          (cd "$RUNNER_TEMP" && "$appimage" --appimage-extract >/dev/null)
           failed=0
           while IFS= read -r -d '' file; do
             [[ "$(head -c 4 "$file" | od -An -tx1 | tr -d ' \n')" == 7f454c46 ]] || continue
@@ -203,11 +207,11 @@ jobs:
                 failed=1
               fi
             done
-          done < <(find apps/desktop/release/linux-unpacked -type f -print0)
+          done < <(find apps/desktop/release/linux-unpacked "$RUNNER_TEMP/squashfs-root" -type f -print0)
           if [[ "$failed" != 0 ]]; then
             exit 1
           fi
-          echo "Every ELF file in linux-unpacked runs with glibc 2.35 and GCC 12's libstdc++."
+          echo "Every ELF file in the .deb and AppImage runs with glibc 2.35 and GCC 12's libstdc++."
 
       - name: Run packaged smoke test
         shell: bash
@@ -227,6 +231,29 @@ jobs:
               playwright test --config=playwright.packaged.config.ts \
               2>&1 | tee ".ci-logs/smoke-${{ matrix.platform }}.log"
           fi
+
+      # The smoke test above runs linux-unpacked; this boots the AppImage users
+      # actually download, through its runtime. Mount it with FUSE like a
+      # desktop does when the runner allows; otherwise let the runtime extract it.
+      - name: Boot the AppImage itself
+        if: matrix.platform == 'linux'
+        shell: bash
+        env:
+          OMH_EXPECT_PUBLISHABLE: ${{ inputs.publishable }}
+        run: |
+          set -euo pipefail
+          appimage="$(ls "$PWD"/apps/desktop/release/*.AppImage)"
+          mode=mount
+          if [[ ! -e /dev/fuse ]] || ! { command -v fusermount3 || command -v fusermount; } >/dev/null; then
+            mode=extract
+            export APPIMAGE_EXTRACT_AND_RUN=1
+          fi
+          echo "Booting $appimage ($mode)"
+          OMH_PACKAGED_EXECUTABLE="$appimage" xvfb-run --auto-servernum \
+            pnpm --filter oh-my-huggingface-desktop exec \
+            playwright test --config=playwright.packaged.config.ts \
+            --grep 'boots with an isolated profile' \
+            2>&1 | tee ".ci-logs/smoke-appimage.log"
 
       - name: Upload platform release assets
         if: inputs.publishable

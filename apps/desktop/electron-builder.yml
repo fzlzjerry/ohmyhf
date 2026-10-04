@@ -81,6 +81,13 @@ protocols:
 appImage:
   artifactName: 'Oh-My-HuggingFace-${version}.${ext}'
 
+# The legacy AppImage runtime needs libfuse2, which Ubuntu 24.04+ and other
+# current distributions no longer install, so the AppImage would not start
+# there. The static runtime (type2-runtime 20251108) has no such dependency.
+# Packaged smoke boots the built AppImage itself to cover this.
+toolsets:
+  appimage: '1.0.3'
+
 # Must match the repository the release CI runs in: GITHUB_TOKEN can only publish
 # there, and electron-updater reads this same config to find update artifacts.
 publish:
