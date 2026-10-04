@@ -43,8 +43,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Native modules (better-sqlite3) link against the build host's glibc,
+          # so build on the oldest supported Ubuntu LTS. ubuntu-latest (24.04)
+          # produced a GLIBC_2.38 requirement that broke startup on 22.04.
           - platform: linux
-            os: ubuntu-latest
+            os: ubuntu-22.04
             builder_target: --linux
           - platform: macos
             os: macos-latest
@@ -65,6 +68,18 @@ jobs:
 
       - name: Enable pnpm
         run: corepack enable
+
+      # Ubuntu 22.04's GCC 11 and 12 cannot parse Electron 43's V8 headers
+      # (standard attributes followed by GNU ones). Its Clang 15 can, while still
+      # linking against the stock glibc and libstdc++ headers. Set before
+      # install: postinstall and electron-builder both rebuild. V=1 logs the
+      # real compiler command lines.
+      - name: Use Clang 15 for native modules
+        if: matrix.platform == 'linux'
+        run: |
+          echo "CC=clang-15" >>"$GITHUB_ENV"
+          echo "CXX=clang++-15" >>"$GITHUB_ENV"
+          echo "V=1" >>"$GITHUB_ENV"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -164,6 +179,35 @@ jobs:
             pnpm --filter oh-my-huggingface-desktop exec electron-builder \
               "${builder_arguments[@]}"
           } 2>&1 | tee ".ci-logs/build-${{ matrix.platform }}.log"
+
+      - name: Require the C/C++ runtime floor of the oldest supported Ubuntu LTS
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Ubuntu 22.04 (which the AppImage catalog tests on too) ships glibc
+          # 2.35 and libstdc++ from GCC 12; nothing packaged may need newer.
+          floors=(GLIBC_=2.35 GLIBCXX_=3.4.30 CXXABI_=1.3.13)
+          failed=0
+          while IFS= read -r -d '' file; do
+            [[ "$(head -c 4 "$file" | od -An -tx1 | tr -d ' \n')" == 7f454c46 ]] || continue
+            symbols="$(objdump -T "$file" 2>/dev/null || true)"
+            for floor in "${floors[@]}"; do
+              prefix="${floor%%=*}"
+              max="${floor#*=}"
+              required="$(grep -o "${prefix}[0-9][0-9.]*" <<<"$symbols" \
+                | sed "s/^${prefix}//" | sort -uV | tail -1 || true)"
+              [[ -n "$required" ]] || continue
+              if [[ "$(printf '%s\n%s\n' "$required" "$max" | sort -V | tail -1)" != "$max" ]]; then
+                echo "::error file=$file::requires ${prefix}${required} (> ${prefix}${max})"
+                failed=1
+              fi
+            done
+          done < <(find apps/desktop/release/linux-unpacked -type f -print0)
+          if [[ "$failed" != 0 ]]; then
+            exit 1
+          fi
+          echo "Every ELF file in linux-unpacked runs with glibc 2.35 and GCC 12's libstdc++."
 
       - name: Run packaged smoke test
         shell: bash
