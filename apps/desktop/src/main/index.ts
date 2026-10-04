@@ -36,6 +36,7 @@ import { applyAppProxy } from './proxy'
 import { SettingsStore } from './settings'
 import { SecurityGate } from './security-gate'
 import { StarReminderService } from './star-reminder'
+import { reportStartupFailure } from './startup-failure'
 import { applyExplicitTelemetryDecline, DEFAULT_POSTHOG_HOST, TelemetryService } from './telemetry'
 import { TrayManager } from './tray'
 import { QuitCoordinator } from './quit-coordinator'
@@ -216,7 +217,7 @@ if (!gotLock) {
     }
   })
 
-  void app.whenReady().then(async () => {
+  const startApp = async (): Promise<void> => {
     const db = openDatabase()
     const settings = new SettingsStore(db)
     settingsRef = settings
@@ -817,7 +818,23 @@ if (!gotLock) {
         app.quit()
       })
     })
-  })
+  }
+
+  void app
+    .whenReady()
+    .then(startApp)
+    .catch((error: unknown) => {
+      // Built from the system locale only: settings live in the database,
+      // which may be exactly what failed to open.
+      const i18n = new MainI18n()
+      i18n.setLocale(matchLocale(app.getLocale()))
+      reportStartupFailure(error, {
+        hasWindow: () => BrowserWindow.getAllWindows().length > 0,
+        showErrorBox: (title, content) => dialog.showErrorBox(title, content),
+        exit: (code) => app.exit(code),
+        t: (key, vars) => i18n.t(key, vars)
+      })
+    })
 
   app.on('window-all-closed', () => {
     // Installing: Squirrel should relaunch; if it only closed windows, the

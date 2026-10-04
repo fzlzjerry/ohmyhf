@@ -77,6 +77,7 @@
     "renderFailureMessage": "앱 창을 불러오지 못했습니다.",
     "renderFailureDetail": "인터페이스가 반복적으로 충돌하거나 로드에 실패했습니다. 새로고침하거나 앱을 종료할 수 있습니다.",
     "renderFailureReload": "새로고침",
-    "renderFailureQuit": "종료"
+    "renderFailureQuit": "종료",
+    "startupFailureMessage": "앱을 시작할 수 없습니다.\n\n{{reason}}"
   }
 }

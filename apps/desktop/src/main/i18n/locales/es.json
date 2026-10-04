@@ -77,6 +77,7 @@
     "renderFailureMessage": "La ventana de la aplicación no se pudo cargar.",
     "renderFailureDetail": "La interfaz falló o no se pudo cargar repetidamente. Puede recargarla o salir de la aplicación.",
     "renderFailureReload": "Recargar",
-    "renderFailureQuit": "Salir"
+    "renderFailureQuit": "Salir",
+    "startupFailureMessage": "No se pudo iniciar la aplicación.\n\n{{reason}}"
   }
 }

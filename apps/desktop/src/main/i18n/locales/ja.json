@@ -77,6 +77,7 @@
     "renderFailureMessage": "アプリウィンドウの読み込みに失敗しました。",
     "renderFailureDetail": "インターフェースがクラッシュしたか、読み込みに繰り返し失敗しました。再読み込みするか、アプリを終了できます。",
     "renderFailureReload": "再読み込み",
-    "renderFailureQuit": "終了"
+    "renderFailureQuit": "終了",
+    "startupFailureMessage": "アプリを起動できませんでした。\n\n{{reason}}"
   }
 }

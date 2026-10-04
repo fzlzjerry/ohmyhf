@@ -77,6 +77,7 @@
     "renderFailureMessage": "應用程式視窗載入失敗。",
     "renderFailureDetail": "介面連續發生當機或載入失敗。您可以重新載入，或結束應用程式。",
     "renderFailureReload": "重新載入",
-    "renderFailureQuit": "結束"
+    "renderFailureQuit": "結束",
+    "startupFailureMessage": "應用程式無法啟動。\n\n{{reason}}"
   }
 }

@@ -77,6 +77,7 @@
     "renderFailureMessage": "La fenêtre de l'application n'a pas pu se charger.",
     "renderFailureDetail": "L'interface a planté ou n'a pas réussi à se charger à plusieurs reprises. Vous pouvez la recharger ou quitter l'application.",
     "renderFailureReload": "Recharger",
-    "renderFailureQuit": "Quitter"
+    "renderFailureQuit": "Quitter",
+    "startupFailureMessage": "L'application n'a pas pu démarrer.\n\n{{reason}}"
   }
 }

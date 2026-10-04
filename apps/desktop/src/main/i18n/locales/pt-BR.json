@@ -77,6 +77,7 @@
     "renderFailureMessage": "A janela do aplicativo falhou ao carregar.",
     "renderFailureDetail": "A interface travou ou falhou ao carregar repetidamente. Você pode recarregá-la ou sair do aplicativo.",
     "renderFailureReload": "Recarregar",
-    "renderFailureQuit": "Sair"
+    "renderFailureQuit": "Sair",
+    "startupFailureMessage": "Não foi possível iniciar o aplicativo.\n\n{{reason}}"
   }
 }

@@ -77,6 +77,7 @@
     "renderFailureMessage": "Das App-Fenster konnte nicht geladen werden.",
     "renderFailureDetail": "Die Oberfläche ist abgestürzt oder konnte wiederholt nicht geladen werden. Sie können sie neu laden oder die App beenden.",
     "renderFailureReload": "Neu laden",
-    "renderFailureQuit": "Beenden"
+    "renderFailureQuit": "Beenden",
+    "startupFailureMessage": "Die App konnte nicht gestartet werden.\n\n{{reason}}"
   }
 }
