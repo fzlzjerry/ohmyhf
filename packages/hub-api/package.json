@@ -16,8 +16,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@huggingface/hub": "^2.13.2",
-    "@huggingface/inference": "^4.13.22",
+    "@huggingface/hub": "^2.17.5",
+    "@huggingface/inference": "^4.13.30",
     "@oh-my-huggingface/shared": "workspace:*"
   },
   "devDependencies": {
