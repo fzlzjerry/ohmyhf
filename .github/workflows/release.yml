@@ -29,7 +29,7 @@ jobs:
       commit_sha: ${{ steps.detect.outputs.commit_sha }}
     steps:
       - name: Check out source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - id: detect
         name: Parse version and validate workspace manifests
@@ -76,7 +76,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out verification scripts
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.detect.outputs.commit_sha }}
 
@@ -98,7 +98,7 @@ jobs:
           echo "Release telemetry configuration is present."
 
       - name: Download all platform release assets
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: release-*-${{ github.run_id }}
           path: dist/release
@@ -115,7 +115,7 @@ jobs:
             >>"$GITHUB_STEP_SUMMARY"
 
       - name: Upload preflight-approved release assets
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: verified-release-assets-${{ github.run_id }}
           if-no-files-found: error
@@ -134,13 +134,13 @@ jobs:
       contents: write
     steps:
       - name: Check out verified source and release history
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.detect.outputs.commit_sha }}
           fetch-depth: 0
 
       - name: Download preflight-approved assets
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: verified-release-assets-${{ github.run_id }}
           path: dist/release
